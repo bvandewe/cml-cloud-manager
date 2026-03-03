@@ -32,17 +32,17 @@ Multiple security groups can be comma-separated.
 
 ## Current Issue
 
-The IAM user `cml-cloud-manager-service` lacks permission to enable detailed CloudWatch monitoring.
+The IAM user `lablet-cloud-manager-service` lacks permission to enable detailed CloudWatch monitoring.
 
 ### Error
 
 ```
-User: arn:aws:iam::975051357194:user/cml-cloud-manager-service is not authorized to perform: ec2:MonitorInstances on resource: arn:aws:ec2:us-east-1:975051357194:instance/i-0d41154137323bf58 because no identity-based policy allows the ec2:MonitorInstances action
+User: arn:aws:iam::975051357194:user/lablet-cloud-manager-service is not authorized to perform: ec2:MonitorInstances on resource: arn:aws:ec2:us-east-1:975051357194:instance/i-0d41154137323bf58 because no identity-based policy allows the ec2:MonitorInstances action
 ```
 
 ## Required IAM Policy
 
-Add this policy to the `cml-cloud-manager-service` IAM user:
+Add this policy to the `lablet-cloud-manager-service` IAM user:
 
 ```json
 {
@@ -101,6 +101,6 @@ The service needs these EC2 permissions:
 ## How to Apply
 
 1. Go to AWS IAM Console
-2. Find user: `cml-cloud-manager-service`
+2. Find user: `lablet-cloud-manager-service`
 3. Attach inline policy or update existing policy with the permissions above
 4. Test by clicking "Enable Detailed Monitoring" button in the UI

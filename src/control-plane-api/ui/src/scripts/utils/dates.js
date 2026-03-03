@@ -4,11 +4,32 @@
  */
 
 /**
+ * Parse a date string ensuring UTC interpretation.
+ * Backend sends ISO timestamps without timezone suffix (naive UTC).
+ * JavaScript's new Date() treats those as local time, causing offset errors.
+ * This function appends 'Z' if no timezone indicator is present.
+ * @param {string|Date} dateInput - ISO date string or Date object
+ * @returns {Date} Date object with correct UTC interpretation
+ */
+export function parseUTCDate(dateInput) {
+    if (dateInput instanceof Date) return dateInput;
+    if (typeof dateInput !== 'string') return new Date(dateInput);
+    const s = dateInput.trim();
+    // Already has timezone info (Z, +HH:MM, -HH:MM)
+    if (/Z$|[+-]\d{2}:\d{2}$|[+-]\d{4}$/.test(s)) {
+        return new Date(s);
+    }
+    // Naive ISO string — treat as UTC
+    return new Date(s + 'Z');
+}
+
+/**
  * Calculate relative time from a date to now
- * @param {Date} date - The date to compare
+ * @param {Date|string} dateInput - The date to compare (Date object or ISO string)
  * @returns {string} Relative time string (e.g., "2 hours ago", "in 3 days")
  */
-export function getRelativeTime(date) {
+export function getRelativeTime(dateInput) {
+    const date = dateInput instanceof Date ? dateInput : parseUTCDate(dateInput);
     const now = new Date();
     const diffMs = now - date;
     const diffSec = Math.floor(diffMs / 1000);
@@ -59,7 +80,7 @@ export function formatDateWithRelative(dateString) {
     if (!dateString) return 'N/A';
 
     try {
-        const date = new Date(dateString);
+        const date = parseUTCDate(dateString);
         const formatted = date.toLocaleString();
         const relative = getRelativeTime(date);
 
@@ -114,6 +135,57 @@ export function initializeDateTooltips() {
  */
 export function formatDate(dateString) {
     if (!dateString) return 'N/A';
-    const date = new Date(dateString);
+    const date = parseUTCDate(dateString);
     return date.toLocaleString();
+}
+
+/**
+ * Format a duration in milliseconds to human-readable string
+ * @param {number} durationMs - Duration in milliseconds
+ * @returns {string} Human-readable duration string
+ */
+export function formatDuration(durationMs) {
+    if (durationMs <= 0) return '0s';
+
+    const seconds = Math.floor(durationMs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) {
+        const remainingHours = hours % 24;
+        return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+    } else if (hours > 0) {
+        const remainingMinutes = minutes % 60;
+        return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+    } else if (minutes > 0) {
+        const remainingSeconds = seconds % 60;
+        return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+    } else {
+        return `${seconds}s`;
+    }
+}
+
+/**
+ * Format a time slot (start to end) with duration
+ * @param {string} startTime - ISO date string for start
+ * @param {string} endTime - ISO date string for end
+ * @returns {string} Formatted time slot string
+ */
+export function formatTimeSlot(startTime, endTime) {
+    if (!startTime || !endTime) return 'N/A';
+
+    try {
+        const start = parseUTCDate(startTime);
+        const end = parseUTCDate(endTime);
+        const durationMs = end - start;
+
+        const startFormatted = start.toLocaleString();
+        const endFormatted = end.toLocaleTimeString();
+        const duration = formatDuration(durationMs);
+
+        return `${startFormatted} - ${endFormatted} (${duration})`;
+    } catch (e) {
+        return `${startTime} - ${endTime}`;
+    }
 }

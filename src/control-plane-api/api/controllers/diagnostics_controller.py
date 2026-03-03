@@ -1,4 +1,9 @@
-"""Diagnostics API controller exposing background job intervals and next run times."""
+"""Diagnostics API controller exposing system configuration and controller status.
+
+Note: APScheduler-based background jobs were removed in ADR-011. Worker monitoring
+and discovery are now handled by dedicated controller microservices (worker-controller,
+lablet-controller) using the HostedService pattern.
+"""
 
 import logging
 
@@ -10,14 +15,13 @@ from neuroglia.mediation import Mediator
 from neuroglia.mvc import ControllerBase
 
 from api.dependencies import get_current_user, require_roles
-from application.services.background_scheduler import BackgroundTaskScheduler
 from application.settings import app_settings
 
 log = logging.getLogger(__name__)
 
 
 class DiagnosticsController(ControllerBase):
-    """Controller providing operational diagnostics for background jobs and intervals."""
+    """Controller providing operational diagnostics and system configuration."""
 
     def __init__(self, service_provider: ServiceProviderBase, mapper: Mapper, mediator: Mediator):
         super().__init__(service_provider, mapper, mediator)
@@ -26,51 +30,44 @@ class DiagnosticsController(ControllerBase):
 
     @get("/intervals")
     async def get_intervals(self, user: dict = Depends(get_current_user)):
-        """Return configured polling intervals and next run times for recurrent jobs.
+        """Return configured system settings and controller information.
 
-        Authentication: session cookie or bearer token; RBAC optional (allow all authenticated users).
+        Note: APScheduler job scheduling was removed in ADR-011.
+        Worker monitoring is now handled by dedicated controller microservices.
+
+        Authentication: session cookie or bearer token.
         """
-        scheduler = self.service_provider.get_required_service(BackgroundTaskScheduler)
-        jobs = scheduler.list_tasks() if scheduler else []
-        job_summaries = []
-        for job in jobs:
-            try:
-                job_summaries.append(
-                    {
-                        "id": job.id,
-                        "name": job.name,
-                        "next_run_time": (job.next_run_time.isoformat() if job.next_run_time else None),
-                        "trigger": str(job.trigger),
-                        "interval_seconds": job.kwargs.get("interval"),
-                    }
-                )
-            except Exception:
-                log.warning(f"Failed to summarize job {job.id}", exc_info=True)
-
         return {
             "settings": {
                 "worker_metrics_poll_interval": app_settings.worker_metrics_poll_interval,
                 "labs_refresh_interval": getattr(app_settings, "labs_refresh_interval", None),
                 "auto_import_workers_interval": getattr(app_settings, "auto_import_workers_interval", None),
             },
-            "jobs": job_summaries,
+            "note": "APScheduler removed per ADR-011. Monitoring handled by controller microservices.",
+            "controllers": {
+                "worker_controller": {
+                    "description": "Handles worker discovery, metrics collection, and reconciliation",
+                    "endpoint": getattr(app_settings, "worker_controller_url", None),
+                },
+                "lablet_controller": {
+                    "description": "Handles lab resource management and reconciliation",
+                    "endpoint": getattr(app_settings, "lablet_controller_url", None),
+                },
+            },
         }
 
     @get("/jobs")
     async def list_jobs(self, user: dict = Depends(require_roles("admin", "manager"))):
-        """List raw APScheduler job details (RBAC protected)."""
-        scheduler = self.service_provider.get_required_service(BackgroundTaskScheduler)
-        jobs = scheduler.list_tasks() if scheduler else []
-        detailed = []
-        for job in jobs:
-            detailed.append(
-                {
-                    "id": job.id,
-                    "name": job.name,
-                    "next_run_time": (job.next_run_time.isoformat() if job.next_run_time else None),
-                    "trigger": str(job.trigger),
-                    "args": job.args,
-                    "kwargs": job.kwargs,
-                }
-            )
-        return {"jobs": detailed}
+        """Return deprecation notice for APScheduler jobs endpoint.
+
+        APScheduler was removed in ADR-011. Background job scheduling is now
+        handled by controller microservices using the HostedService pattern.
+
+        Returns deprecation notice instead of job list.
+        """
+        return {
+            "deprecated": True,
+            "message": "APScheduler removed per ADR-011. Background tasks now run in controller microservices.",
+            "documentation": "See docs/architecture/worker-monitoring.md for current architecture.",
+            "jobs": [],
+        }

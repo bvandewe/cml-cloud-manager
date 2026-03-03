@@ -128,7 +128,7 @@ background_job_store: dict[str, Any] = {
     "redis_db": 1,  # Use separate DB from session storage (DB 0)
     # Alternatively, use MongoDB (if Redis not available)
     # "mongo_uri": "mongodb://root:pass@mongodb:27017/?authSource=admin",  # pragma: allowlist secret
-    # "mongo_db": "cml_cloud_manager",
+    # "mongo_db": "lablet_cloud_manager",
     # "mongo_collection": "background_jobs",
 }
 ```

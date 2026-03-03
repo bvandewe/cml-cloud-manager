@@ -11,7 +11,7 @@
 2. **Check worker status**:
 
    ```bash
-   docker-compose exec mongodb mongosh cml_cloud_manager --quiet \
+   docker-compose exec mongodb mongosh lablet_cloud_manager --quiet \
      --eval "db.cml_workers.find({}, {name:1, status:1, service_status:1, https_endpoint:1, public_ip:1}).pretty()"
    ```
 
@@ -99,7 +99,7 @@ or
 **Solution:**
 
 ```bash
-cd /Users/bvandewe/Documents/Work/Systems/Mozart/src/microservices/cml-cloud-manager
+cd /Users/bvandewe/Documents/Work/Systems/Mozart/src/microservices/lablet-cloud-manager
 poetry install
 ```
 
@@ -138,7 +138,7 @@ After successful test, check that metrics are populated:
 
 ```bash
 # Check worker state in database
-docker-compose exec mongodb mongosh cml_cloud_manager --quiet \
+docker-compose exec mongodb mongosh lablet_cloud_manager --quiet \
   --eval "db.cml_workers.findOne({https_endpoint: {\$ne: null}}, {cml_system_info:1, cml_ready:1, cml_labs_count:1, cml_last_synced_at:1})"
 ```
 

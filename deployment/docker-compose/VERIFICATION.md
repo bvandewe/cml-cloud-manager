@@ -7,7 +7,7 @@
 **New Configuration Files Created:**
 
 - `deployment/nginx/nginx.conf` - Main nginx configuration
-- `deployment/nginx/conf.d/cml-cloud-manager.conf` - Main application routing
+- `deployment/nginx/conf.d/lablet-cloud-manager.conf` - Main application routing
 - `deployment/nginx/conf.d/grafana.conf` - Grafana subdomain
 - `deployment/nginx/conf.d/prometheus.conf` - Prometheus subdomain
 - `deployment/nginx/conf.d/keycloak.conf` - Keycloak subdomain
@@ -34,9 +34,9 @@
 
 ### 1. Naming Standardization
 
-- ✅ Changed project name from `pyneuro` to `cml-cloud-manager`
-- ✅ Replaced all `mario-pizzeria` references with `cml-cloud-manager`
-- ✅ Updated network name to `cml-cloud-manager-net`
+- ✅ Changed project name from `pyneuro` to `lablet-cloud-manager`
+- ✅ Replaced all `mario-pizzeria` references with `lablet-cloud-manager`
+- ✅ Updated network name to `lablet-cloud-manager-net`
 - ✅ Removed all `neuroglia` default passwords
 
 ### 2. Observability Stack - ENABLED
@@ -47,24 +47,24 @@
 - ✅ Enabled Tempo exporter for traces (otlp/tempo → tempo:4317)
 - ✅ Enabled Loki exporter for logs (http://loki:3100/loki/api/v1/push)
 - ✅ Enabled Prometheus exporter for metrics (port 8889)
-- ✅ Updated namespace to `cml_cloud_manager`
+- ✅ Updated namespace to `lablet_cloud_manager`
 - ✅ Set environment label to `production`
 
 #### Tempo (`deployment/otel/tempo.yaml`)
 
-- ✅ Updated cluster label from `mario-pizzeria` to `cml-cloud-manager`
+- ✅ Updated cluster label from `mario-pizzeria` to `lablet-cloud-manager`
 - ✅ Configured OTLP receivers (gRPC and HTTP)
 - ✅ Set up local storage backend
 - ✅ Configured 48h block retention
 
 #### Prometheus (`deployment/otel/prometheus.yml`)
 
-- ✅ Updated cluster label to `cml-cloud-manager`
+- ✅ Updated cluster label to `lablet-cloud-manager`
 - ✅ Changed environment from `development` to `production`
 - ✅ Updated scrape job names:
-  - `mario-pizzeria-metrics` → `cml-cloud-manager-metrics`
-  - `mario-pizzeria-app` → `cml-cloud-manager-api`
-- ✅ Added `cml-cloud-manager-worker` scrape target
+  - `mario-pizzeria-metrics` → `lablet-cloud-manager-metrics`
+  - `mario-pizzeria-app` → `lablet-cloud-manager-api`
+- ✅ Added `lablet-cloud-manager-worker` scrape target
 - ✅ Configured scraping for Tempo, Loki, Grafana
 
 #### Loki (`deployment/otel/loki-config.yaml`)
@@ -81,26 +81,26 @@
   - Pre-configured Prometheus datasource with exemplar support
   - Pre-configured Loki datasource with trace correlation
 - ✅ Created dashboards provisioning config (`dashboards/dashboards.yaml`)
-- ✅ Set folder name to "CML Cloud Manager"
+- ✅ Set folder name to "Lablet Cloud Manager"
 
 ### 3. Docker Compose Updates (`docker-compose.prod.yml`)
 
 #### Global Changes
 
-- ✅ Project name: `pyneuro` → `cml-cloud-manager`
-- ✅ All network references: `pyneuro-net` → `cml-cloud-manager-net`
+- ✅ Project name: `pyneuro` → `lablet-cloud-manager`
+- ✅ All network references: `pyneuro-net` → `lablet-cloud-manager-net`
 - ✅ MongoDB default password: `neuroglia123` → `change-me-in-production`  # pragma: allowlist secret
-- ✅ MongoDB database: `neuroglia` → `cml_cloud_manager`
+- ✅ MongoDB database: `neuroglia` → `lablet_cloud_manager`
 
 #### Service-Specific Updates
 
-- ✅ **API Service**: Network updated to `cml-cloud-manager-net`
-- ✅ **Worker Service**: Network updated to `cml-cloud-manager-net`
+- ✅ **API Service**: Network updated to `lablet-cloud-manager-net`
+- ✅ **Worker Service**: Network updated to `lablet-cloud-manager-net`
 - ✅ **MongoDB**: Database name and password updated
 - ✅ **Mongo Express**: Password reference updated
 - ✅ **Redis**: Network updated
 - ✅ **Keycloak**: Network updated, realm path verified
-- ✅ **Event Player**: OAuth realm changed from `pyneuro` to `cml-cloud-manager`
+- ✅ **Event Player**: OAuth realm changed from `pyneuro` to `lablet-cloud-manager`
 - ✅ **OTEL Collector**:
   - Config path updated to `../otel/otel-collector-config.yaml`
   - Dependencies enabled (tempo, loki, prometheus)
@@ -123,7 +123,7 @@
 
 ### 4. Environment Configuration (`.env.prod`)
 
-- ✅ Network name: `pyneuro-net` → `cml-cloud-manager-net`
+- ✅ Network name: `pyneuro-net` → `lablet-cloud-manager-net`
 - ✅ All other settings remain production-ready
 
 ### 5. Documentation (`README.md`)
@@ -141,7 +141,7 @@
 - [x] No `pyneuro` references in docker-compose.prod.yml
 - [x] No `mario-pizzeria` references in OTEL configs
 - [x] No `neuroglia` default passwords
-- [x] All services use `cml-cloud-manager-net` network
+- [x] All services use `lablet-cloud-manager-net` network
 - [x] All OTEL config paths point to `deployment/otel/`
 - [x] All Grafana config paths point to `deployment/grafana/`
 
@@ -184,7 +184,7 @@
 ### 1. Start the Stack
 
 ```bash
-cd /path/to/cml-cloud-manager
+cd /path/to/lablet-cloud-manager
 docker-compose -f deployment/docker-compose/docker-compose.prod.yml --env-file deployment/docker-compose/.env.prod up -d
 ```
 
@@ -232,9 +232,9 @@ curl http://localhost:3001/api/health  # Should return JSON with "ok"
 curl http://localhost:9090/api/v1/targets
 
 # Should show targets for:
-# - cml-cloud-manager-api (api:8000)
-# - cml-cloud-manager-worker (worker:8000)
-# - cml-cloud-manager-metrics (otel-collector:8889)
+# - lablet-cloud-manager-api (api:8000)
+# - lablet-cloud-manager-worker (worker:8000)
+# - lablet-cloud-manager-metrics (otel-collector:8889)
 # - tempo, loki, grafana
 ```
 
@@ -242,7 +242,7 @@ curl http://localhost:9090/api/v1/targets
 
 ### Differences from Local Development
 
-- **Network**: `cml-cloud-manager-net` (prod) vs `cml-cloud-manager-net` (dev)
+- **Network**: `lablet-cloud-manager-net` (prod) vs `lablet-cloud-manager-net` (dev)
 - **Ports**: Different to allow simultaneous running
 - **Observability**: Full stack in prod, minimal in dev
 - **Config files**: `deployment/docker-compose/` (prod) vs root (dev)
@@ -263,7 +263,7 @@ Before deploying to production:
 **All tasks completed successfully:**
 
 - ✅ Observability stack fully enabled and configured
-- ✅ All naming standardized to `cml-cloud-manager`
+- ✅ All naming standardized to `lablet-cloud-manager`
 - ✅ No references to `pyneuro`, `mario-pizzeria`, or `neuroglia` defaults
 - ✅ Configuration consistency verified across all files
 - ✅ Documentation updated

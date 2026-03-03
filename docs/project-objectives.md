@@ -2,7 +2,7 @@
 
 ## Overview
 
-CML Cloud Manager is a web application that enables users to manage AWS EC2-hosted Cisco Modeling Lab (CML) instances through a secure, role-based interface.
+Lablet Cloud Manager is a web application that enables users to manage AWS EC2-hosted Cisco Modeling Lab (CML) instances through a secure, role-based interface.
 
 ## Core Objectives
 

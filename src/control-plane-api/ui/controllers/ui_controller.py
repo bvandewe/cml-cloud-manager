@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-from application.settings import app_settings
 from classy_fastapi.decorators import get
 from classy_fastapi.routable import Routable
 from fastapi import Request
@@ -12,6 +11,8 @@ from neuroglia.mapping import Mapper
 from neuroglia.mediation import Mediator
 from neuroglia.mvc import ControllerBase
 from neuroglia.mvc.controller_base import generate_unique_id_function
+
+from application.settings import app_settings
 
 
 class UIController(ControllerBase):
@@ -59,6 +60,9 @@ class UIController(ControllerBase):
                 environment: "{app_settings.environment}",
                 version: "{app_settings.app_version}",
                 title: "{app_settings.app_name}",
+                grafanaUrl: "{app_settings.grafana_url}",
+                minioConsoleUrl: "{app_settings.minio_console_url}",
+                prometheusEnabled: {str(app_settings.prometheus_enabled).lower()},
             }};
         </script>
         """

@@ -1,12 +1,12 @@
 """Stop CML Worker command with handler.
 
-Stops a running CML Worker EC2 instance and tracks pause metrics.
-Sets status to STOPPING immediately; periodic monitoring updates
-will reconcile final stopped state.
+Sets the worker's desired_status to STOPPED (spec update).
+The worker-controller will reconcile by stopping the EC2 instance.
 
-Note: Stop and Pause are effectively the same operation - both stop the EC2
-instance without terminating it. This command handles both UI "Stop Worker"
-button and auto-pause from idle detection.
+ADR-015: Control-plane-api MUST NOT call AWS EC2 directly.
+This follows the Kubernetes-like reconciliation pattern:
+- desired_status = spec (what user wants)
+- status = state (actual EC2 state)
 """
 
 import logging
@@ -14,8 +14,7 @@ from dataclasses import dataclass
 
 from neuroglia.core import OperationResult
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import \
-    CloudEventPublishingOptions
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from neuroglia.observability.tracing import add_span_attributes
@@ -23,12 +22,6 @@ from opentelemetry import trace
 
 from domain.enums import CMLWorkerStatus
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from integration.enums import AwsRegion
-from integration.exceptions import (EC2AuthenticationException,
-                                    EC2InstanceNotFoundException,
-                                    EC2InstanceOperationException,
-                                    EC2InvalidParameterException, IntegrationException)
-from integration.services.aws_ec2_api_client import AwsEc2Client
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -37,14 +30,13 @@ tracer = trace.get_tracer(__name__)
 
 
 @dataclass
-class StopCMLWorkerCommand(Command[OperationResult[bool]]):
-    """Command to stop a running CML Worker EC2 instance.
+class StopCMLWorkerCommand(Command[OperationResult[dict]]):
+    """Command to request stopping a running CML Worker (spec update).
 
-    This command:
-    1. Retrieves the worker from repository
-    2. Stops the EC2 instance via AWS API
-    3. Records pause metrics (auto vs manual)
-    4. Updates worker status to STOPPING
+    This command sets desired_status=STOPPED. The worker-controller
+    will observe this change and reconcile by stopping the EC2 instance.
+
+    Pattern: spec (desired_status) vs state (status) reconciliation
 
     Attributes:
         worker_id: Worker identifier
@@ -61,9 +53,13 @@ class StopCMLWorkerCommand(Command[OperationResult[bool]]):
 
 class StopCMLWorkerCommandHandler(
     CommandHandlerBase,
-    CommandHandler[StopCMLWorkerCommand, OperationResult[bool]],
+    CommandHandler[StopCMLWorkerCommand, OperationResult[dict]],
 ):
-    """Handle stopping a running CML Worker instance."""
+    """Handle stopping a CML Worker by updating desired_status (spec).
+
+    ADR-015: This handler does NOT call AWS EC2. It only updates the
+    desired_status field. Worker-controller reconciles actual state.
+    """
 
     def __init__(
         self,
@@ -72,7 +68,6 @@ class StopCMLWorkerCommandHandler(
         cloud_event_bus: CloudEventBus,
         cloud_event_publishing_options: CloudEventPublishingOptions,
         cml_worker_repository: CMLWorkerRepository,
-        aws_ec2_client: AwsEc2Client,
     ):
         super().__init__(
             mediator,
@@ -81,22 +76,15 @@ class StopCMLWorkerCommandHandler(
             cloud_event_publishing_options,
         )
         self.cml_worker_repository = cml_worker_repository
-        self.aws_ec2_client = aws_ec2_client
-        # No immediate refresh scheduling; monitoring jobs will pick up changes.
 
-    async def handle_async(self, request: StopCMLWorkerCommand) -> OperationResult[bool]:
-        """Handle stop CML Worker command.
+    async def handle_async(self, request: StopCMLWorkerCommand) -> OperationResult[dict]:
+        """Handle stop CML Worker command by updating desired_status.
 
         Args:
             request: Stop command with worker ID
 
         Returns:
-            OperationResult with True if stopped successfully, or error
-
-        Raises:
-            EC2InstanceNotFoundException: If instance doesn't exist
-            EC2InstanceOperationException: If stop operation fails
-            EC2AuthenticationException: If AWS credentials invalid
+            OperationResult with worker status details
         """
         command = request
 
@@ -117,96 +105,63 @@ class StopCMLWorkerCommandHandler(
                 if not worker:
                     error_msg = f"CML Worker not found: {command.worker_id}"
                     log.error(error_msg)
-                    return self.bad_request(error_msg)
+                    return self.not_found("CMLWorker", error_msg)
 
-                if not worker.state.aws_instance_id:
-                    error_msg = f"CML Worker {command.worker_id} has no AWS instance assigned"
-                    log.error(error_msg)
-                    return self.bad_request(error_msg)
-
-                span.set_attribute("ec2.instance_id", worker.state.aws_instance_id)
                 span.set_attribute("cml_worker.current_status", worker.state.status.value)
+                span.set_attribute("cml_worker.current_desired_status", worker.state.desired_status.value)
 
-            # Validate current status
-            if worker.state.status == CMLWorkerStatus.STOPPED:
-                log.info(f"CML Worker {command.worker_id} is already stopped")
-                return self.ok(True)
-
-            if worker.state.status == CMLWorkerStatus.STOPPING:
-                log.info(f"CML Worker {command.worker_id} is already stopping")
-                return self.ok(True)
-
+            # Validate current state
             if worker.state.status == CMLWorkerStatus.TERMINATED:
                 error_msg = f"Cannot stop terminated CML Worker {command.worker_id}"
                 log.error(error_msg)
                 return self.bad_request(error_msg)
 
-            with tracer.start_as_current_span("stop_ec2_instance") as span:
-                # Stop EC2 instance
-                aws_region = AwsRegion(worker.state.aws_region)
-
-                success = await self.aws_ec2_client.stop_instance(
-                    aws_region=aws_region,
-                    instance_id=worker.state.aws_instance_id,
+            # Check if already at desired state
+            if worker.state.desired_status == CMLWorkerStatus.STOPPED:
+                log.info(f"CML Worker {command.worker_id} already has desired_status=STOPPED")
+                return self.ok(
+                    {
+                        "id": worker.id(),
+                        "status": worker.state.status.value,
+                        "desired_status": worker.state.desired_status.value,
+                        "message": "Already has desired_status=STOPPED",
+                    }
                 )
 
-                if not success:
-                    error_msg = f"Failed to stop EC2 instance {worker.state.aws_instance_id}"
-                    log.error(error_msg)
-                    return self.bad_request(error_msg)
-
-                span.set_attribute("ec2.stop_success", True)
-
-            with tracer.start_as_current_span("update_worker_state") as span:
-                # Update worker status to STOPPING
-                worker.update_status(CMLWorkerStatus.STOPPING)
-
-                # Record pause metrics (auto vs manual)
+            with tracer.start_as_current_span("update_desired_status") as span:
+                # Update desired_status (spec) - worker-controller will reconcile
                 pause_reason = command.reason or ("idle_timeout" if command.is_auto_pause else "manual")
-                paused_by = "system" if command.is_auto_pause else command.stopped_by
+                requested_by = None if command.is_auto_pause else command.stopped_by
+
+                worker.update_desired_status(
+                    new_desired_status=CMLWorkerStatus.STOPPED,
+                    requested_by=requested_by,
+                    reason=pause_reason,
+                )
+
+                # Record pause metrics (auto vs manual) for tracking
                 worker.pause(
                     reason=pause_reason,
-                    paused_by=paused_by,
-                    idle_duration_minutes=None,  # Could be calculated from last_activity_at if needed
+                    paused_by=requested_by,
                 )
 
-                span.set_attribute("cml_worker.new_status", CMLWorkerStatus.STOPPING.value)
+                span.set_attribute("cml_worker.new_desired_status", CMLWorkerStatus.STOPPED.value)
                 span.set_attribute("cml_worker.pause_reason", pause_reason)
-                span.set_attribute("cml_worker.is_auto_pause", command.is_auto_pause)
 
             # Save worker (will publish domain events)
             await self.cml_worker_repository.update_async(worker)
 
-            log.info(
-                f"CML Worker stop initiated successfully: id={worker.id()}, "
-                f"aws_instance_id={worker.state.aws_instance_id}, "
-                f"is_auto_pause={command.is_auto_pause}, "
-                f"auto_pause_count={worker.state.auto_pause_count}, "
-                f"manual_pause_count={worker.state.manual_pause_count}"
+            log.info(f"CML Worker desired_status updated to STOPPED: id={worker.id()}, current_status={worker.state.status.value}, reason={pause_reason}, is_auto_pause={command.is_auto_pause}")
+
+            return self.ok(
+                {
+                    "id": worker.id(),
+                    "status": worker.state.status.value,
+                    "desired_status": worker.state.desired_status.value,
+                    "message": "Stop requested - worker-controller will reconcile",
+                }
             )
 
-            return self.ok(True)
-
-        except EC2InstanceNotFoundException as e:
-            log.error(f"EC2 instance not found for CML Worker {command.worker_id}: {e}")
-            return self.bad_request(f"Instance not found: {str(e)}")
-
-        except EC2InstanceOperationException as e:
-            log.error(f"Failed to stop CML Worker {command.worker_id}: {e}")
-            return self.bad_request(f"Stop operation failed: {str(e)}")
-
-        except EC2AuthenticationException as e:
-            log.error(f"AWS authentication failed while stopping CML Worker: {e}")
-            return self.bad_request(f"Authentication failed: {str(e)}")
-
-        except EC2InvalidParameterException as e:
-            log.error(f"Invalid parameters for stopping CML Worker: {e}")
-            return self.bad_request(f"Invalid parameters: {str(e)}")
-
-        except IntegrationException as e:
-            log.error(f"Integration error while stopping CML Worker: {e}")
-            return self.bad_request(f"Integration error: {str(e)}")
-
         except Exception as e:
-            log.error(f"Unexpected error stopping CML Worker: {e}", exc_info=True)
-            return self.bad_request(f"Unexpected error: {str(e)}")
+            log.error(f"Unexpected error updating CML Worker desired_status: {e}", exc_info=True)
+            return self.internal_server_error(f"Unexpected error: {str(e)}")

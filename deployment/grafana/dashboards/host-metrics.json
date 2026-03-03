@@ -106,7 +106,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "100 - (avg(rate(cml_cloud_manager_system_cpu_time_seconds_total{state=\"idle\"}[1m])) * 100)",
+                    "expr": "100 - (avg(rate(lablet_cloud_manager_system_cpu_time_seconds_total{state=\"idle\"}[1m])) * 100)",
                     "legendFormat": "CPU Usage",
                     "range": true,
                     "refId": "A"
@@ -199,7 +199,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "cml_cloud_manager_system_memory_usage_bytes{state=\"used\"}",
+                    "expr": "lablet_cloud_manager_system_memory_usage_bytes{state=\"used\"}",
                     "legendFormat": "Memory Used",
                     "range": true,
                     "refId": "A"

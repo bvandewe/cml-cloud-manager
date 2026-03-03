@@ -45,6 +45,18 @@ install-ui: ## Install Node.js dependencies for UI
 	cd ui && npm ci
 	@echo "$(GREEN)UI dependencies installed!$(NC)"
 
+link-ui-core: ## Link local @neuroglia/ui-core package for development
+	@echo "$(BLUE)Building and linking @neuroglia/ui-core...$(NC)"
+	cd ../core/lcm_ui && npm run build
+	cd ui && npm install
+	@echo "$(GREEN)@neuroglia/ui-core linked!$(NC)"
+
+unlink-ui-core: ## Unlink local @neuroglia/ui-core and reinstall from registry
+	@echo "$(BLUE)Unlinking @neuroglia/ui-core...$(NC)"
+	cd ui && npm uninstall @neuroglia/ui-core
+	cd ui && npm install
+	@echo "$(GREEN)@neuroglia/ui-core unlinked!$(NC)"
+
 # ==============================================================================
 # BUILD
 # ==============================================================================
@@ -78,17 +90,21 @@ dev: build-ui run ## Build UI and run the API server
 
 ##@ Testing
 
-test: ## Run all tests
+test: ## Run all tests (excluding integration tests that need external services)
 	@echo "$(BLUE)Running tests...$(NC)"
-	PYTHONPATH=. poetry run pytest tests/ -v
+	PYTHONPATH=. poetry run pytest tests/ -v -m "not integration" --ignore=tests/integration
 
 test-unit: ## Run unit tests only
 	@echo "$(BLUE)Running unit tests...$(NC)"
-	PYTHONPATH=. poetry run pytest tests/ -v -m unit
+	PYTHONPATH=. poetry run pytest tests/ -v -m "not integration" --ignore=tests/integration
 
-test-integration: ## Run integration tests only
+test-integration: ## Run integration tests only (requires Docker services)
 	@echo "$(BLUE)Running integration tests...$(NC)"
-	PYTHONPATH=. poetry run pytest tests/ -v -m integration
+	PYTHONPATH=. poetry run pytest tests/integration/ -v -m integration
+
+test-all: ## Run ALL tests including integration (requires Docker services)
+	@echo "$(BLUE)Running all tests (including integration)...$(NC)"
+	PYTHONPATH=. poetry run pytest tests/ -v
 
 test-cov: ## Run tests with coverage report
 	@echo "$(BLUE)Running tests with coverage...$(NC)"
@@ -123,5 +139,7 @@ clean: ## Clean build artifacts and caches
 	@echo "$(BLUE)Cleaning up...$(NC)"
 	rm -rf __pycache__ .pytest_cache .mypy_cache .ruff_cache
 	rm -rf htmlcov .coverage
+	rm -rf ui/.parcel-cache
+	rm -rf static/*.js static/*.css static/*.html static/*.svg
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	@echo "$(GREEN)Cleanup complete!$(NC)"

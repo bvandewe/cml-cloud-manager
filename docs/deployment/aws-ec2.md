@@ -1,6 +1,6 @@
 # Deploying to AWS EC2
 
-This guide describes how to deploy the CML Cloud Manager production stack to an AWS EC2 instance.
+This guide describes how to deploy the Lablet Cloud Manager production stack to an AWS EC2 instance.
 
 ## Prerequisites
 
@@ -56,8 +56,8 @@ You can either clone the repository or copy the necessary files.
 If your repository is public or you have configured SSH keys/tokens:
 
 ```bash
-git clone https://github.com/bvandewe/cml-cloud-manager.git
-cd cml-cloud-manager
+git clone https://github.com/bvandewe/lablet-cloud-manager.git
+cd lablet-cloud-manager
 ```
 
 ### Option B: Copy Files
@@ -66,7 +66,7 @@ If you don't want to clone the full repo, you only need the `deployment/` direct
 
 ```bash
 # On your local machine
-scp -r deployment/ Makefile user@your-ec2-ip:~/cml-cloud-manager/
+scp -r deployment/ Makefile user@your-ec2-ip:~/lablet-cloud-manager/
 ```
 
 ## 4. Configuration
@@ -74,7 +74,7 @@ scp -r deployment/ Makefile user@your-ec2-ip:~/cml-cloud-manager/
 1. Navigate to the project directory:
 
     ```bash
-    cd cml-cloud-manager
+    cd lablet-cloud-manager
     ```
 
 2. Create/Edit the production environment file:

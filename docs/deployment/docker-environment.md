@@ -1,6 +1,6 @@
 # Docker Environment
 
-This document outlines the Docker environment for the CML Cloud Manager.
+This document outlines the Docker environment for the Lablet Cloud Manager.
 
 ## Development Environment
 
@@ -11,7 +11,7 @@ The `docker-compose.yml` file defines the local development stack:
 - **mongodb**: The database.
 - **mongo-express**: A web-based MongoDB admin interface.
 - **redis**: A Redis instance for session storage.
-- **event-player**: A tool for event gateway/sink, visualization and replay.
+- **cloudevents-sink**: External CloudEvents bus endpoint (configurable, e.g., Knative Eventing, EventBridge).
 - **otel-collector**: The OpenTelemetry collector for observability.
 
 ### Usage
@@ -30,7 +30,7 @@ The `deployment/docker-compose/docker-compose.prod.yml` file defines the hardene
 - **keycloak**: Identity provider.
 - **mongodb**: Database.
 - **redis**: Session store.
-- **event-player**: Event gateway.
+- **cloudevents-sink**: CloudEvents bus endpoint (production sink).
 - **observability**: Full stack (OTEL Collector, Prometheus, Loki, Tempo, Grafana).
 
 ### Usage
@@ -58,7 +58,7 @@ graph TD
         A -- "Authentication" --> K(keycloak)
         A -- "Session Data" --> R(redis)
         A -- "Application Data" --> M(mongodb)
-        A -- "Events" --> EP(event-player)
+        A -- "CloudEvents" --> CE(cloudevents-sink)
         A -- "Telemetry" --> OC(otel-collector)
 
         ME(mongo-express) -- "Admin" --> M
@@ -66,7 +66,7 @@ graph TD
 
     U -.-> ME
     U -.-> K
-    U -.-> EP
+    U -.-> CE
 ```
 
 ## Usage

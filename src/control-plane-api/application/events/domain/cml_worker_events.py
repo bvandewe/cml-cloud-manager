@@ -27,6 +27,7 @@ from domain.events.worker_metrics_events import (
     EC2InstanceDetailsUpdatedDomainEvent,
 )
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from domain.repositories.lab_record_repository import LabRecordRepository
 
 log = logging.getLogger(__name__)
 
@@ -70,27 +71,29 @@ class CMLWorkerCreatedDomainEventHandler(DomainEventHandler[CMLWorkerCreatedDoma
 
 
 class CMLWorkerImportedDomainEventHandler(DomainEventHandler[CMLWorkerImportedDomainEvent]):
-    """Handle worker imported event by notifying UI and scheduling initial data refresh."""
+    """Handle worker imported event by notifying UI and triggering initial data refresh.
+
+    Note: APScheduler job scheduling removed per ADR-011. Initial data collection
+    is now triggered via mediator command. Background refresh is handled by the
+    WorkerReconciler in worker-controller.
+    """
 
     def __init__(
         self,
         sse_relay: SSEEventRelay,
         repository: CMLWorkerRepository,
-        scheduler,
+        mediator,
         serializer: JsonSerializer,
     ):
-        from application.services.background_scheduler import BackgroundTaskScheduler
+        from neuroglia.mediation import Mediator
 
         self._sse_relay = sse_relay
         self._repository = repository
-        self._scheduler: BackgroundTaskScheduler = scheduler
+        self._mediator: Mediator = mediator
         self._serializer = serializer
 
     async def handle_async(self, notification: CMLWorkerImportedDomainEvent) -> None:  # type: ignore[override]
-        """Broadcast worker.imported SSE event and schedule immediate data collection."""
-        from datetime import timedelta, timezone
-
-        from application.jobs.on_demand_worker_data_refresh_job import OnDemandWorkerDataRefreshJob
+        """Broadcast worker.imported SSE event and trigger initial data collection."""
 
         # Map EC2 instance_state to CMLWorkerStatus for consistency
         status_str = notification.instance_state
@@ -129,34 +132,12 @@ class CMLWorkerImportedDomainEventHandler(DomainEventHandler[CMLWorkerImportedDo
             reason="imported",
         )
 
-        log.info(
-            f"Broadcasted worker.imported + snapshot for {notification.aggregate_id}, "
-            f"scheduling initial data collection"
-        )
+        log.info(f"Broadcasted worker.imported + snapshot for {notification.aggregate_id}")
 
-        # Schedule immediate data refresh job, bypassing command validation checks
-        # Newly imported workers need their data collected regardless of status/throttling
-        try:
-            job_id = f"import_refresh_{notification.aggregate_id}"
-            # force=True ensures we bypass throttle for initial data collection
-            job = OnDemandWorkerDataRefreshJob(worker_id=notification.aggregate_id, force=True)
-            job.__task_id__ = job_id
-            job.__task_name__ = "OnDemandWorkerDataRefreshJob"
-            job.__background_task_type__ = "scheduled"
-            # Schedule 2 seconds in the future to ensure import transaction completes
-            job.__scheduled_at__ = datetime.now(timezone.utc) + timedelta(seconds=2)
-
-            await self._scheduler.enqueue_task_async(job)
-
-            log.info(
-                f"✅ Scheduled initial data collection for imported worker {notification.aggregate_id} "
-                f"(job_id: {job_id}, eta: 2s)"
-            )
-        except Exception as e:
-            log.error(
-                f"❌ Error scheduling data collection for imported worker {notification.aggregate_id}: {e}",
-                exc_info=True,
-            )
+        # ADR-015: Initial data collection is handled by worker-controller
+        # via etcd watch. Control-plane-api does NOT call EC2/CloudWatch/CML.
+        # The worker-controller will detect the new worker and fetch metrics.
+        log.info(f"Worker {notification.aggregate_id} imported. Worker-controller will handle initial data collection via etcd watch.")
 
         return None
 
@@ -198,12 +179,27 @@ class CMLWorkerStatusUpdatedDomainEventHandler(DomainEventHandler[CMLWorkerStatu
 
 
 class CMLWorkerTerminatedDomainEventHandler(DomainEventHandler[CMLWorkerTerminatedDomainEvent]):
-    def __init__(self, sse_relay: SSEEventRelay, repository: CMLWorkerRepository, serializer: JsonSerializer):
+    """Handle worker termination: broadcast SSE and cascade-orphan all lab records.
+
+    When a worker is terminated, all its non-terminal lab records become
+    unreachable and must be marked ORPHANED. This is a force-majeure
+    transition — the state machine allows ANY non-terminal state → ORPHANED.
+    """
+
+    def __init__(
+        self,
+        sse_relay: SSEEventRelay,
+        repository: CMLWorkerRepository,
+        serializer: JsonSerializer,
+        lab_record_repository: LabRecordRepository,
+    ):
         self._sse_relay = sse_relay
         self._repository = repository
         self._serializer = serializer
+        self._lab_record_repository = lab_record_repository
 
     async def handle_async(self, notification: CMLWorkerTerminatedDomainEvent) -> None:  # type: ignore[override]
+        # 1. Broadcast SSE events
         await self._sse_relay.broadcast_event(
             event_type="worker.terminated",
             data={
@@ -221,7 +217,46 @@ class CMLWorkerTerminatedDomainEventHandler(DomainEventHandler[CMLWorkerTerminat
             reason="terminated",
         )
         log.info("Broadcasted worker.terminated + snapshot for %s", notification.aggregate_id)
+
+        # 2. Cascade-orphan all lab records for this worker
+        orphaned_count = await self._orphan_worker_labs(notification.aggregate_id)
+        if orphaned_count > 0:
+            log.info(
+                "Cascade-orphaned %d lab records for terminated worker %s",
+                orphaned_count,
+                notification.aggregate_id,
+            )
+
         return None
+
+    async def _orphan_worker_labs(self, worker_id: str) -> int:
+        """Mark all non-terminal lab records for this worker as ORPHANED.
+
+        Returns:
+            Number of lab records orphaned.
+        """
+        orphaned = 0
+        try:
+            records = await self._lab_record_repository.get_all_by_worker_async(worker_id)
+            for record in records:
+                if record.is_terminal or record.is_orphaned:
+                    continue
+                try:
+                    record.mark_orphaned()
+                    await self._lab_record_repository.update_async(record)
+                    orphaned += 1
+                except Exception as e:
+                    log.warning(
+                        "Failed to orphan lab %s (status=%s) for worker %s: %s",
+                        record.state.lab_id,
+                        record.state.status.value,
+                        worker_id,
+                        e,
+                    )
+        except Exception as e:
+            log.error("Failed to fetch lab records for worker %s during orphan cascade: %s", worker_id, e)
+
+        return orphaned
 
 
 class CMLWorkerTelemetryUpdatedDomainEventHandler(DomainEventHandler[CMLWorkerTelemetryUpdatedDomainEvent]):

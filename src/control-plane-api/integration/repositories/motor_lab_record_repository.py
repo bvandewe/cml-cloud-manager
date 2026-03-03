@@ -1,5 +1,6 @@
 """MongoDB repository for LabRecord entities using Neuroglia's MotorRepository."""
 
+import logging
 from typing import TYPE_CHECKING, Optional, cast
 
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -12,6 +13,8 @@ from domain.repositories.lab_record_repository import LabRecordRepository
 
 if TYPE_CHECKING:
     from neuroglia.mediation.mediator import Mediator
+
+logger = logging.getLogger(__name__)
 
 
 class MongoLabRecordRepository(TracedRepositoryMixin, MotorRepository[LabRecord, str], LabRecordRepository):  # type: ignore[misc]
@@ -119,15 +122,20 @@ class MongoLabRecordRepository(TracedRepositoryMixin, MotorRepository[LabRecord,
         return len(result.inserted_ids)
 
     async def update_many_async(self, lab_records: list[LabRecord]) -> int:
-        """Update multiple lab records in a batch operation.
+        """Update multiple lab records in a batch operation with optimistic concurrency.
 
-        Uses MongoDB's bulk_write for efficient batch updates.
+        Uses MongoDB's bulk_write with state_version checks to prevent
+        concurrent overwrites (R1 resilience hardening).
+
+        Each update atomically checks {id, state_version} and increments
+        the version. Records that fail the version check are skipped
+        (another process updated them first) and logged as warnings.
 
         Args:
             lab_records: List of LabRecord entities to update
 
         Returns:
-            Number of records updated
+            Number of records successfully updated
         """
         if not lab_records:
             return 0
@@ -137,34 +145,53 @@ class MongoLabRecordRepository(TracedRepositoryMixin, MotorRepository[LabRecord,
         from pymongo import UpdateOne
 
         operations = []
-        for record in lab_records:
+        record_map: dict[int, LabRecord] = {}  # index → record for conflict tracking
+        for idx, record in enumerate(lab_records):
             # Serialize the entity state to bytes/bytearray
             serialized_bytes = self._serializer.serialize(record.state)
 
             # Convert bytes to dict for MongoDB
             serialized_dict = json.loads(serialized_bytes)
 
-            # Create update operation using Motor's collection
+            # Read current state_version (Neuroglia AggregateState tracks this)
+            current_version = getattr(record.state, "state_version", 0) or 0
+            next_version = current_version + 1
+
+            # Set the new version in the update payload
+            serialized_dict["state_version"] = next_version
+
+            # OCC: filter by id AND current state_version
             operations.append(
                 UpdateOne(
-                    {"id": record.id()},
+                    {"id": record.id(), "state_version": current_version},
                     {"$set": serialized_dict},
                 )
             )
+            record_map[idx] = record
 
-        # Execute bulk write using Motor's async bulk_write
+        # Execute bulk write using Motor's async bulk_write (ordered=False for parallelism)
         result = await self.collection.bulk_write(operations, ordered=False)
 
-        # Publish domain events for each entity (if mediator configured)
-        if self._mediator:
+        modified = result.modified_count
+        total = len(lab_records)
+        skipped = total - modified
+
+        if skipped > 0:
+            logger.warning(
+                "update_many_async: %d/%d records skipped due to version conflict (OCC)",
+                skipped,
+                total,
+            )
+
+        # Publish domain events only for successfully updated entities
+        if self._mediator and modified > 0:
             for record in lab_records:
-                # Use the _pending_events attribute from AggregateRoot
                 if hasattr(record, "_pending_events") and record._pending_events:
                     for event in record._pending_events:
                         await self._mediator.publish_async(event)
                     record.clear_pending_events()
 
-        return result.modified_count
+        return modified
 
     async def remove_by_lab_id_async(self, worker_id: str, lab_id: str) -> bool:
         """Remove a lab record by worker ID and CML lab ID.
@@ -183,6 +210,37 @@ class MongoLabRecordRepository(TracedRepositoryMixin, MotorRepository[LabRecord,
         """Remove all lab records for a worker."""
         await self.collection.delete_many({"worker_id": worker_id})
 
+    async def get_with_pending_actions_async(self) -> list[LabRecord]:
+        """Get all lab records with pending actions.
+
+        ADR-017: Used by lablet-controller to find labs needing reconciliation.
+
+        Returns:
+            List of LabRecord entities with pending_action != None.
+        """
+        cursor = self.collection.find({"pending_action": {"$ne": None}})
+        records = []
+        async for document in cursor:
+            record = self._deserialize_entity(document)
+            records.append(record)
+        return records
+
+    async def get_with_pending_actions_by_worker_async(self, worker_id: str) -> list[LabRecord]:
+        """Get lab records with pending actions for a specific worker.
+
+        Args:
+            worker_id: Worker ID to filter by.
+
+        Returns:
+            List of LabRecord entities with pending_action != None.
+        """
+        cursor = self.collection.find({"worker_id": worker_id, "pending_action": {"$ne": None}})
+        records = []
+        async for document in cursor:
+            record = self._deserialize_entity(document)
+            records.append(record)
+        return records
+
     async def ensure_indexes_async(self) -> None:
         """Create indexes for efficient querying."""
         # Index on worker_id for quick worker-specific queries
@@ -193,3 +251,6 @@ class MongoLabRecordRepository(TracedRepositoryMixin, MotorRepository[LabRecord,
 
         # Index on last_synced_at for cleanup operations
         await self.collection.create_index("last_synced_at")
+
+        # Index on pending_action for ADR-017 reconciliation queries
+        await self.collection.create_index("pending_action")

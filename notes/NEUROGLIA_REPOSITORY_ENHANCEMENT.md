@@ -12,7 +12,7 @@ MotorRepository.configure(
     builder,
     entity_type=Task,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="tasks",
 )
 
@@ -83,7 +83,7 @@ def configure(
             builder,
             entity_type=Task,
             key_type=str,
-            database_name="cml_cloud_manager"
+            database_name="lablet_cloud_manager"
         )
 
         # DDD usage with domain repository interface
@@ -93,7 +93,7 @@ def configure(
             builder,
             entity_type=Task,
             key_type=str,
-            database_name="cml_cloud_manager",
+            database_name="lablet_cloud_manager",
             collection_name="tasks",
             domain_repository_type=TaskRepository  # Automatically registers domain interface
         )
@@ -181,7 +181,7 @@ MotorRepository.configure(
     builder,
     entity_type=Task,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="tasks",
     domain_repository_type=TaskRepository,  # Domain layer interface
 )

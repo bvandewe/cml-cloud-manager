@@ -9,29 +9,27 @@ from neuroglia.mediation.mediator import Mediator
 from neuroglia.mvc.controller_base import ControllerBase
 
 from api.dependencies import get_current_user, require_roles
-from api.models import (CreateCMLWorkerRequest, DeleteCMLWorkerRequest,
-                        ImportCMLWorkerRequest, RegisterLicenseRequest,
-                        UpdateCMLWorkerTagsRequest)
-from application.commands import (BulkImportCMLWorkersCommand, CreateCMLWorkerCommand,
-                                  DeleteCMLWorkerCommand,
-                                  DeregisterCMLWorkerLicenseCommand,
-                                  DisableIdleDetectionCommand,
-                                  EnableIdleDetectionCommand,
-                                  EnableWorkerDetailedMonitoringCommand,
-                                  ImportCMLWorkerCommand,
-                                  RegisterCMLWorkerLicenseCommand,
-                                  RequestWorkerDataRefreshCommand,
-                                  StartCMLWorkerCommand, StopCMLWorkerCommand,
-                                  UpdateCMLWorkerStatusCommand,
-                                  UpdateCMLWorkerTagsCommand)
-from application.queries import (GetCMLWorkerByIdQuery, GetCMLWorkerResourcesQuery,
-                                 GetCMLWorkersQuery)
+from api.models import CreateCMLWorkerRequest, DeleteCMLWorkerRequest, ImportCMLWorkerRequest, RegisterLicenseRequest, UpdateCMLWorkerTagsRequest
+from application.commands import (
+    CreateCMLWorkerCommand,
+    DeleteCMLWorkerCommand,
+    DeregisterCMLWorkerLicenseCommand,
+    DisableIdleDetectionCommand,
+    EnableIdleDetectionCommand,
+    EnableWorkerDetailedMonitoringCommand,
+    RegisterCMLWorkerLicenseCommand,
+    RequestWorkerRefreshCommand,
+    StartCMLWorkerCommand,
+    StopCMLWorkerCommand,
+    UpdateCMLWorkerStatusCommand,
+    UpdateCMLWorkerTagsCommand,
+)
+from application.queries import GetCMLWorkerByIdQuery, GetCMLWorkerResourcesQuery, GetCMLWorkersQuery
+from application.queries.get_cml_worker_resources_query import CachedResourcesUtilization
 from application.queries.get_worker_activity_query import GetWorkerActivityQuery
 from application.queries.get_worker_idle_status_query import GetWorkerIdleStatusQuery
 from domain.enums import CMLWorkerStatus
-from integration.enums import (AwsRegion,
-                               Ec2InstanceResourcesUtilizationRelativeStartTime)
-from integration.services.aws_ec2_api_client import Ec2InstanceResourcesUtilization
+from integration.enums import AwsRegion
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +54,25 @@ class WorkersController(ControllerBase):
     def __init__(self, service_provider: ServiceProviderBase, mapper: Mapper, mediator: Mediator):
         """Runs API Calls to AWS EC2."""
         ControllerBase.__init__(self, service_provider, mapper, mediator)
+
+    @get(
+        "/",
+        response_model=list[dict],
+        response_description="List of all CML Workers across all regions",
+        status_code=200,
+        responses=ControllerBase.error_responses,
+    )
+    async def list_all_cml_workers(
+        self,
+        status: CMLWorkerStatus | None = None,
+        include_terminated: bool = False,
+        token: str = Depends(get_current_user),
+    ) -> Any:
+        """Queries for all CML Worker instances across all regions.
+
+        (**Requires valid token.**)"""
+        query = GetCMLWorkersQuery(aws_region=None, status=status, include_terminated=include_terminated)
+        return self.process(await self.mediator.execute_async(query))
 
     @get(
         "/region/{aws_region}/workers",
@@ -95,6 +112,33 @@ class WorkersController(ControllerBase):
         query = GetCMLWorkerByIdQuery(worker_id=worker_id)
         return self.process(await self.mediator.execute_async(query))
 
+    @post(
+        "/region/{aws_region}/workers/{worker_id}/refresh",
+        status_code=202,
+        responses=ControllerBase.error_responses,
+    )
+    async def request_worker_refresh(
+        self,
+        aws_region: aws_region_annotation,
+        worker_id: worker_id_annotation,
+        token: str = Depends(get_current_user),
+    ) -> Any:
+        """Request an on-demand data refresh for a worker.
+
+        Triggers the worker-controller to perform a full data collection
+        on the next reconciliation cycle, including:
+        - EC2 instance details (AMI info, IPs, instance type)
+        - CML system data (version, health, system_info, license)
+
+        Worker must be in RUNNING state.
+
+        (**Requires valid token.**)"""
+        command = RequestWorkerRefreshCommand(
+            worker_id=worker_id,
+            requested_by="user",
+        )
+        return self.process(await self.mediator.execute_async(command))
+
     @get(
         "/region/{aws_region}/instance/{instance_id}",
         response_model=dict,
@@ -115,7 +159,7 @@ class WorkersController(ControllerBase):
 
     @get(
         "/region/{aws_region}/workers/{worker_id}/resources",
-        response_model=Ec2InstanceResourcesUtilization,
+        response_model=CachedResourcesUtilization,
         status_code=200,
         responses=ControllerBase.error_responses,
     )
@@ -123,16 +167,17 @@ class WorkersController(ControllerBase):
         self,
         aws_region: aws_region_annotation,
         worker_id: worker_id_annotation,
-        start_time: Ec2InstanceResourcesUtilizationRelativeStartTime,
         token: str = Depends(get_current_user),
     ) -> Any:
-        """Queries AWS CloudWatch for CML Worker instance resource utilization.
+        """Returns cached CloudWatch metrics for a CML Worker.
+
+        ADR-015: Returns cached data from database. Metrics are collected
+        by worker-controller and stored periodically. Does NOT call CloudWatch.
 
         (**Requires valid token.**)"""
         query = GetCMLWorkerResourcesQuery(
             worker_id=worker_id,
             aws_region=aws_region,
-            relative_start_time=start_time,
         )
         return self.process(await self.mediator.execute_async(query))
 
@@ -165,7 +210,7 @@ class WorkersController(ControllerBase):
     @post(
         "/region/{aws_region}/workers/import",
         response_model=Any,
-        status_code=201,
+        status_code=202,
         responses=ControllerBase.error_responses,
     )
     async def import_existing_cml_worker(
@@ -174,44 +219,28 @@ class WorkersController(ControllerBase):
         request: ImportCMLWorkerRequest,
         token: str = Depends(require_roles("admin")),
     ) -> Any:
-        """Imports existing EC2 instance(s) as CML Worker(s).
+        """Request import of existing EC2 instance(s) as CML Worker(s).
 
-        This endpoint allows you to register EC2 instances that were created
-        outside of CML Cloud Manager (e.g., via AWS Console, Terraform, etc.)
+        ADR-015: Worker discovery is handled by worker-controller.
 
-        You can specify either:
-        - aws_instance_id: Direct lookup by instance ID
-        - ami_id: Search for instances using that AMI
-        - ami_name: Search for instances with matching AMI name
+        The worker-controller continuously watches for EC2 instances with CML tags
+        and automatically imports them. Use this endpoint to request an immediate
+        discovery scan.
 
-        The 'name' field is optional - if not provided, the AWS instance's
-        name will be used automatically.
-
-        **Bulk Import**: Set `import_all=true` to import all matching instances.
-        This will skip any instances that are already registered as workers.
+        **Note**: This endpoint returns immediately. Worker-controller will
+        perform the discovery asynchronously and register any new workers.
 
         (**Requires `admin` role!**)"""
-
-        # Check if bulk import requested
-        if request.import_all:
-            logger.info(f"Bulk importing all matching EC2 instances as CML workers in region {aws_region}")
-            command = BulkImportCMLWorkersCommand(
-                aws_region=aws_region,
-                ami_id=request.ami_id,
-                ami_name=request.ami_name,
-                created_by=None,  # TODO: Extract from token
-            )
-            return self.process(await self.mediator.execute_async(command))
-        else:
-            logger.info(f"Importing existing EC2 instance as CML worker in region {aws_region}")
-            command = ImportCMLWorkerCommand(
-                aws_region=aws_region,
-                aws_instance_id=request.aws_instance_id,
-                ami_id=request.ami_id,
-                ami_name=request.ami_name,
-                name=request.name,
-            )
-            return self.process(await self.mediator.execute_async(command))
+        logger.info(f"Worker import requested for region {aws_region}")
+        # ADR-015: No direct EC2 calls from control-plane-api.
+        # Worker-controller handles discovery via etcd watch.
+        # TODO: Implement proper refresh request mechanism via etcd/event
+        return {
+            "message": "Worker import request accepted",
+            "region": aws_region.value,
+            "status": "accepted",
+            "note": "Worker-controller will perform discovery asynchronously. New workers will appear in the workers list once discovered.",
+        }
 
     @delete(
         "/region/{aws_region}/workers/{worker_id}",
@@ -226,23 +255,24 @@ class WorkersController(ControllerBase):
         request: DeleteCMLWorkerRequest,
         token: str = Depends(require_roles("admin")),
     ) -> Any:
-        """Deletes a CML Worker from the local database.
+        """Deletes a CML Worker (soft delete).
 
-        By default, only removes the worker record from the database.
-        Set 'terminate_instance' to true to also terminate the EC2 instance.
+        ADR-015: Uses soft delete pattern for consistency with GC behavior.
+
+        Default behavior (soft delete):
+        1. Sets desired_status=TERMINATED
+        2. Worker-controller terminates EC2 instance via etcd watch
+        3. Record is retained for audit
+        4. CleanupTerminatedWorkersJob purges old records
+
+        Set 'force_hard_delete' to true for immediate removal (admin escape hatch).
 
         (**Requires `admin` role!**)
-
-        Warning: This operation cannot be undone. The worker record will be
-        permanently removed from the database.
         """
-        logger.info(
-            f"Deleting CML worker {worker_id} in region {aws_region}, "
-            f"terminate_instance={request.terminate_instance}"
-        )
+        logger.info(f"Deleting CML worker {worker_id} in region {aws_region}, force_hard_delete={request.force_hard_delete}")
         command = DeleteCMLWorkerCommand(
             worker_id=worker_id,
-            terminate_instance=request.terminate_instance,
+            force_hard_delete=request.force_hard_delete,
             deleted_by=token.get("sub") if isinstance(token, dict) else None,
         )
         return self.process(await self.mediator.execute_async(command))
@@ -327,7 +357,7 @@ class WorkersController(ControllerBase):
     @post(
         "/region/{aws_region}/workers/{worker_id}/refresh",
         response_model=Any,
-        status_code=200,
+        status_code=202,
         responses=ControllerBase.error_responses,
     )
     async def refresh_worker(
@@ -336,37 +366,35 @@ class WorkersController(ControllerBase):
         worker_id: worker_id_annotation,
         token: str = Depends(get_current_user),
     ) -> Any:
-        """Request worker refresh (asynchronous, event-driven).
+        """Request worker data refresh (asynchronous).
 
-        This endpoint schedules a background job to refresh all worker data and
-        returns immediately with a scheduling decision. SSE events notify the UI of progress.
+        ADR-015: Worker data refresh is handled by worker-controller.
 
-        What gets refreshed:
+        The worker-controller continuously monitors worker state via EC2 and CloudWatch
+        APIs. This endpoint accepts a refresh request and returns immediately.
+
+        Data refreshed by worker-controller:
         - EC2 instance status and metadata
         - CloudWatch metrics (CPU, memory, storage)
+
+        Data refreshed by lablet-controller:
         - CML service data (version, license, uptime, stats)
         - Lab records (topology, nodes, state)
 
-        SSE Events:
-        - worker.refresh.requested: Job scheduled successfully (eta_seconds provided)
-        - worker.refresh.skipped: Request rejected with reason (not_running, rate_limited,
-          background_job_imminent, already_scheduled)
-
-        Subsequent worker data will arrive via worker.snapshot and worker.metrics.updated
-        SSE events when the background job completes.
-
-        Returns:
-        - scheduled: boolean indicating if job was scheduled
-        - reason: skip reason if scheduled=false
-        - eta_seconds: estimated seconds until execution
-        - retry_after_seconds: if rate_limited, seconds until next allowed refresh
+        Use SSE events to receive real-time updates when refresh completes.
 
         (**Requires valid token.**)"""
-        logger.info(f"Requesting async refresh for CML worker {worker_id} in region {aws_region}")
-        command = RequestWorkerDataRefreshCommand(worker_id=worker_id, region=aws_region)
-        result = await self.mediator.execute_async(command)
-
-        return self.process(result)
+        logger.info(f"Worker refresh requested for {worker_id} in region {aws_region}")
+        # ADR-015: No direct EC2/CloudWatch/CML calls from control-plane-api.
+        # Worker-controller and lablet-controller handle refresh via etcd watch.
+        # TODO: Implement proper refresh request mechanism via etcd/event
+        return {
+            "message": "Worker refresh request accepted",
+            "worker_id": worker_id,
+            "region": aws_region.value,
+            "status": "accepted",
+            "note": "Worker-controller will refresh data asynchronously. Subscribe to SSE events for real-time updates.",
+        }
 
     @post(
         "/region/{aws_region}/workers/{worker_id}/monitoring",
@@ -601,7 +629,7 @@ class WorkersController(ControllerBase):
 
             if not job:
                 # Job not scheduled - may be disabled
-                logger.warning(f"AutoImportWorkersJob not found - auto-import may be disabled")
+                logger.warning("AutoImportWorkersJob not found - auto-import may be disabled")
                 return {
                     "status": "unavailable",
                     "message": "Auto-import workers job is not scheduled. Check if auto-import is enabled.",

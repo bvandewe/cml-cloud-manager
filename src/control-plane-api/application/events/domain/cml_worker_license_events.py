@@ -18,9 +18,7 @@ from domain.repositories.cml_worker_repository import CMLWorkerRepository
 log = logging.getLogger(__name__)
 
 
-class CMLWorkerLicenseRegistrationStartedEventHandler(
-    DomainEventHandler[CMLWorkerLicenseRegistrationStartedDomainEvent]
-):
+class CMLWorkerLicenseRegistrationStartedEventHandler(DomainEventHandler[CMLWorkerLicenseRegistrationStartedDomainEvent]):
     """Broadcasts SSE event when license registration starts."""
 
     def __init__(self, sse_relay: SSEEventRelay, worker_repository: CMLWorkerRepository):
@@ -46,9 +44,7 @@ class CMLWorkerLicenseRegistrationStartedEventHandler(
         )
 
 
-class CMLWorkerLicenseRegistrationCompletedEventHandler(
-    DomainEventHandler[CMLWorkerLicenseRegistrationCompletedDomainEvent]
-):
+class CMLWorkerLicenseRegistrationCompletedEventHandler(DomainEventHandler[CMLWorkerLicenseRegistrationCompletedDomainEvent]):
     """Broadcasts SSE event when license registration completes."""
 
     def __init__(self, sse_relay: SSEEventRelay, worker_repository: CMLWorkerRepository, serializer: JsonSerializer):

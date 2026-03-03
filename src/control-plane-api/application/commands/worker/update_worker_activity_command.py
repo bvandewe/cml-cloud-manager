@@ -86,11 +86,7 @@ class UpdateWorkerActivityCommandHandler(CommandHandler[UpdateWorkerActivityComm
                 # Persist changes
                 await self._repository.update_async(worker)
 
-                log.info(
-                    f"Updated activity for worker {command.worker_id}: "
-                    f"last_activity_at={command.last_activity_at}, "
-                    f"events={len(command.recent_events or [])}"
-                )
+                log.info(f"Updated activity for worker {command.worker_id}: " f"last_activity_at={command.last_activity_at}, " f"events={len(command.recent_events or [])}")
 
                 span.set_status(Status(StatusCode.OK))
                 return self.no_content()

@@ -24,7 +24,7 @@ MotorRepository.configure(
     builder,
     entity_type=LabRecord,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="lab_records",
     domain_repository_type=LabRecordRepository,
     implementation_type=MongoLabRecordRepository,

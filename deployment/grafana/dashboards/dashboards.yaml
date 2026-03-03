@@ -4,7 +4,7 @@
 apiVersion: 1
 
 providers:
-    - name: 'CML Cloud Manager'
+    - name: 'Lablet Cloud Manager'
       orgId: 1
       folder: ''
       type: file

@@ -105,7 +105,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "rate(cml_cloud_manager_http_server_duration_milliseconds_count{job=~\"$job\", http_status_code=~\"5..\"}[1m])",
+                    "expr": "rate(lablet_cloud_manager_http_server_duration_milliseconds_count{job=~\"$job\", http_status_code=~\"5..\"}[1m])",
                     "legendFormat": "Error Rate (5xx)",
                     "range": true,
                     "refId": "A"
@@ -198,7 +198,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, rate(cml_cloud_manager_http_server_duration_milliseconds_bucket{job=~\"$job\"}[1m]))",
+                    "expr": "histogram_quantile(0.95, rate(lablet_cloud_manager_http_server_duration_milliseconds_bucket{job=~\"$job\"}[1m]))",
                     "legendFormat": "P95 Latency",
                     "range": true,
                     "refId": "A"
@@ -261,14 +261,14 @@
                     "type": "prometheus",
                     "uid": "prometheus"
                 },
-                "definition": "label_values(cml_cloud_manager_http_server_duration_milliseconds_count, job)",
+                "definition": "label_values(lablet_cloud_manager_http_server_duration_milliseconds_count, job)",
                 "hide": 0,
                 "includeAll": true,
                 "multi": true,
                 "name": "job",
                 "options": [],
                 "query": {
-                    "query": "label_values(cml_cloud_manager_http_server_duration_milliseconds_count, job)",
+                    "query": "label_values(lablet_cloud_manager_http_server_duration_milliseconds_count, job)",
                     "refId": "StandardVariableQuery"
                 },
                 "refresh": 1,

@@ -13,7 +13,7 @@ const env = nunjucks.configure('src/templates', {
 
 // Render the template
 const html = env.render('index.jinja', {
-    title: 'CML Cloud Manager v0.1.0',
+    title: 'Lablet Cloud Manager v0.1.0',
 });
 
 // Write to src/tmp_build/index.html for Parcel to process

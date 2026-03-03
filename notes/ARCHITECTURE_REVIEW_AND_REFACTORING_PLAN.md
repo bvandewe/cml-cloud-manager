@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-A comprehensive architectural review of the `cml-cloud-manager` backend has identified critical scalability and reliability issues. The most urgent concern is the use of blocking I/O in asynchronous contexts, which severely limits throughput. Additionally, the `CMLWorker` aggregate has grown into a "God Object," and the distributed transaction handling for worker creation is prone to leaving orphaned resources.
+A comprehensive architectural review of the `lablet-cloud-manager` backend has identified critical scalability and reliability issues. The most urgent concern is the use of blocking I/O in asynchronous contexts, which severely limits throughput. Additionally, the `CMLWorker` aggregate has grown into a "God Object," and the distributed transaction handling for worker creation is prone to leaving orphaned resources.
 
 This document outlines the findings and a phased implementation plan to address these issues, moving towards a cleaner DDD/CQRS architecture.
 

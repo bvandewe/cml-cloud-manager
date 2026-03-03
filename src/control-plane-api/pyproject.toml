@@ -1,10 +1,10 @@
 [tool.poetry]
 name = "control-plane-api"
 version = "0.1.0"
-description = "CML Cloud Manager - Control Plane API with UI"
+description = "Lablet Cloud Manager - Control Plane API with UI"
 authors = ["Bruno van de Werve <bvandewe@gmail.com>"]
 readme = "README.md"
-packages = [{include = "api"}, {include = "application"}, {include = "domain"}, {include = "infrastructure"}, {include = "integration"}, {include = "observability"}, {include = "ui"}]
+packages = [{include = "api"}, {include = "application"}, {include = "domain"}, {include = "infrastructure"}, {include = "integration"}, {include = "ui"}]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
@@ -16,6 +16,9 @@ motor = "^3.7.1"
 httpx = ">=0.24.0,<0.28.0"
 boto3 = "^1.40.74"
 apscheduler = "^3.11.1"
+uvicorn = ">=0.24.0,<1.0.0"  # ASGI server
+pyyaml = ">=6.0.0,<7.0.0"  # Required by lcm-core seeding
+lcm-core = {path = "../core", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0.0"
@@ -32,11 +35,15 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
-line-length = 120
+line-length = 200
 select = ["E", "F", "W", "I", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# F811 is expected for @dispatch-decorated methods (multiple dispatch pattern)
+"domain/entities/*.py" = ["F811"]
+
 [tool.black]
-line-length = 120
+line-length = 200
 
 [tool.mypy]
 python_version = "3.11"

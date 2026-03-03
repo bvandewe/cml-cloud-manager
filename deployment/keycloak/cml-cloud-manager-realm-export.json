@@ -1,6 +1,6 @@
 {
-    "realm": "cml-cloud-manager",
-    "displayName": "Cml Cloud Manager",
+    "realm": "lablet-cloud-manager",
+    "displayName": "Lablet Cloud Manager",
     "enabled": true,
     "sslRequired": "none",
     "registrationAllowed": true,
@@ -196,12 +196,12 @@
     ],
     "clients": [
         {
-            "clientId": "cml-cloud-manager-backend",
+            "clientId": "lablet-cloud-manager-backend",
             "name": "Cml Cloud Manager Backend (Confidential)",
             "description": "Confidential backend client for secure token exchange",
             "enabled": true,
             "publicClient": false,
-            "secret": "cml-cloud-manager-backend-secret-change-in-production",
+            "secret": "lablet-cloud-manager-backend-secret-change-in-production",
             "protocol": "openid-connect",
             "redirectUris": ["https://www.system.io/*", "http://localhost:8030/*", "http://localhost:8034/*", "http://localhost:1234/*", "http://localhost:8030/api/docs/oauth2-redirect"],
             "webOrigins": ["https://www.system.io", "http://localhost:8030", "http://localhost:8034", "http://localhost:1234"],
@@ -269,7 +269,7 @@
                     "protocolMapper": "oidc-audience-mapper",
                     "consentRequired": false,
                     "config": {
-                        "included.client.audience": "cml-cloud-manager",
+                        "included.client.audience": "lablet-cloud-manager",
                         "id.token.claim": "false",
                         "access.token.claim": "true"
                     }
@@ -294,7 +294,7 @@
                     "protocolMapper": "oidc-audience-mapper",
                     "consentRequired": false,
                     "config": {
-                        "included.client.audience": "cml-cloud-manager",
+                        "included.client.audience": "lablet-cloud-manager",
                         "id.token.claim": "false",
                         "access.token.claim": "true"
                     }
@@ -302,7 +302,7 @@
             ]
         },
         {
-            "clientId": "cml-cloud-manager-public",
+            "clientId": "lablet-cloud-manager-public",
             "name": "Cml Cloud Manager Portal",
             "enabled": true,
             "publicClient": true,
@@ -320,7 +320,7 @@
                     "protocolMapper": "oidc-audience-mapper",
                     "consentRequired": false,
                     "config": {
-                        "included.client.audience": "cml-cloud-manager",
+                        "included.client.audience": "lablet-cloud-manager",
                         "id.token.claim": "false",
                         "access.token.claim": "true"
                     }

@@ -59,3 +59,42 @@ class EC2InvalidParameterException(EC2Exception):
     """Raised when invalid parameters are provided to AWS API."""
 
     pass
+
+
+# etcd Specific Exceptions
+
+
+class EtcdException(IntegrationException):
+    """Base exception for etcd related errors."""
+
+    pass
+
+
+class EtcdConnectionException(EtcdException):
+    """Raised when etcd connection fails."""
+
+    pass
+
+
+class EtcdKeyNotFoundException(EtcdException):
+    """Raised when a key is not found in etcd."""
+
+    pass
+
+
+class EtcdTransactionFailedException(EtcdException):
+    """Raised when an etcd transaction fails (e.g., CAS failure)."""
+
+    pass
+
+
+class EtcdLeaseExpiredException(EtcdException):
+    """Raised when an etcd lease has expired."""
+
+    pass
+
+
+class EtcdWatchCancelledException(EtcdException):
+    """Raised when an etcd watch is cancelled."""
+
+    pass

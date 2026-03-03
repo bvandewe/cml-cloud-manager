@@ -5,10 +5,10 @@ import pytest
 
 # Patterns representing the original starter branding variants.
 ORIGINAL_VARIANTS = [
-    "cml-cloud-manager",
-    "cml_cloud_manager",
+    "lablet-cloud-manager",
+    "lablet_cloud_manager",
     "Cml Cloud Manager",
-    "CmlCloudManager",
+    "LabletCloudManager",
     "CML_CLOUD_MANAGER",
 ]
 
@@ -84,8 +84,8 @@ def test_no_starter_branding_left():
     # parents[2] to go from tests/cases/test_rename_integrity.py -> repo root
     repo_root = Path(__file__).resolve().parents[2]
     # Auto-skip if still in original repo name unless forced
-    if repo_root.name == "cml-cloud-manager" and os.getenv(FORCE_ENV) != "1":
-        pytest.skip("Repository still named cml-cloud-manager; rename not yet applied.")
+    if repo_root.name == "lablet-cloud-manager" and os.getenv(FORCE_ENV) != "1":
+        pytest.skip("Repository still named lablet-cloud-manager; rename not yet applied.")
     offending = find_occurrences(repo_root)
     if offending:
         formatted = "\n".join(f"{path}: {variants}" for path, variants in offending.items())

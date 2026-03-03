@@ -5,7 +5,7 @@
 | **Status** | Accepted |
 | **Date** | 2026-01-16 |
 | **Deciders** | Architecture Team |
-| **Related ADRs** | [ADR-001](./ADR-001-api-centric-state-management.md), [ADR-002](./ADR-002-separate-scheduler-service.md) |
+| **Related ADRs** | [ADR-001](./ADR-001-api-centric-state-management.md), [ADR-002](./ADR-002-separate-resource-scheduler-service.md) |
 
 ## Context
 
@@ -84,13 +84,13 @@ Options considered:
 ### etcd Keys
 
 ```
-/ccm/instances/{id}/state          # LabletInstance current state
-/ccm/instances/{id}/worker         # Assigned worker ID
-/ccm/workers/{id}/state            # Worker state (running, draining, stopped)
-/ccm/workers/{id}/capacity         # Current available capacity
-/ccm/workers/{id}/ports            # Port allocation bitmap
-/ccm/scheduler/leader              # Leader election key
-/ccm/controller/leader             # Leader election key
+/lcm/instances/{id}/state          # LabletInstance current state
+/lcm/instances/{id}/worker         # Assigned worker ID
+/lcm/workers/{id}/state            # Worker state (running, draining, stopped)
+/lcm/workers/{id}/capacity         # Current available capacity
+/lcm/workers/{id}/ports            # Port allocation bitmap
+/lcm/scheduler/leader              # Leader election key
+/lcm/controller/leader             # Leader election key
 ```
 
 ### MongoDB Collections
@@ -108,7 +108,7 @@ audit_events          # CloudEvents for audit trail
 ```python
 async def watch_pending_instances():
     """Watch for new pending instances."""
-    async for event in etcd.watch_prefix("/ccm/instances/"):
+    async for event in etcd.watch_prefix("/lcm/instances/"):
         if event.type == "PUT" and event.value["state"] == "PENDING":
             await schedule_instance(event.key.split("/")[3])
 ```

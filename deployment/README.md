@@ -1,6 +1,6 @@
 # Deployment
 
-This directory contains the configuration and resources for deploying the CML Cloud Manager.
+This directory contains the configuration and resources for deploying the Lablet Cloud Manager.
 
 ## Deployment Options
 

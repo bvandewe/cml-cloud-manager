@@ -64,4 +64,57 @@
             </div>
         </div>
     </div>
+
+    <!-- Discovery Settings Row (ADR-012) -->
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-search"></i> Worker Discovery</h5>
+                </div>
+                <div class="card-body">
+                    <form id="discovery-form">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="discovery-enabled" name="enabled">
+                            <label class="form-check-label" for="discovery-enabled">Enable Worker Discovery</label>
+                            <div class="form-text">Automatically discover EC2 instances matching the AMI pattern</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">AWS Regions</label>
+                            <select class="form-select" id="discovery-regions" name="regions" multiple size="4">
+                                <option value="us-east-1">US East (N. Virginia) - us-east-1</option>
+                                <option value="us-east-2">US East (Ohio) - us-east-2</option>
+                                <option value="us-west-1">US West (N. California) - us-west-1</option>
+                                <option value="us-west-2">US West (Oregon) - us-west-2</option>
+                                <option value="eu-west-1">Europe (Ireland) - eu-west-1</option>
+                                <option value="eu-west-2">Europe (London) - eu-west-2</option>
+                                <option value="eu-west-3">Europe (Paris) - eu-west-3</option>
+                                <option value="eu-central-1">Europe (Frankfurt) - eu-central-1</option>
+                                <option value="ap-northeast-1">Asia Pacific (Tokyo) - ap-northeast-1</option>
+                                <option value="ap-southeast-1">Asia Pacific (Singapore) - ap-southeast-1</option>
+                                <option value="ap-southeast-2">Asia Pacific (Sydney) - ap-southeast-2</option>
+                            </select>
+                            <div class="form-text">Hold Ctrl/Cmd to select multiple regions</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">AMI Name Pattern</label>
+                            <input type="text" class="form-control" id="discovery-ami-pattern" name="ami_name_pattern"
+                                placeholder="e.g., cml-*">
+                            <div class="form-text">Wildcard pattern to match AMI names (e.g., cml-*,
+                                cisco-modeling-labs-*)</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Scan Interval (seconds)</label>
+                            <input type="number" class="form-control" id="discovery-scan-interval"
+                                name="scan_interval_seconds" min="60" max="86400" step="60">
+                            <div class="form-text">How often to scan for new workers (minimum 60 seconds)</div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>

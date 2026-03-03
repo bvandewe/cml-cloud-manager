@@ -2,7 +2,7 @@
 
 ## Overview
 
-The CML Cloud Manager frontend has been **migrated to Web Components** with a unified EventBus architecture. This provides:
+The Lablet Cloud Manager frontend has been **migrated to Web Components** with a unified EventBus architecture. This provides:
 
 - ⚡ **6x faster real-time updates** (300ms → <50ms)
 - 🧩 **Self-contained components** (no global state)

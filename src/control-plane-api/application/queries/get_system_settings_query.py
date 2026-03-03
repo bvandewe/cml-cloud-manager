@@ -40,6 +40,7 @@ class GetSystemSettingsQueryHandler(QueryHandler[GetSystemSettingsQuery, Operati
                 "worker_provisioning": asdict(state.worker_provisioning),
                 "monitoring": asdict(state.monitoring),
                 "idle_detection": asdict(state.idle_detection),
+                "discovery": asdict(state.discovery),  # ADR-012: Include discovery settings
                 "updated_at": state.updated_at,
                 "updated_by": state.updated_by,
             }

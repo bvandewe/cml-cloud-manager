@@ -2,8 +2,7 @@
  * workerStore.js
  * Central in-memory store for worker data, timing metadata, and request deduplication.
  *
- * MIGRATION NOTE: Now publishes to EventBus in addition to legacy listeners.
- * Legacy subscribe() maintained for backward compatibility during migration.
+ * State changes are published to EventBus for component subscriptions.
  */
 
 import * as workersApi from '../api/workers.js';
@@ -13,41 +12,12 @@ const state = {
     workers: new Map(), // id -> worker object
     timing: new Map(), // id -> { pollInterval, nextRefreshAt, lastRefreshedAt }
     activeWorkerId: null,
-    listeners: new Set(), // Legacy listeners (will be removed)
     inflight: new Map(), // key: region:id -> promise
 };
 
-function emit() {
-    console.log('[workerStore] emit() called - notifying', state.listeners.size, 'legacy listeners');
-    console.log('[workerStore] Current state:', {
-        workerCount: state.workers.size,
-        workers: Array.from(state.workers.values()).map(w => ({
-            id: w.id,
-            name: w.name,
-            license_status: w.license_status,
-            cml_license_info: w.cml_license_info,
-        })),
-    });
-
-    // Legacy listener support (backward compatibility)
-    state.listeners.forEach(fn => {
-        try {
-            fn(state);
-        } catch (e) {
-            console.error('[workerStore] listener error', e);
-        }
-    });
-}
-
-// Legacy subscription API (backward compatibility)
-export function subscribe(fn) {
-    state.listeners.add(fn);
-    return () => state.listeners.delete(fn);
-}
-
 export function setActiveWorker(id) {
     state.activeWorkerId = id;
-    emit();
+    eventBus.emit(EventTypes.WORKER_ACTIVE_CHANGED, { worker_id: id });
 }
 
 export function getActiveWorker() {
@@ -110,9 +80,6 @@ export function upsertWorkerSnapshot(snapshot) {
             });
         }
     }
-
-    // Legacy emit (backward compatibility)
-    emit();
 }
 
 // Specialized update for metrics-only SSE events
@@ -127,9 +94,6 @@ export function updateWorkerMetrics(id, metrics) {
         worker_id: id,
         ...metrics,
     });
-
-    // Legacy emit (backward compatibility)
-    emit();
 }
 
 export function removeWorker(id) {
@@ -143,9 +107,6 @@ export function removeWorker(id) {
     if (worker) {
         eventBus.emit(EventTypes.WORKER_DELETED, { worker_id: id, worker });
     }
-
-    // Legacy emit (backward compatibility)
-    emit();
 }
 
 export function updateTiming(id, { poll_interval, next_refresh_at, last_refreshed_at }) {
@@ -156,7 +117,14 @@ export function updateTiming(id, { poll_interval, next_refresh_at, last_refreshe
         lastRefreshedAt: last_refreshed_at,
         updatedAt: new Date().toISOString(),
     });
-    emit();
+
+    // Emit timing update event
+    eventBus.emit(EventTypes.WORKER_TIMING_UPDATED, {
+        worker_id: id,
+        poll_interval,
+        next_refresh_at,
+        last_refreshed_at,
+    });
 }
 
 export function getTiming(id) {

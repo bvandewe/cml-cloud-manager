@@ -106,7 +106,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "cml_cloud_manager_mongodb_connection_count",
+                    "expr": "lablet_cloud_manager_mongodb_connection_count",
                     "legendFormat": "Connections",
                     "range": true,
                     "refId": "A"
@@ -199,7 +199,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "rate(cml_cloud_manager_mongodb_operation_count_total[1m])",
+                    "expr": "rate(lablet_cloud_manager_mongodb_operation_count_total[1m])",
                     "legendFormat": "Operations/sec",
                     "range": true,
                     "refId": "A"

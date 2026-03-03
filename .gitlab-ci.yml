@@ -1,0 +1,17 @@
+image: python:3.11
+
+stages:
+    - deploy
+
+pages:
+    stage: deploy
+    script:
+        - pip install poetry
+        - poetry config virtualenvs.create false
+        - poetry install --only docs --no-root
+        - mkdocs build -d public
+    artifacts:
+        paths:
+            - public
+    rules:
+        - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

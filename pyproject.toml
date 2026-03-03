@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "cml-cloud-manager"
+name = "lablet-cloud-manager"
 version = "0.1.9"
 description = "Cml Cloud Manager"
 authors = ["Bruno van de Werve <bvandewe@gmail.com>"]
@@ -40,11 +40,11 @@ requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
-line-length = 120
+line-length = 200
 select = ["E", "F", "W", "I", "UP"]
 
 [tool.black]
-line-length = 120
+line-length = 200
 
 [tool.mypy]
 python_version = "3.11"

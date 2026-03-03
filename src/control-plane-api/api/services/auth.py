@@ -286,9 +286,7 @@ class DualAuthService:
             except Exception as e:
                 log.error(f"❌ Failed to connect to Redis: {e}")
                 log.warning("⚠️ Falling back to InMemorySessionStore")
-                session_store = InMemorySessionStore(
-                    session_max_duration_minutes=app_settings.session_max_duration_minutes
-                )
+                session_store = InMemorySessionStore(session_max_duration_minutes=app_settings.session_max_duration_minutes)
         else:
             log.info("💾 Using InMemorySessionStore (development only)")
             session_store = InMemorySessionStore(session_max_duration_minutes=app_settings.session_max_duration_minutes)
@@ -321,9 +319,7 @@ class DualAuthService:
         """
 
         @app.middleware("http")
-        async def inject_auth_service(
-            request: "Request", call_next: Callable[["Request"], Awaitable[Response]]
-        ) -> Response:
+        async def inject_auth_service(request: "Request", call_next: Callable[["Request"], Awaitable[Response]]) -> Response:
             """Middleware to inject AuthService into FastAPI request state.
 
             This middleware injects the AuthService instance into request state

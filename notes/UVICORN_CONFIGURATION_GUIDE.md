@@ -177,16 +177,16 @@ cd src && python background_worker.py
 ```ini
 # /etc/systemd/system/cml-api.service
 [Unit]
-Description=CML Cloud Manager API
+Description=Lablet Cloud Manager API
 After=network.target mongodb.service redis.service
 
 [Service]
 Type=exec
 User=cmluser
-WorkingDirectory=/opt/cml-cloud-manager/src
-Environment="PYTHONPATH=/opt/cml-cloud-manager/src"
+WorkingDirectory=/opt/lablet-cloud-manager/src
+Environment="PYTHONPATH=/opt/lablet-cloud-manager/src"
 Environment="WORKER_MONITORING_ENABLED=false"
-ExecStart=/opt/cml-cloud-manager/.venv/bin/python api_server.py
+ExecStart=/opt/lablet-cloud-manager/.venv/bin/python api_server.py
 Restart=always
 RestartSec=10
 
@@ -196,16 +196,16 @@ WantedBy=multi-user.target
 ---
 # /etc/systemd/system/cml-worker.service
 [Unit]
-Description=CML Cloud Manager Background Worker
+Description=Lablet Cloud Manager Background Worker
 After=network.target mongodb.service redis.service cml-api.service
 
 [Service]
 Type=exec
 User=cmluser
-WorkingDirectory=/opt/cml-cloud-manager/src
-Environment="PYTHONPATH=/opt/cml-cloud-manager/src"
+WorkingDirectory=/opt/lablet-cloud-manager/src
+Environment="PYTHONPATH=/opt/lablet-cloud-manager/src"
 Environment="WORKER_MONITORING_ENABLED=true"
-ExecStart=/opt/cml-cloud-manager/.venv/bin/python background_worker.py
+ExecStart=/opt/lablet-cloud-manager/.venv/bin/python background_worker.py
 Restart=always
 RestartSec=10
 

@@ -747,7 +747,7 @@ services.add_singleton(
     OrderRepository,
     lambda sp: MongoOrderRepository(
         client=sp.get_required_service(AsyncIOMotorClient),
-        database_name="cml_cloud_manager",
+        database_name="lablet_cloud_manager",
         collection_name="orders",
         serializer=sp.get_required_service(JsonSerializer),
         entity_type=Order,

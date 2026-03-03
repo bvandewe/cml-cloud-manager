@@ -1,6 +1,6 @@
 apiVersion: v2
-name: cml-cloud-manager
-description: Helm chart for deploying CML Cloud Manager with Redis and MongoDB
+name: lablet-cloud-manager
+description: Helm chart for deploying Lablet Cloud Manager with Redis and MongoDB
 type: application
 version: 0.1.0
 appVersion: '1.0.0'

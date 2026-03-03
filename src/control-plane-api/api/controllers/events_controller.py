@@ -16,9 +16,13 @@ from neuroglia.serialization.json import JsonSerializer
 
 from api.dependencies import get_current_user
 from api.services import DualAuthService
+from application.dtos.lablet_definition_dto import map_lablet_definition_to_summary_dto
+from application.dtos.lablet_session_dto import map_lablet_session_to_summary_dto
 from application.events.domain.cml_worker_events import _broadcast_worker_snapshot
 from application.services.sse_event_relay import SSEEventRelay
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
+from domain.repositories.lablet_session_repository import LabletSessionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +70,7 @@ class EventsController(ControllerBase):
             yield f"event: connected\ndata: {json.dumps({'status': 'connected', 'user': user_info.get('username'), 'client_id': client_id})}\n\n"
 
             # Initial full worker snapshots (SSE-first model) unless client filtered by event_types excluding snapshots
+            scope = None
             try:
                 # Create a service scope to resolve scoped services (CMLWorkerRepository)
                 scope = self.service_provider.create_scope()  # type: ignore[attr-defined]
@@ -74,18 +79,64 @@ class EventsController(ControllerBase):
                     if worker_ids:
                         # Specific workers only
                         for wid in worker_ids:
-                            await _broadcast_worker_snapshot(
-                                worker_repo, self._sse_relay, self._serializer, wid, reason="initial"
-                            )
+                            await _broadcast_worker_snapshot(worker_repo, self._sse_relay, self._serializer, wid, reason="initial")
                     else:
                         # All active workers
                         workers = await worker_repo.get_active_workers_async()
                         for w in workers:
-                            await _broadcast_worker_snapshot(
-                                worker_repo, self._sse_relay, self._serializer, w.id(), reason="initial"
-                            )
+                            await _broadcast_worker_snapshot(worker_repo, self._sse_relay, self._serializer, w.id(), reason="initial")
             except Exception as e:
                 logger.warning(f"Failed to send initial worker snapshots: {e}")
+
+            # Initial lablet session snapshots
+            try:
+                if not scope:
+                    scope = self.service_provider.create_scope()  # type: ignore[attr-defined]
+                session_repo = scope.get_required_service(LabletSessionRepository)
+                if session_repo:
+                    sessions = await session_repo.list_active_async()
+                    for session in sessions:
+                        try:
+                            dto = map_lablet_session_to_summary_dto(session)
+                            snapshot = self._serializer.serialize(dto)
+                            if isinstance(snapshot, (bytes, bytearray)):
+                                snapshot = json.loads(snapshot.decode("utf-8"))
+                            else:
+                                snapshot = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+                            await self._sse_relay.broadcast_event(
+                                event_type="lablet.session.snapshot",
+                                data=snapshot,
+                                source="domain.lablet_session.snapshot",
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to send lablet session snapshot for {session.id()}: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to send initial lablet session snapshots: {e}")
+
+            # Initial lablet definition snapshots
+            try:
+                if not scope:
+                    scope = self.service_provider.create_scope()  # type: ignore[attr-defined]
+                definition_repo = scope.get_required_service(LabletDefinitionRepository)
+                if definition_repo:
+                    definitions = await definition_repo.list_active_async()
+                    for defn in definitions:
+                        try:
+                            dto = map_lablet_definition_to_summary_dto(defn)
+                            snapshot = self._serializer.serialize(dto)
+                            if isinstance(snapshot, (bytes, bytearray)):
+                                snapshot = json.loads(snapshot.decode("utf-8"))
+                            else:
+                                snapshot = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+                            await self._sse_relay.broadcast_event(
+                                event_type="lablet.definition.snapshot",
+                                data=snapshot,
+                                source="domain.lablet_definition.snapshot",
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to send lablet definition snapshot for {defn.id()}: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to send initial lablet definition snapshots: {e}")
 
             # Heartbeat interval (30 seconds)
             heartbeat_interval = 30
@@ -133,6 +184,10 @@ class EventsController(ControllerBase):
                             payload = payload.decode("utf-8")
 
                         yield f"event: {event_type}\ndata: {payload}\n\n"
+
+                        if event_type == "system.sse.shutdown":
+                            logger.info(f"Received system limit shutdown event, closing SSE stream for client {client_id}")
+                            break
                     else:
                         # Timeout occurred (Heartbeat)
                         get_event_task.cancel()

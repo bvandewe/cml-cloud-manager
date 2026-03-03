@@ -2,7 +2,7 @@
 
 ## SSL/HTTPS Configuration
 
-For development, SSL is disabled for both the `master` and `cml-cloud-manager` realms.
+For development, SSL is disabled for both the `master` and `lablet-cloud-manager` realms.
 
 ### First-Time Setup
 
@@ -49,7 +49,7 @@ The `keycloak_data` volume stores:
 
 ```bash
 docker compose down
-docker volume rm cml-cloud-manager_keycloak_data
+docker volume rm lablet-cloud-manager_keycloak_data
 docker compose up -d
 # Then re-run the SSL configuration commands above
 ```

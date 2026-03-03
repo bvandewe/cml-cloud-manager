@@ -1,5 +1,5 @@
 """Test fixtures package."""
 
-from .factories import SessionFactory, TaskFactory, TokenFactory
+from .factories import SessionFactory, TokenFactory
 
-__all__ = ["TaskFactory", "TokenFactory", "SessionFactory"]
+__all__ = ["TokenFactory", "SessionFactory"]

@@ -116,7 +116,7 @@ curl -X POST http://localhost:8000/api/tasks \
 
 # Check Grafana
 open http://localhost:3000
-# Navigate to Explore → Tempo → Search for "cml-cloud-manager"
+# Navigate to Explore → Tempo → Search for "lablet-cloud-manager"
 ```
 
 ## Metrics Not Recording
@@ -159,7 +159,7 @@ echo $OTEL_METRICS_EXPORTER
 curl http://localhost:8889/metrics
 
 # Should see metrics like:
-# cml_cloud_manager_tasks_created_total{priority="high"} 5
+# lablet_cloud_manager_tasks_created_total{priority="high"} 5
 ```
 
 **5. Check Prometheus targets**:
@@ -211,7 +211,7 @@ scrape_configs:
 
 ```bash
 # Query Prometheus directly
-curl 'http://localhost:9090/api/v1/query?query=cml_cloud_manager_tasks_created_total'
+curl 'http://localhost:9090/api/v1/query?query=lablet_cloud_manager_tasks_created_total'
 
 # Or use Grafana
 open http://localhost:3000
@@ -239,7 +239,7 @@ span.set_attribute("task.data", json.dumps(large_object))  # 100KB!
 
 ```bash
 # Check number of unique label combinations
-curl http://localhost:8889/metrics | grep cml_cloud_manager_tasks | wc -l
+curl http://localhost:8889/metrics | grep lablet_cloud_manager_tasks | wc -l
 ```
 
 If > 1000 time series, you have high cardinality.
@@ -435,7 +435,7 @@ echo $OTEL_SERVICE_NAME
 # Should match what you search for in Grafana
 
 # Update if wrong
-OTEL_SERVICE_NAME=cml-cloud-manager
+OTEL_SERVICE_NAME=lablet-cloud-manager
 ```
 
 ### Collector Configuration Not Applied
@@ -572,7 +572,7 @@ Use minimal config to isolate issues:
 
 ```bash
 # Minimal .env for testing
-OTEL_SERVICE_NAME=cml-cloud-manager
+OTEL_SERVICE_NAME=lablet-cloud-manager
 OTEL_TRACES_EXPORTER=console
 OTEL_METRICS_EXPORTER=console
 

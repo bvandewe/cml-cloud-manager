@@ -1,4 +1,15 @@
-"""Terminate CML Worker command with handler."""
+"""Terminate CML Worker command with handler.
+
+Sets the worker's desired_status to TERMINATED (spec update).
+The worker-controller will reconcile by terminating the EC2 instance.
+
+ADR-015: Control-plane-api MUST NOT call AWS EC2 directly.
+This follows the Kubernetes-like reconciliation pattern:
+- desired_status = spec (what user wants)
+- status = state (actual EC2 state)
+
+Warning: This is a destructive operation that cannot be undone.
+"""
 
 import logging
 from dataclasses import dataclass
@@ -11,16 +22,8 @@ from neuroglia.mediation import Command, CommandHandler, Mediator
 from neuroglia.observability.tracing import add_span_attributes
 from opentelemetry import trace
 
+from domain.enums import CMLWorkerStatus
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from integration.enums import AwsRegion
-from integration.exceptions import (
-    EC2AuthenticationException,
-    EC2InstanceNotFoundException,
-    EC2InstanceOperationException,
-    EC2InvalidParameterException,
-    IntegrationException,
-)
-from integration.services.aws_ec2_api_client import AwsEc2Client
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -29,26 +32,36 @@ tracer = trace.get_tracer(__name__)
 
 
 @dataclass
-class TerminateCMLWorkerCommand(Command[OperationResult[bool]]):
-    """Command to terminate a CML Worker and its EC2 instance.
+class TerminateCMLWorkerCommand(Command[OperationResult[dict]]):
+    """Command to request terminating a CML Worker (spec update).
 
-    This command:
-    1. Retrieves the worker from repository
-    2. Terminates the EC2 instance via AWS API (permanent deletion)
-    3. Marks worker aggregate as terminated
+    This command sets desired_status=TERMINATED. The worker-controller
+    will observe this change and reconcile by terminating the EC2 instance.
 
-    Warning: This is a destructive operation that cannot be undone.
+    Pattern: spec (desired_status) vs state (status) reconciliation
+
+    Warning: Termination is permanent and cannot be undone.
+
+    Attributes:
+        worker_id: Worker identifier
+        terminated_by: User ID who initiated the termination
+        reason: Optional reason for termination
     """
 
     worker_id: str
     terminated_by: str | None = None
+    reason: str | None = None
 
 
 class TerminateCMLWorkerCommandHandler(
     CommandHandlerBase,
-    CommandHandler[TerminateCMLWorkerCommand, OperationResult[bool]],
+    CommandHandler[TerminateCMLWorkerCommand, OperationResult[dict]],
 ):
-    """Handle terminating a CML Worker and its EC2 instance."""
+    """Handle terminating a CML Worker by updating desired_status (spec).
+
+    ADR-015: This handler does NOT call AWS EC2. It only updates the
+    desired_status field. Worker-controller reconciles actual state.
+    """
 
     def __init__(
         self,
@@ -57,7 +70,6 @@ class TerminateCMLWorkerCommandHandler(
         cloud_event_bus: CloudEventBus,
         cloud_event_publishing_options: CloudEventPublishingOptions,
         cml_worker_repository: CMLWorkerRepository,
-        aws_ec2_client: AwsEc2Client,
     ):
         super().__init__(
             mediator,
@@ -66,21 +78,15 @@ class TerminateCMLWorkerCommandHandler(
             cloud_event_publishing_options,
         )
         self.cml_worker_repository = cml_worker_repository
-        self.aws_ec2_client = aws_ec2_client
 
-    async def handle_async(self, request: TerminateCMLWorkerCommand) -> OperationResult[bool]:
-        """Handle terminate CML Worker command.
+    async def handle_async(self, request: TerminateCMLWorkerCommand) -> OperationResult[dict]:
+        """Handle terminate CML Worker command by updating desired_status.
 
         Args:
             request: Terminate command with worker ID
 
         Returns:
-            OperationResult with True if terminated successfully, or error
-
-        Raises:
-            EC2InstanceNotFoundException: If instance doesn't exist (logged as warning)
-            EC2InstanceOperationException: If terminate operation fails
-            EC2AuthenticationException: If AWS credentials invalid
+            OperationResult with worker status details
         """
         command = request
 
@@ -100,73 +106,71 @@ class TerminateCMLWorkerCommandHandler(
                 if not worker:
                     error_msg = f"CML Worker not found: {command.worker_id}"
                     log.error(error_msg)
-                    return self.bad_request(error_msg)
+                    return self.not_found("CMLWorker", error_msg)
 
-                span.set_attribute("ec2.instance_id", worker.state.aws_instance_id or "none")
                 span.set_attribute("cml_worker.current_status", worker.state.status.value)
+                span.set_attribute("cml_worker.current_desired_status", worker.state.desired_status.value)
 
-            # Terminate EC2 instance if assigned
-            if worker.state.aws_instance_id:
-                with tracer.start_as_current_span("terminate_ec2_instance") as span:
-                    try:
-                        aws_region = AwsRegion(worker.state.aws_region)
+            # Validate current state
+            if worker.state.status == CMLWorkerStatus.TERMINATED:
+                error_msg = f"CML Worker {command.worker_id} is already terminated"
+                log.info(error_msg)
+                return self.ok(
+                    {
+                        "id": worker.id(),
+                        "status": worker.state.status.value,
+                        "desired_status": worker.state.desired_status.value,
+                        "message": "Worker is already terminated",
+                    }
+                )
 
-                        success = await self.aws_ec2_client.terminate_instance(
-                            aws_region=aws_region,
-                            instance_id=worker.state.aws_instance_id,
-                        )
+            # Check if already at desired state
+            if worker.state.desired_status == CMLWorkerStatus.TERMINATED:
+                log.info(f"CML Worker {command.worker_id} already has desired_status=TERMINATED")
+                return self.ok(
+                    {
+                        "id": worker.id(),
+                        "status": worker.state.status.value,
+                        "desired_status": worker.state.desired_status.value,
+                        "message": "Already has desired_status=TERMINATED",
+                    }
+                )
 
-                        if not success:
-                            log.warning(
-                                f"Failed to terminate EC2 instance {worker.state.aws_instance_id}, "
-                                "but will mark worker as terminated anyway"
-                            )
+            with tracer.start_as_current_span("update_desired_status") as span:
+                # Update desired_status (spec) - worker-controller will reconcile
+                terminate_reason = command.reason or "manual"
 
-                        span.set_attribute("ec2.terminate_success", success)
+                worker.update_desired_status(
+                    new_desired_status=CMLWorkerStatus.TERMINATED,
+                    requested_by=command.terminated_by,
+                    reason=terminate_reason,
+                )
 
-                    except EC2InstanceNotFoundException as e:
-                        # Instance already gone - log warning and continue
-                        log.warning(
-                            f"EC2 instance {worker.state.aws_instance_id} not found during termination: {e}. "
-                            "Marking worker as terminated anyway."
-                        )
-                        span.set_attribute("ec2.already_terminated", True)
-            else:
-                log.info(f"CML Worker {command.worker_id} has no AWS instance to terminate")
-
-            with tracer.start_as_current_span("update_worker_aggregate") as span:
-                # Mark worker as terminated in domain
+                # Also call terminate to update domain state markers
                 worker.terminate(terminated_by=command.terminated_by)
 
-                span.set_attribute("cml_worker.terminated", True)
+                span.set_attribute("cml_worker.new_desired_status", CMLWorkerStatus.TERMINATED.value)
+                span.set_attribute("cml_worker.terminate_reason", terminate_reason)
 
             # Save worker (will publish domain events)
             await self.cml_worker_repository.update_async(worker)
 
             log.info(
-                f"CML Worker terminated successfully: id={worker.id()}, "
-                f"aws_instance_id={worker.state.aws_instance_id or 'none'}, "
+                f"CML Worker desired_status updated to TERMINATED: id={worker.id()}, "
+                f"current_status={worker.state.status.value}, "
+                f"reason={terminate_reason}, "
                 f"terminated_by={command.terminated_by or 'system'}"
             )
 
-            return self.ok(True)
-
-        except EC2InstanceOperationException as e:
-            log.error(f"Failed to terminate CML Worker {command.worker_id}: {e}")
-            return self.bad_request(f"Terminate operation failed: {str(e)}")
-
-        except EC2AuthenticationException as e:
-            log.error(f"AWS authentication failed while terminating CML Worker: {e}")
-            return self.bad_request(f"Authentication failed: {str(e)}")
-
-        except EC2InvalidParameterException as e:
-            log.error(f"Invalid parameters for terminating CML Worker: {e}")
-            return self.bad_request(f"Invalid parameters: {str(e)}")
-
-        except IntegrationException as e:
-            log.error(f"Integration error while terminating CML Worker: {e}")
-            return self.bad_request(f"Integration error: {str(e)}")
+            return self.ok(
+                {
+                    "id": worker.id(),
+                    "status": worker.state.status.value,
+                    "desired_status": worker.state.desired_status.value,
+                    "message": "Terminate requested - worker-controller will reconcile",
+                }
+            )
 
         except Exception as e:
-            log.error(f"Unexpected error terminating CML Worker: {e}", exc_info=True)
-            return self.bad_request(f"Unexpected error: {str(e)}")
+            log.error(f"Unexpected error updating CML Worker desired_status: {e}", exc_info=True)
+            return self.internal_server_error(f"Unexpected error: {str(e)}")

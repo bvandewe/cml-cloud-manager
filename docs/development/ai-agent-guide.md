@@ -1,6 +1,6 @@
 # AI Agent Guide
 
-This guide provides comprehensive instructions for AI coding agents (GitHub Copilot, Cursor, Cline, etc.) working on the CML Cloud Manager codebase.
+This guide provides comprehensive instructions for AI coding agents (GitHub Copilot, Cursor, Cline, etc.) working on the Lablet Cloud Manager codebase.
 
 !!! info "Single Source of Truth"
     The content below is automatically included from `.github/copilot-instructions.md` - the single maintained source for AI agent instructions. Do not edit this page directly; instead, update the source file.

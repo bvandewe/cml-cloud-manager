@@ -1,4 +1,4 @@
-# CML Cloud Manager - Main Application Server
+# Lablet Cloud Manager - Main Application Server
 # Handles API requests and serves the UI
 
 server {

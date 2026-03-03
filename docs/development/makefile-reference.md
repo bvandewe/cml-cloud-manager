@@ -102,7 +102,7 @@ make help         # Show all commands
 ```bash
 # Clone the repository (if needed)
 git clone <repository-url>
-cd cml-cloud-manager
+cd lablet-cloud-manager
 
 # Check environment
 make env-check

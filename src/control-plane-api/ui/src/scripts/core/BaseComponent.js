@@ -152,11 +152,18 @@ export class BaseComponent extends HTMLElement {
     // ========== Cleanup ==========
 
     /**
-     * Clean up subscriptions and timers
+     * Clean up subscriptions and timers.
+     * Handles both plain unsubscribe functions and Subscription objects
+     * (from @neuroglia/ui-core EventBus which returns { unsubscribe: () => void }).
      */
     cleanup() {
-        // Unsubscribe from all events
-        this._subscriptions.forEach(unsub => unsub());
+        this._subscriptions.forEach(sub => {
+            if (typeof sub === 'function') {
+                sub();
+            } else if (sub && typeof sub.unsubscribe === 'function') {
+                sub.unsubscribe();
+            }
+        });
         this._subscriptions = [];
     }
 
@@ -212,11 +219,19 @@ export class BaseComponent extends HTMLElement {
     // ========== Utilities ==========
 
     /**
-     * Emit custom DOM event (for parent components)
+     * Emit custom DOM event (for parent components).
+     * Supports two call signatures:
+     *   1. dispatchEvent(eventName: string, detail?: object) — convenience shorthand
+     *   2. dispatchEvent(event: Event) — native HTMLElement API
      */
-    dispatchEvent(eventName, detail = {}) {
-        super.dispatchEvent(
-            new CustomEvent(eventName, {
+    dispatchEvent(eventOrName, detail = {}) {
+        // If called with a native Event object, delegate to the native method
+        if (eventOrName instanceof Event) {
+            return super.dispatchEvent(eventOrName);
+        }
+        // Otherwise, treat first arg as a string event name (convenience API)
+        return super.dispatchEvent(
+            new CustomEvent(eventOrName, {
                 detail,
                 bubbles: true,
                 composed: true,

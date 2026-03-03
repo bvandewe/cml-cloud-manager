@@ -31,27 +31,12 @@
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label for="worker-instance-type" class="form-label">Instance Type *</label>
-                            <select class="form-select" id="worker-instance-type" required>
-                                <option value="">Select Type</option>
-                                <option value="c5.xlarge">c5.xlarge (4 vCPU, 8GB)</option>
-                                <option value="c5.2xlarge">c5.2xlarge (8 vCPU, 16GB)</option>
-                                <option value="c5.4xlarge">c5.4xlarge (16 vCPU, 32GB)</option>
-                                <option value="m5zn.metal">m5zn.metal (48 vCPU, 192GB)</option>
+                            <label for="worker-template" class="form-label">Worker Template *</label>
+                            <select class="form-select" id="worker-template" required>
+                                <option value="">Loading templates...</option>
                             </select>
+                            <small class="text-muted" id="worker-template-hint"></small>
                         </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="worker-ami" class="form-label">AMI ID</label>
-                        <input type="text" class="form-control" id="worker-ami"
-                            placeholder="ami-xxxxxxxxxxxxxxxxx (optional)">
-                        <small class="text-muted">Leave empty to use regional default</small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="worker-cml-version" class="form-label">CML Version</label>
-                        <input type="text" class="form-control" id="worker-cml-version" placeholder="e.g., 2.7.0">
                     </div>
 
                     <div class="alert alert-info">
@@ -479,6 +464,129 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Worker Template Modal -->
+<div class="modal fade" id="createWorkerTemplateModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-file-earmark-plus"></i> Create Worker Template
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createWorkerTemplateForm">
+                    <!-- Basic Information -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="templateName" class="form-label">Template Name *</label>
+                            <input type="text" class="form-control" id="templateName" required
+                                placeholder="e.g., large, xlarge, custom-1">
+                            <small class="text-muted">Unique identifier for this template</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="templateInstanceType" class="form-label">Instance Type *</label>
+                            <select class="form-select" id="templateInstanceType" required>
+                                <option value="">Select Instance Type</option>
+                                <option value="c5.xlarge">c5.xlarge (4 vCPU, 8GB)</option>
+                                <option value="c5.2xlarge">c5.2xlarge (8 vCPU, 16GB)</option>
+                                <option value="c5.4xlarge">c5.4xlarge (16 vCPU, 32GB)</option>
+                                <option value="m5.xlarge">m5.xlarge (4 vCPU, 16GB)</option>
+                                <option value="m5.2xlarge">m5.2xlarge (8 vCPU, 32GB)</option>
+                                <option value="m5zn.metal">m5zn.metal (48 vCPU, 192GB)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="templateDescription" class="form-label">Description *</label>
+                        <textarea class="form-control" id="templateDescription" rows="2" required
+                            placeholder="Describe this template's purpose and use case"></textarea>
+                    </div>
+
+                    <!-- Capacity Configuration -->
+                    <h6 class="border-bottom pb-2 mb-3">
+                        <i class="bi bi-cpu me-1"></i>Compute Capacity
+                    </h6>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="templateCpuCores" class="form-label">CPU Cores</label>
+                            <input type="number" class="form-control" id="templateCpuCores" min="1" value="4"
+                                placeholder="4">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="templateMemoryGb" class="form-label">Memory (GB)</label>
+                            <input type="number" class="form-control" id="templateMemoryGb" min="1" value="8"
+                                placeholder="8">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="templateStorageGb" class="form-label">Storage (GB)</label>
+                            <input type="number" class="form-control" id="templateStorageGb" min="10" value="100"
+                                placeholder="100">
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="templateMaxNodes" class="form-label">Max Nodes</label>
+                            <input type="number" class="form-control" id="templateMaxNodes" min="1" value="50"
+                                placeholder="50">
+                            <small class="text-muted">Maximum lab nodes this template can support</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="templateMaxLabs" class="form-label">Max Concurrent Labs</label>
+                            <input type="number" class="form-control" id="templateMaxLabs" min="1" value="5"
+                                placeholder="5">
+                        </div>
+                    </div>
+
+                    <!-- AMI and Cost -->
+                    <h6 class="border-bottom pb-2 mb-3">
+                        <i class="bi bi-gear me-1"></i>Configuration
+                    </h6>
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label for="templateAmiPattern" class="form-label">AMI Name Pattern</label>
+                            <input type="text" class="form-control" id="templateAmiPattern" value="CML-*"
+                                placeholder="CML-*-Ubuntu-*">
+                            <small class="text-muted">Pattern for finding the AMI in each region</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="templateCostPerHour" class="form-label">Cost/Hour (USD)</label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number" class="form-control" id="templateCostPerHour" step="0.01" min="0"
+                                    value="0.00" placeholder="0.00">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="templateEnabled" checked>
+                            <label class="form-check-label" for="templateEnabled">
+                                Enable this template for new workers
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>Note:</strong> Templates define the compute specifications for provisioning new workers.
+                        Capacity values help the scheduler match lablets to appropriate workers.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitCreateWorkerTemplate">
+                    <i class="bi bi-plus-circle"></i> Create Template
+                </button>
             </div>
         </div>
     </div>

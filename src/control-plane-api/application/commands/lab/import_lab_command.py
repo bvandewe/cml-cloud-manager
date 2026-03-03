@@ -1,141 +1,130 @@
-"""Import Lab Command - uploads and imports lab topology from YAML."""
+"""Import Lab Command - queues lab import for reconciliation (ADR-017).
+
+ADR-017: Lab import operations use the reconciliation pattern:
+1. Control-plane-api stores YAML in PendingLabImport (MongoDB)
+2. Lablet-controller watches etcd, sees pending import
+3. Lablet-controller imports the lab via CML API
+4. Lablet-controller reports success/failure via internal API
+"""
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from neuroglia.core.operation_result import OperationResult
 from neuroglia.mediation import Command, CommandHandler, Mediator
+from opentelemetry import trace
 
-from application.services.background_scheduler import BackgroundTaskScheduler
-from application.settings import Settings
+from domain.entities.pending_lab_import import PendingLabImport
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from integration.services.cml_api_client import CMLApiClientFactory
+from domain.repositories.pending_lab_import_repository import PendingLabImportRepository
 
 log = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 @dataclass
 class ImportLabCommand(Command[OperationResult[dict]]):
     """Command to import a lab topology from YAML.
 
+    ADR-017: This command stores the YAML for reconciliation.
+    The actual CML API call is performed by lablet-controller.
+
     Attributes:
         worker_id: Worker ID to import the lab to
         yaml_content: Lab topology in CML2 YAML format
         title: Optional title for the imported lab (overrides YAML title)
+        requested_by: Optional username of the requester
     """
 
     worker_id: str
     yaml_content: str
     title: str | None = None
+    requested_by: str | None = None
 
 
 class ImportLabCommandHandler(CommandHandler[ImportLabCommand, OperationResult[dict]]):
-    """Handler for ImportLabCommand - imports lab YAML to CML worker."""
+    """Handler for ImportLabCommand - queues lab import for reconciliation.
+
+    ADR-017: This handler stores the YAML in MongoDB, setting status=pending.
+    Lablet-controller reconciles by importing the lab via CML API.
+    """
 
     def __init__(
         self,
         mediator: Mediator,
         worker_repository: CMLWorkerRepository,
-        cml_api_client_factory: CMLApiClientFactory,
-        background_task_scheduler: BackgroundTaskScheduler,
-        settings: Settings,
+        pending_import_repository: PendingLabImportRepository,
     ):
         """Initialize handler with repository dependencies.
 
         Args:
             mediator: Mediator for triggering other commands
             worker_repository: Repository for accessing CML worker data
-            cml_api_client_factory: Factory for creating CML API clients
-            background_task_scheduler: Scheduler for checking background jobs
-            settings: Application settings
+            pending_import_repository: Repository for pending lab imports
         """
         self._mediator = mediator
         self._worker_repository = worker_repository
-        self._cml_client_factory = cml_api_client_factory
-        self._scheduler = background_task_scheduler
-        self._settings = settings
+        self._pending_import_repository = pending_import_repository
 
     async def handle_async(self, request: ImportLabCommand) -> OperationResult[dict]:
-        """Import lab topology to CML worker.
+        """Queue lab import for reconciliation.
+
+        ADR-017: Stores YAML in PendingLabImport, returns 202 Accepted.
+        Lablet-controller will reconcile the actual import.
 
         Args:
             request: Command containing worker_id, yaml_content, and optional title
 
         Returns:
-            OperationResult containing lab_id and title or error
+            OperationResult with accepted status (async processing)
         """
-        log.info(f"Importing lab to worker {request.worker_id}")
+        with tracer.start_as_current_span("import_lab_command") as span:
+            span.set_attribute("worker.id", request.worker_id)
+            span.set_attribute("yaml.size", len(request.yaml_content) if request.yaml_content else 0)
+            span.set_attribute("adr", "ADR-017")
+            span.set_attribute("pattern", "reconciliation")
 
-        # Get worker to access CML endpoint
-        worker = await self._worker_repository.get_by_id_async(request.worker_id)
-        if not worker:
-            return self.not_found("Worker", f"Worker {request.worker_id} not found")
+            try:
+                # 1. Validate worker exists
+                worker = await self._worker_repository.get_by_id_async(request.worker_id)
+                if not worker:
+                    error_msg = f"Worker {request.worker_id} not found"
+                    log.error(error_msg)
+                    return self.not_found("Worker", error_msg)
 
-        # Validate worker has CML endpoint
-        if not worker.state.https_endpoint:
-            return self.bad_request("Worker does not have HTTPS endpoint configured")
+                # 2. Validate YAML content
+                if not request.yaml_content or not request.yaml_content.strip():
+                    return self.bad_request("YAML content is required")
 
-        # Validate YAML content
-        if not request.yaml_content or not request.yaml_content.strip():
-            return self.bad_request("YAML content is required")
-
-        try:
-            # Determine endpoint to use (public or private based on settings)
-            endpoint = worker.get_effective_endpoint(self._settings.use_private_ip_for_monitoring)
-            if endpoint != worker.state.https_endpoint:
-                log.debug(f"Using private IP endpoint for lab import: {endpoint}")
-
-            # Create CML API client using factory
-            cml_client = self._cml_client_factory.create(base_url=endpoint)
-
-            # Import lab YAML
-            result = await cml_client.import_lab(request.yaml_content, request.title)
-
-            lab_id = result.get("id")
-            log.info(f"Successfully imported lab {lab_id} to worker {request.worker_id}")
-
-            # Trigger immediate lab refresh to update UI (with debounce check)
-            await self._trigger_lab_refresh(request.worker_id)
-
-            return self.ok(
-                {
-                    "lab_id": lab_id,
-                    "title": request.title or result.get("title", "Imported Lab"),
-                    "message": "Lab imported successfully",
-                }
-            )
-
-        except Exception as e:
-            log.error(f"Failed to import lab to worker {request.worker_id}: {e}")
-            return self.internal_server_error(f"Failed to import lab: {str(e)}")
-
-    async def _trigger_lab_refresh(self, worker_id: str) -> None:
-        """Trigger immediate lab refresh unless background job is imminent.
-
-        Args:
-            worker_id: ID of worker to refresh labs for
-        """
-        from .refresh_worker_labs_command import RefreshWorkerLabsCommand
-
-        # Check if global LabsRefreshJob is scheduled within threshold
-        labs_job = self._scheduler.get_job("LabsRefreshJob")
-        if labs_job and labs_job.next_run_time:
-            now_utc = datetime.now(timezone.utc)
-            next_run_utc = labs_job.next_run_time.replace(tzinfo=timezone.utc)
-            time_until_job = (next_run_utc - now_utc).total_seconds()
-
-            if 0 < time_until_job <= self._settings.worker_refresh_check_upcoming_job_threshold:
-                log.info(
-                    f"Skipping lab refresh after import for worker {worker_id} - "
-                    f"background job scheduled in {time_until_job:.1f}s"
+                # 3. Create PendingLabImport record (stores YAML in MongoDB)
+                pending_import = PendingLabImport.create(
+                    worker_id=request.worker_id,
+                    yaml_content=request.yaml_content,
+                    title=request.title,
+                    requested_by=request.requested_by,
                 )
-                return
 
-        # Trigger immediate refresh
-        log.info(f"Triggering lab refresh after import for worker {worker_id}")
-        try:
-            await self._mediator.execute_async(RefreshWorkerLabsCommand(worker_id=worker_id))
-        except Exception as e:
-            log.warning(f"Failed to trigger lab refresh for worker {worker_id}: {e}")
-            # Don't fail the import operation if refresh fails
+                # 4. Save to repository
+                await self._pending_import_repository.add_async(pending_import)
+
+                import_id = pending_import.id()
+                log.info(f"Created pending lab import {import_id} for worker {request.worker_id}")
+
+                span.set_attribute("import.id", import_id)
+
+                # 5. Return 202 Accepted - lablet-controller will reconcile
+                log.info(f"Lab import queued (import_id={import_id}). Lablet-controller will reconcile.")
+                return self.accepted(
+                    {
+                        "import_id": import_id,
+                        "worker_id": request.worker_id,
+                        "title": request.title,
+                        "status": "pending",
+                        "message": "Import queued for reconciliation",
+                    }
+                )
+
+            except Exception as e:
+                error_msg = f"Error queuing lab import: {str(e)}"
+                log.error(error_msg, exc_info=True)
+                return self.internal_server_error(error_msg)

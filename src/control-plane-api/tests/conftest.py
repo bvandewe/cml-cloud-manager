@@ -98,9 +98,22 @@ async def mongo_client() -> AsyncGenerator[AsyncIOMotorClient, None]:
     """Provide a MongoDB client for integration tests.
 
     Uses test database to avoid polluting production data.
+    Skips tests if MongoDB is not reachable (avoids hanging).
     """
-    connection_string: str = os.getenv("MONGO_CONNECTION_STRING", "mongodb://localhost:8022")
-    client: AsyncIOMotorClient = AsyncIOMotorClient(connection_string)
+    connection_string: str = os.getenv(
+        "MONGO_CONNECTION_STRING",
+        "mongodb://root:password123@localhost:8043/?authSource=admin",
+    )
+    client: AsyncIOMotorClient = AsyncIOMotorClient(
+        connection_string,
+        serverSelectionTimeoutMS=5000,
+    )
+    # Verify connectivity before yielding — skip if unreachable
+    try:
+        await client.admin.command("ping")
+    except Exception:
+        client.close()
+        pytest.skip("MongoDB is not available — skipping integration tests")
     yield client
     client.close()
 
@@ -110,7 +123,7 @@ async def mongo_db(
     mongo_client: AsyncIOMotorClient,
 ) -> AsyncGenerator[AgnosticDatabase, None]:
     """Provide a test database that is cleaned after each test."""
-    test_db_name: str = "test_cml_cloud_manager"
+    test_db_name: str = "test_lablet_cloud_manager"
     db: AgnosticDatabase = mongo_client[test_db_name]
     yield db
     # Cleanup: drop all collections after test

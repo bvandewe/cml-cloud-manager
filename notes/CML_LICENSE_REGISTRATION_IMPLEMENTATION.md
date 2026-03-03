@@ -37,7 +37,7 @@ Based on analysis of CML API v2.9 OpenAPI spec and existing codebase patterns, h
 ```
 User Action (UI Modal)
     ↓
-POST /api/workers/{id}/license (CML Cloud Manager)
+POST /api/workers/{id}/license (Lablet Cloud Manager)
     ↓
 RegisterCMLWorkerLicenseCommand (dispatched to background job)
     ↓
@@ -747,7 +747,7 @@ class CMLWorkerLicenseRegistrationStartedEventHandler(
         log.debug(f"📡 Broadcasting license registration started for worker {event.worker_id}")
 
         sse_event = CloudEvent.create(
-            source="cml-cloud-manager/workers",
+            source="lablet-cloud-manager/workers",
             type="worker.license.registration.started",
             data={
                 "worker_id": event.worker_id,
@@ -776,7 +776,7 @@ class CMLWorkerLicenseRegistrationCompletedEventHandler(
         log.info(f"📡 Broadcasting license registration completed for worker {event.worker_id}")
 
         sse_event = CloudEvent.create(
-            source="cml-cloud-manager/workers",
+            source="lablet-cloud-manager/workers",
             type="worker.license.registration.completed",
             data={
                 "worker_id": event.worker_id,
@@ -807,7 +807,7 @@ class CMLWorkerLicenseRegistrationFailedEventHandler(
         log.warning(f"📡 Broadcasting license registration failed for worker {event.worker_id}")
 
         sse_event = CloudEvent.create(
-            source="cml-cloud-manager/workers",
+            source="lablet-cloud-manager/workers",
             type="worker.license.registration.failed",
             data={
                 "worker_id": event.worker_id,
@@ -837,7 +837,7 @@ class CMLWorkerLicenseDeregisteredEventHandler(
         log.info(f"📡 Broadcasting license deregistered for worker {event.worker_id}")
 
         sse_event = CloudEvent.create(
-            source="cml-cloud-manager/workers",
+            source="lablet-cloud-manager/workers",
             type="worker.license.deregistered",
             data={
                 "worker_id": event.worker_id,

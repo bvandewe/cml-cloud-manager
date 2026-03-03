@@ -45,7 +45,7 @@ app = create_app()
 if __name__ == "__main__":
     import uvicorn
 
-    print("🚀 Starting CML Cloud Manager API Server")
+    print("🚀 Starting Lablet Cloud Manager API Server")
     print(f"   - API: http://{app_settings.app_host}:{app_settings.app_port}/api/docs")
     print(f"   - UI: http://{app_settings.app_host}:{app_settings.app_port}/")
     print(f"   - SSE: http://{app_settings.app_host}:{app_settings.app_port}/api/events/stream")
@@ -220,7 +220,7 @@ For production VM deployments:
 
 ```ini
 [Unit]
-Description=CML Cloud Manager API Server
+Description=Lablet Cloud Manager API Server
 After=network.target mongodb.service redis.service
 Wants=mongodb.service redis.service
 
@@ -228,11 +228,11 @@ Wants=mongodb.service redis.service
 Type=exec
 User=cmluser
 Group=cmluser
-WorkingDirectory=/opt/cml-cloud-manager/src
-Environment="PYTHONPATH=/opt/cml-cloud-manager/src"
+WorkingDirectory=/opt/lablet-cloud-manager/src
+Environment="PYTHONPATH=/opt/lablet-cloud-manager/src"
 Environment="WORKER_MONITORING_ENABLED=false"
-EnvironmentFile=/opt/cml-cloud-manager/.env
-ExecStart=/opt/cml-cloud-manager/.venv/bin/python api_server.py
+EnvironmentFile=/opt/lablet-cloud-manager/.env
+ExecStart=/opt/lablet-cloud-manager/.venv/bin/python api_server.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -243,7 +243,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/cml-cloud-manager/logs
+ReadWritePaths=/opt/lablet-cloud-manager/logs
 
 [Install]
 WantedBy=multi-user.target
@@ -253,7 +253,7 @@ WantedBy=multi-user.target
 
 ```ini
 [Unit]
-Description=CML Cloud Manager Background Worker
+Description=Lablet Cloud Manager Background Worker
 After=network.target mongodb.service redis.service cml-api.service
 Wants=mongodb.service redis.service cml-api.service
 
@@ -261,11 +261,11 @@ Wants=mongodb.service redis.service cml-api.service
 Type=exec
 User=cmluser
 Group=cmluser
-WorkingDirectory=/opt/cml-cloud-manager/src
-Environment="PYTHONPATH=/opt/cml-cloud-manager/src"
+WorkingDirectory=/opt/lablet-cloud-manager/src
+Environment="PYTHONPATH=/opt/lablet-cloud-manager/src"
 Environment="WORKER_MONITORING_ENABLED=true"
-EnvironmentFile=/opt/cml-cloud-manager/.env
-ExecStart=/opt/cml-cloud-manager/.venv/bin/python background_worker.py
+EnvironmentFile=/opt/lablet-cloud-manager/.env
+ExecStart=/opt/lablet-cloud-manager/.venv/bin/python background_worker.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -276,7 +276,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/cml-cloud-manager/logs
+ReadWritePaths=/opt/lablet-cloud-manager/logs
 
 [Install]
 WantedBy=multi-user.target

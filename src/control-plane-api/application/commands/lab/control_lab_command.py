@@ -1,8 +1,14 @@
-"""Lab Control Commands - Start, Stop, Wipe operations."""
+"""Lab Control Commands - Start, Stop, Wipe operations (ADR-017 Reconciliation Pattern).
+
+ADR-017: Lab control operations use the reconciliation pattern:
+1. Control-plane-api sets pending_action on LabRecord (DB-only)
+2. Lablet-controller watches etcd, sees pending action
+3. Lablet-controller executes the action via CML API
+4. Lablet-controller reports success/failure via internal API
+"""
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from enum import Enum
 
 from neuroglia.core import OperationResult
@@ -12,10 +18,8 @@ from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
 
-from application.services.background_scheduler import BackgroundTaskScheduler
-from application.settings import Settings
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from integration.services.cml_api_client import CMLApiClientFactory
+from domain.repositories.lab_record_repository import LabRecordRepository
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -35,9 +39,12 @@ class LabAction(str, Enum):
 class ControlLabCommand(Command[OperationResult[dict]]):
     """Command to control a lab (start/stop/wipe).
 
+    ADR-017: This command sets a pending action for reconciliation.
+    The actual CML API call is performed by lablet-controller.
+
     Attributes:
         worker_id: Worker ID hosting the lab
-        lab_id: Lab identifier
+        lab_id: Lab identifier (CML lab ID)
         action: Action to perform (start/stop/wipe)
     """
 
@@ -50,7 +57,11 @@ class ControlLabCommandHandler(
     CommandHandlerBase,
     CommandHandler[ControlLabCommand, OperationResult[dict]],
 ):
-    """Handler for lab control operations."""
+    """Handler for lab control operations.
+
+    ADR-017: This handler only updates the database, setting pending_action.
+    Lablet-controller reconciles by watching etcd and executing CML API calls.
+    """
 
     def __init__(
         self,
@@ -59,9 +70,7 @@ class ControlLabCommandHandler(
         cloud_event_bus: CloudEventBus,
         cloud_event_publishing_options: CloudEventPublishingOptions,
         cml_worker_repository: CMLWorkerRepository,
-        cml_api_client_factory: CMLApiClientFactory,
-        background_task_scheduler: BackgroundTaskScheduler,
-        settings: Settings,
+        lab_record_repository: LabRecordRepository,
     ):
         super().__init__(
             mediator,
@@ -69,19 +78,20 @@ class ControlLabCommandHandler(
             cloud_event_bus,
             cloud_event_publishing_options,
         )
-        self.cml_worker_repository = cml_worker_repository
-        self.cml_client_factory = cml_api_client_factory
-        self.background_task_scheduler = background_task_scheduler
-        self.settings = settings
+        self._worker_repository = cml_worker_repository
+        self._lab_repository = lab_record_repository
 
     async def handle_async(self, request: ControlLabCommand) -> OperationResult[dict]:
-        """Handle lab control command.
+        """Handle lab control command by setting pending action.
+
+        ADR-017: Sets pending_action on LabRecord, returns 202 Accepted.
+        Lablet-controller will reconcile the actual operation.
 
         Args:
             request: Control command with worker_id, lab_id, and action
 
         Returns:
-            OperationResult with success/failure status
+            OperationResult with accepted status (async processing)
         """
         command = request
 
@@ -89,94 +99,64 @@ class ControlLabCommandHandler(
             span.set_attribute("worker.id", command.worker_id)
             span.set_attribute("lab.id", command.lab_id)
             span.set_attribute("lab.action", command.action.value)
+            span.set_attribute("adr", "ADR-017")
+            span.set_attribute("pattern", "reconciliation")
 
             try:
-                # Get worker from repository
-                worker = await self.cml_worker_repository.get_by_id_async(command.worker_id)
+                # 1. Validate worker exists
+                worker = await self._worker_repository.get_by_id_async(command.worker_id)
                 if not worker:
                     error_msg = f"Worker {command.worker_id} not found"
                     log.error(error_msg)
-                    return self.bad_request(error_msg)
+                    return self.not_found("Worker", error_msg)
 
-                # Validate worker has CML endpoint
-                if not worker.state.https_endpoint:
-                    error_msg = f"Worker {command.worker_id} has no HTTPS endpoint configured"
+                # 2. Get lab record from repository
+                lab = await self._lab_repository.get_by_lab_id_async(
+                    worker_id=command.worker_id,
+                    lab_id=command.lab_id,
+                )
+                if not lab:
+                    error_msg = f"Lab {command.lab_id} not found on worker {command.worker_id}"
                     log.error(error_msg)
-                    return self.bad_request(error_msg)
+                    return self.not_found("Lab", error_msg)
 
-                # Determine endpoint to use (public or private based on settings)
-                endpoint = worker.get_effective_endpoint(self.settings.use_private_ip_for_monitoring)
-                if endpoint != worker.state.https_endpoint:
-                    log.debug(f"Using private IP endpoint for lab control: {endpoint}")
+                # 3. Check if there's already a pending action
+                if lab.state.pending_action:
+                    error_msg = f"Lab {command.lab_id} already has pending action: {lab.state.pending_action}. Wait for it to complete or clear it first."
+                    log.warning(error_msg)
+                    return self.conflict(error_msg)
 
-                # Create CML API client using factory
-                cml_client = self.cml_client_factory.create(base_url=endpoint)
-
-                # Perform the requested action
-                success = False
+                # 4. Set pending action based on requested action (DB-only, no CML call!)
                 if command.action == LabAction.START:
-                    log.info(f"Starting lab {command.lab_id} on worker {command.worker_id}")
-                    success = await cml_client.start_lab(command.lab_id)
+                    lab.request_start()
+                    log.info(f"Set pending_action=start for lab {command.lab_id}")
                 elif command.action == LabAction.STOP:
-                    log.info(f"Stopping lab {command.lab_id} on worker {command.worker_id}")
-                    success = await cml_client.stop_lab(command.lab_id)
+                    lab.request_stop()
+                    log.info(f"Set pending_action=stop for lab {command.lab_id}")
                 elif command.action == LabAction.WIPE:
-                    log.info(f"Wiping lab {command.lab_id} on worker {command.worker_id}")
-                    success = await cml_client.wipe_lab(command.lab_id)
+                    lab.request_wipe()
+                    log.info(f"Set pending_action=wipe for lab {command.lab_id}")
                 else:
                     error_msg = f"Unknown action: {command.action}"
                     log.error(error_msg)
                     return self.bad_request(error_msg)
 
-                if success:
-                    log.info(f"Successfully performed {command.action.value} on lab {command.lab_id}")
+                # 5. Save lab record with pending action
+                await self._lab_repository.update_async(lab)
 
-                    # Schedule on-demand worker data refresh after lab operation
-                    await self._schedule_worker_refresh(command.worker_id)
-
-                    return self.ok(
-                        {
-                            "lab_id": command.lab_id,
-                            "action": command.action.value,
-                            "status": "success",
-                        }
-                    )
-                else:
-                    error_msg = f"Failed to {command.action.value} lab {command.lab_id}"
-                    log.error(error_msg)
-                    return self.bad_request(error_msg)
+                # 6. Return 202 Accepted - lablet-controller will reconcile
+                log.info(f"Lab control {command.action.value} queued for lab {command.lab_id}. Lablet-controller will reconcile.")
+                return self.accepted(
+                    {
+                        "lab_id": command.lab_id,
+                        "worker_id": command.worker_id,
+                        "action": command.action.value,
+                        "status": "pending",
+                        "message": f"Action '{command.action.value}' queued for reconciliation",
+                    }
+                )
 
             except Exception as e:
-                error_msg = f"Error performing {command.action.value} on lab {command.lab_id}: {str(e)}"
+                error_msg = f"Error queuing {command.action.value} for lab {command.lab_id}: {str(e)}"
                 log.error(error_msg, exc_info=True)
-                return self.bad_request(error_msg)
-
-    async def _schedule_worker_refresh(self, worker_id: str) -> None:
-        """Schedule an on-demand worker data refresh after lab operation.
-
-        Args:
-            worker_id: ID of the worker to refresh
-        """
-        # Import here to avoid circular import at module load time
-        from application.jobs.on_demand_worker_data_refresh_job import OnDemandWorkerDataRefreshJob
-
-        try:
-            job_id = f"on_demand_refresh_{worker_id}"
-
-            # Create and schedule job
-            job = OnDemandWorkerDataRefreshJob(worker_id=worker_id)
-            job.__task_id__ = job_id
-            job.__task_name__ = "OnDemandWorkerDataRefreshJob"
-            job.__background_task_type__ = "scheduled"
-            job.__scheduled_at__ = datetime.now(timezone.utc)
-
-            # Enqueue via scheduler
-            await self.background_task_scheduler.enqueue_task_async(job)
-
-            log.info(f"Scheduled on-demand refresh for worker {worker_id} after lab operation")
-        except Exception as ex:
-            # Log but don't fail the lab operation if refresh scheduling fails
-            log.warning(
-                f"Failed to schedule worker refresh for {worker_id}: {ex}",
-                exc_info=True,
-            )
+                return self.internal_server_error(error_msg)

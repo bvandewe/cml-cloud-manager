@@ -1,19 +1,23 @@
-from .background_scheduler import (
-    BackgroundJob,
-    BackgroundTaskScheduler,
-    BackgroundTaskSchedulerOptions,
-    RecurrentBackgroundJob,
-    ScheduledBackgroundJob,
-    backgroundjob,
-)
+from .port_allocation_service import PortAllocationService
 from .sse_event_relay import SSEEventRelay
+from .worker_template_service import (
+    NoMatchingTemplateError,
+    TemplateLoadError,
+    TemplateNotFoundError,
+    TemplateSelection,
+    TemplateValidationError,
+    WorkerTemplateSeederHostedService,
+    WorkerTemplateService,
+)
 
 __all__ = [
-    "BackgroundJob",
-    "BackgroundTaskScheduler",
-    "BackgroundTaskSchedulerOptions",
-    "RecurrentBackgroundJob",
-    "ScheduledBackgroundJob",
-    "backgroundjob",
+    "NoMatchingTemplateError",
+    "PortAllocationService",
     "SSEEventRelay",
+    "TemplateLoadError",
+    "TemplateNotFoundError",
+    "TemplateSelection",
+    "TemplateValidationError",
+    "WorkerTemplateSeederHostedService",
+    "WorkerTemplateService",
 ]

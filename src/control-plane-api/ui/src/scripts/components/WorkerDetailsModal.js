@@ -17,7 +17,7 @@ import * as bootstrap from 'bootstrap';
 import { escapeHtml } from './escape.js';
 import { renderWorkerOverview } from './workerOverview.js';
 import { isAdmin, isAdminOrManager } from '../utils/roles.js';
-import { formatDateWithRelative, initializeDateTooltips } from '../utils/dates.js';
+import { formatDateWithRelative, initializeDateTooltips, parseUTCDate } from '../utils/dates.js';
 import { showToast } from '../ui/notifications.js';
 import { showConfirm } from './modals.js';
 import { showDeleteModal, showLicenseModal } from '../ui/worker-modals.js';
@@ -122,6 +122,31 @@ export class WorkerDetailsModal extends BaseComponent {
             }
         });
 
+        // Lab Record events — refresh Labs tab when lab status changes or actions complete
+        this.subscribe(EventTypes.LAB_RECORD_STATUS_UPDATED, data => {
+            if (this.currentWorkerId && this.tabs.labs !== null) {
+                this.loadLabsTab();
+            }
+        });
+
+        this.subscribe(EventTypes.LAB_RECORD_ACTION_QUEUED, data => {
+            if (this.currentWorkerId && this.tabs.labs !== null) {
+                this.loadLabsTab();
+            }
+        });
+
+        this.subscribe(EventTypes.LAB_RECORD_ACTION_COMPLETED, data => {
+            if (this.currentWorkerId && this.tabs.labs !== null) {
+                this.loadLabsTab();
+            }
+        });
+
+        this.subscribe(EventTypes.LAB_RECORD_ACTION_FAILED, data => {
+            if (this.currentWorkerId && this.tabs.labs !== null) {
+                this.loadLabsTab();
+            }
+        });
+
         this.render();
     }
 
@@ -149,7 +174,7 @@ export class WorkerDetailsModal extends BaseComponent {
                             <ul class="nav nav-tabs mb-3" id="workerDetailsTabs" role="tablist">
                                 <li class="nav-item" role="presentation">
                                     <button class="nav-link active" id="aws-tab-btn" data-tab="aws" type="button">
-                                        <i class="bi bi-hdd-stack"></i> AWS
+                                        <i class="bi bi-hdd-stack"></i> Runtime
                                     </button>
                                 </li>
                                 <li class="nav-item" role="presentation">
@@ -450,12 +475,13 @@ export class WorkerDetailsModal extends BaseComponent {
         const titleEl = this.$('.modal-title');
         if (titleEl && this.currentWorker) {
             const httpsEndpoint = this.currentWorker.https_endpoint;
-            const name = escapeHtml(this.currentWorker.name || 'Unknown Worker');
+            const awsNameTag = this.currentWorker.aws_tags?.Name;
+            const displayName = escapeHtml(awsNameTag || this.currentWorker.name || 'Unknown Worker');
 
             if (httpsEndpoint) {
-                titleEl.innerHTML = `<i class="bi bi-info-circle"></i> <a href="${httpsEndpoint}" target="_blank" class="text-decoration-none text-reset" title="Open Worker in new tab">${name} <i class="bi bi-box-arrow-up-right small ms-1" style="font-size: 0.7em;"></i></a>`;
+                titleEl.innerHTML = `<i class="bi bi-info-circle"></i> Worker: <a href="${httpsEndpoint}" target="_blank" class="text-decoration-none text-reset" title="Open Worker in new tab">${displayName} <i class="bi bi-box-arrow-up-right small ms-1" style="font-size: 0.7em;"></i></a>`;
             } else {
-                titleEl.innerHTML = `<i class="bi bi-info-circle"></i> ${name}`;
+                titleEl.innerHTML = `<i class="bi bi-info-circle"></i> Worker: ${displayName}`;
             }
         }
     }
@@ -542,13 +568,27 @@ export class WorkerDetailsModal extends BaseComponent {
         const diskTotal = sysInfo.disk_total ?? stats.disk?.total;
         const diskFree = sysInfo.disk_free ?? stats.disk?.free;
 
-        // Compute nodes are in system health
+        // Compute nodes are in system health, with utilization from system info
         const computesDict = health.computes || {};
-        // Convert dict to array, adding ID/name from key if needed
-        const compute = Object.entries(computesDict).map(([key, val]) => ({
-            name: key, // Key is usually hostname or ID
-            ...val,
-        }));
+        // Convert dict to array, merging health data with per-node stats from system_info
+        const compute = Object.entries(computesDict).map(([key, val]) => {
+            // Get per-node utilization from system_info.computes (stats data)
+            const nodeStats = computesInfo[key]?.stats || {};
+            const cpuPct = nodeStats.cpu?.percent ?? 0;
+            const memPct = nodeStats.memory?.total && nodeStats.memory?.used ? ((nodeStats.memory.used / nodeStats.memory.total) * 100).toFixed(0) : 0;
+            const diskPct = nodeStats.disk?.total && nodeStats.disk?.used ? ((nodeStats.disk.used / nodeStats.disk.total) * 100).toFixed(0) : 0;
+            return {
+                name: val.hostname || key,
+                valid: val.valid,
+                // Map CML health fields to display field names
+                is_registered: val.lld_connected ?? false,
+                is_connected: val.lld_synced ?? false,
+                is_ready: val.admission_state === 'READY',
+                cpu_usage: typeof cpuPct === 'number' ? cpuPct.toFixed(0) : cpuPct,
+                memory_usage: memPct,
+                disk_usage: diskPct,
+            };
+        });
 
         // Helper for badges
         const renderBadge = (condition, trueText = 'Yes', falseText = 'No') => {
@@ -632,7 +672,7 @@ export class WorkerDetailsModal extends BaseComponent {
                                 <tr><td class="text-muted">Ready State:</td><td>${renderBadge(w.cml_ready, 'READY', 'NOT READY')}</td></tr>
                                 <tr><td class="text-muted">Uptime:</td><td>${sysStats.uptime || 'Unknown'}</td></tr>
                                 <tr><td class="text-muted">Active Nodes: <i class="bi bi-info-circle text-muted" data-bs-toggle="tooltip" title="Count excludes external connector nodes"></i></td><td>${nodesDisplay}</td></tr>
-                                <tr><td class="text-muted">Last Synced:</td><td>${w.last_synced_at ? formatDateWithRelative(w.last_synced_at) : 'N/A'} <i class="bi bi-info-circle text-muted" title="Last time data was synced from CML"></i></td></tr>
+                                <tr><td class="text-muted">Last Synced:</td><td>${w.cml_last_synced_at ? formatDateWithRelative(w.cml_last_synced_at) : 'N/A'} <i class="bi bi-info-circle text-muted" title="Last time data was synced from CML"></i></td></tr>
                             </table>
                         </div>
                     </div>
@@ -652,11 +692,11 @@ export class WorkerDetailsModal extends BaseComponent {
                         <div class="card-body">
                             <table class="table table-sm table-borderless mb-0">
                                 <tr><td class="text-muted">Licensed:</td><td>${renderBadge(w.license_status === 'registered' || w.cml_license_info?.registration_status === 'COMPLETED', 'YES', 'NO')}</td></tr>
-                                <tr><td class="text-muted">Edition:</td><td><span class="badge bg-primary">${escapeHtml(license.product_name || license.active_license || 'UNKNOWN')}</span></td></tr>
-                                <tr><td class="text-muted">Smart Account:</td><td><strong>${escapeHtml(license.smart_account || 'N/A')}</strong></td></tr>
-                                <tr><td class="text-muted">Virtual Account:</td><td><strong>${escapeHtml(license.virtual_account || 'N/A')}</strong></td></tr>
-                                <tr><td class="text-muted">Reg. Expires:</td><td>${license.registration_expires || 'N/A'}</td></tr>
-                                <tr><td class="text-muted">Auth Status:</td><td>${license.authorization_status || 'N/A'}</td></tr>
+                                <tr><td class="text-muted">Edition:</td><td><span class="badge bg-primary">${escapeHtml(license.product_license?.active || license.product || (license.is_enterprise ? 'CML_Enterprise' : 'UNKNOWN'))}</span></td></tr>
+                                <tr><td class="text-muted">Smart Account:</td><td><strong>${escapeHtml(license.smart_account || license.registration?.smart_account || 'N/A')}</strong></td></tr>
+                                <tr><td class="text-muted">Virtual Account:</td><td><strong>${escapeHtml(license.virtual_account || license.registration?.virtual_account || 'N/A')}</strong></td></tr>
+                                <tr><td class="text-muted">Reg. Expires:</td><td>${license.expires || license.registration?.expires || 'N/A'}</td></tr>
+                                <tr><td class="text-muted">Auth Status:</td><td>${license.authorization_status || license.authorization?.status || 'N/A'}</td></tr>
                             </table>
                         </div>
                     </div>
@@ -672,7 +712,16 @@ export class WorkerDetailsModal extends BaseComponent {
                              <table class="table table-sm table-borderless mb-0">
                                 <tr><td class="text-muted">Overall Status:</td><td>${renderBadge(health.valid !== false, 'VALID', 'INVALID')}</td></tr>
                                 <tr><td class="text-muted">Service Status:</td><td><span class="badge bg-${w.service_status === 'available' ? 'success' : 'warning'}">${w.service_status}</span></td></tr>
-                                <tr><td class="text-muted">HTTPS Endpoint:</td><td>${w.https_endpoint ? `<a href="${escapeHtml(w.https_endpoint)}" target="_blank" class="text-decoration-none">${escapeHtml(w.https_endpoint)}</a>` : 'N/A'}</td></tr>
+                                <tr><td class="text-muted">HTTPS Endpoint:</td><td>${(() => {
+                                    const endpoint = w.https_endpoint;
+                                    const fallbackUrl = w.public_ip ? `https://${w.public_ip}` : null;
+                                    const displayUrl = endpoint || fallbackUrl;
+                                    if (displayUrl) {
+                                        const label = endpoint ? escapeHtml(endpoint) : `${escapeHtml(fallbackUrl)} <span class="badge bg-warning text-dark ms-1" style="font-size: 0.7em;">via Public IP</span>`;
+                                        return `<a href="${escapeHtml(displayUrl)}" target="_blank" class="text-decoration-none">${label}</a>`;
+                                    }
+                                    return 'N/A';
+                                })()}</td></tr>
                             </table>
                         </div>
                     </div>
@@ -681,8 +730,9 @@ export class WorkerDetailsModal extends BaseComponent {
                 <!-- Resource Utilization -->
                 <div class="col-md-12">
                     <div class="card">
-                        <div class="card-header bg-light">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
                             <h6 class="mb-0"><i class="bi bi-speedometer2"></i> Resource Utilization</h6>
+                            ${w.cml_last_synced_at ? `<small class="text-muted"><i class="bi bi-clock-history"></i> Synced: ${formatDateWithRelative(w.cml_last_synced_at)}</small>` : ''}
                         </div>
                         <div class="card-body">
                             <div class="row">
@@ -719,20 +769,20 @@ export class WorkerDetailsModal extends BaseComponent {
                                 </div>
                                 <div class="col-md-3">
                                     <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Is Primary:</span>
-                                        ${renderCheck(health.controller?.is_primary)}
+                                        <span class="text-muted">Core Connected:</span>
+                                        ${renderCheck(health.controller?.core_connected)}
                                     </div>
                                 </div>
                                 <div class="col-md-3">
                                     <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Is Active:</span>
-                                        ${renderCheck(health.controller?.is_active)}
+                                        <span class="text-muted">Nodes Loaded:</span>
+                                        ${renderCheck(health.controller?.nodes_loaded)}
                                     </div>
                                 </div>
                                 <div class="col-md-3">
                                     <div class="d-flex justify-content-between">
-                                        <span class="text-muted">Has Quorum:</span>
-                                        ${renderCheck(health.controller?.has_quorum)}
+                                        <span class="text-muted">Images Loaded:</span>
+                                        ${renderCheck(health.controller?.images_loaded)}
                                     </div>
                                 </div>
                             </div>
@@ -884,8 +934,8 @@ export class WorkerDetailsModal extends BaseComponent {
         if (!container) return;
 
         try {
-            const { getWorkerLabs } = await import('../api/workers.js');
-            const labs = await getWorkerLabs(this.currentRegion, this.currentWorkerId);
+            const { listLabRecords, getLabRecordBindings } = await import('../api/lab-records.js');
+            const labs = await listLabRecords({ worker_id: this.currentWorkerId });
 
             if (!labs || labs.length === 0) {
                 container.innerHTML = `
@@ -898,13 +948,38 @@ export class WorkerDetailsModal extends BaseComponent {
                 return;
             }
 
+            // Fetch bindings for each LabRecord
+            let bindingsMap = {}; // lab_record_id → { lab_record_id, bindings[] }
+            try {
+                const bindingPromises = labs.map(lab =>
+                    getLabRecordBindings(lab.id)
+                        .then(result => {
+                            bindingsMap[lab.id] = {
+                                lab_record_id: lab.id,
+                                status: lab.status,
+                                bindings: result.bindings || [],
+                            };
+                        })
+                        .catch(err => {
+                            console.warn(`[WorkerDetailsModal] Failed to fetch bindings for lab record ${lab.id}:`, err);
+                            bindingsMap[lab.id] = { lab_record_id: lab.id, status: lab.status, bindings: [] };
+                        })
+                );
+                await Promise.all(bindingPromises);
+            } catch (bindingError) {
+                console.warn('[WorkerDetailsModal] Failed to fetch lab record bindings (non-fatal):', bindingError);
+            }
+
             container.innerHTML = `
                 <div class="accordion" id="labsAccordion">
                     ${labs
                         .map((lab, index) => {
                             const id = `lab-${index}`;
                             const state = lab.state || 'UNKNOWN';
-                            const isStarted = state === 'STARTED';
+                            const isRunning = ['STARTED', 'BOOTED', 'QUEUED', 'STARTING', 'PAUSED'].includes(state.toUpperCase());
+                            const isStopped = ['STOPPED', 'WIPED', 'DEFINED', 'DEFINED_ON_CORE', 'IMPORTED', 'DISCOVERED'].includes(state.toUpperCase());
+                            const bindingInfo = bindingsMap[lab.id];
+                            const pendingAction = lab.pending_action;
 
                             return `
                             <div class="accordion-item">
@@ -913,6 +988,8 @@ export class WorkerDetailsModal extends BaseComponent {
                                         <div class="d-flex align-items-center w-100 me-3">
                                             <span class="fw-bold me-3">${escapeHtml(lab.title)}</span>
                                             <span class="badge ${this.getLabStateBadgeClass(state)} me-auto">${state}</span>
+                                            ${pendingAction ? `<span class="badge bg-warning text-dark me-2" title="Pending action: ${pendingAction}"><i class="bi bi-hourglass-split"></i> ${pendingAction}</span>` : ''}
+                                            ${bindingInfo && bindingInfo.bindings.length > 0 ? `<span class="badge bg-info me-2" title="Bound to ${bindingInfo.bindings.length} lablet instance(s)"><i class="bi bi-link-45deg"></i> ${bindingInfo.bindings.length}</span>` : ''}
                                             <span class="small text-muted me-3"><i class="bi bi-pc-display"></i> ${lab.node_count || 0} Nodes</span>
                                             <span class="small text-muted"><i class="bi bi-link"></i> ${lab.link_count || 0} Links</span>
                                         </div>
@@ -924,28 +1001,25 @@ export class WorkerDetailsModal extends BaseComponent {
                                             <div class="col-md-6">
                                                 <h6 class="border-bottom pb-2">Lab Information</h6>
                                                 <table class="table table-sm table-borderless mb-3">
-                                                    <tr><td class="text-muted" width="30%">ID:</td><td><code>${lab.id}</code></td></tr>
-                                                    <tr><td class="text-muted">Owner:</td><td>${escapeHtml(lab.owner || 'Unknown')}</td></tr>
+                                                    <tr><td class="text-muted" width="30%">Lab ID:</td><td><code>${lab.lab_id || lab.id}</code></td></tr>
+                                                    <tr><td class="text-muted">Owner:</td><td>${escapeHtml(lab.owner_username || 'Unknown')}</td></tr>
                                                     <tr><td class="text-muted">Created:</td><td>${formatDateWithRelative(lab.created)}</td></tr>
                                                 </table>
                                             </div>
                                             <div class="col-md-6">
                                                 <h6 class="border-bottom pb-2">Actions</h6>
                                                 <div class="d-flex gap-2 flex-wrap">
-                                                    <button class="btn btn-sm btn-success lab-action" data-action="start" data-lab-id="${lab.id}" ${isStarted ? 'disabled' : ''}><i class="bi bi-play-fill"></i> Start</button>
-                                                    <button class="btn btn-sm btn-warning lab-action" data-action="stop" data-lab-id="${lab.id}" ${!isStarted ? 'disabled' : ''}><i class="bi bi-stop-fill"></i> Stop</button>
-                                                    <button class="btn btn-sm btn-danger lab-action" data-action="wipe" data-lab-id="${lab.id}"><i class="bi bi-eraser"></i> Wipe</button>
-                                                    <button class="btn btn-sm btn-outline-primary lab-action" data-action="export" data-lab-id="${lab.id}"><i class="bi bi-download"></i> Download</button>
-                                                    <button class="btn btn-sm btn-outline-danger lab-action" data-action="delete" data-lab-id="${lab.id}"><i class="bi bi-trash"></i> Delete</button>
+                                                    <button class="btn btn-sm btn-success lab-action" data-action="start" data-lab-id="${lab.id}" ${isRunning || pendingAction ? 'disabled' : ''}><i class="bi bi-play-fill"></i> Start</button>
+                                                    <button class="btn btn-sm btn-warning lab-action" data-action="stop" data-lab-id="${lab.id}" ${!isRunning || pendingAction ? 'disabled' : ''}><i class="bi bi-stop-fill"></i> Stop</button>
+                                                    <button class="btn btn-sm btn-danger lab-action" data-action="wipe" data-lab-id="${lab.id}" ${pendingAction ? 'disabled' : ''}><i class="bi bi-eraser"></i> Wipe</button>
+                                                    <button class="btn btn-sm btn-outline-primary lab-action" data-action="export" data-lab-id="${lab.id}"><i class="bi bi-download"></i> Export</button>
+                                                    <button class="btn btn-sm btn-outline-danger lab-action" data-action="delete" data-lab-id="${lab.id}" ${pendingAction ? 'disabled' : ''}><i class="bi bi-trash"></i> Delete</button>
                                                 </div>
                                             </div>
+                                            ${this.renderLabBindings(bindingInfo)}
                                             <div class="col-12">
                                                 <h6 class="border-bottom pb-2">Description</h6>
                                                 <div class="bg-light p-2 rounded small">${escapeHtml(lab.description || 'No description')}</div>
-                                            </div>
-                                            <div class="col-12">
-                                                <h6 class="border-bottom pb-2 mb-3">Notes</h6>
-                                                <div class="bg-light p-2 rounded small">${escapeHtml(lab.notes || 'No notes')}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -964,6 +1038,97 @@ export class WorkerDetailsModal extends BaseComponent {
             console.error('[WorkerDetailsModal] Failed to load labs:', error);
             container.innerHTML = `<div class="alert alert-danger">Failed to load labs: ${escapeHtml(error.message)}</div>`;
         }
+    }
+
+    /**
+     * Render the Lablet Bindings section for a lab (Phase 11: P11-22).
+     * Shows which LabletInstances are currently bound to this lab via LabletLabBinding.
+     * @param {Object|undefined} bindingInfo - { lab_record_id, status, bindings[] }
+     * @returns {string} HTML for the bindings section
+     */
+    renderLabBindings(bindingInfo) {
+        if (!bindingInfo) {
+            return `
+                <div class="col-12">
+                    <h6 class="border-bottom pb-2"><i class="bi bi-link-45deg me-1"></i>Lablet Bindings</h6>
+                    <div class="text-muted small"><i class="bi bi-info-circle me-1"></i>No LabRecord tracked for this lab</div>
+                </div>
+            `;
+        }
+
+        const { bindings, lab_record_id, status } = bindingInfo;
+        const activeBindings = bindings.filter(b => b.is_active);
+        const releasedBindings = bindings.filter(b => !b.is_active);
+
+        if (bindings.length === 0) {
+            const shortRecordId = lab_record_id ? lab_record_id.split('-')[0] : '—';
+            return `
+                <div class="col-12">
+                    <h6 class="border-bottom pb-2"><i class="bi bi-link-45deg me-1"></i>Lablet Bindings</h6>
+                    <div class="d-flex align-items-center justify-content-between">
+                        <span class="text-muted small">No active lablet bindings</span>
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis small">
+                            Record: <a href="#" class="open-lab-record-link text-decoration-none" data-lab-record-id="${escapeHtml(lab_record_id)}" title="Open Lab Record ${escapeHtml(lab_record_id)}">
+                                <code class="small">${escapeHtml(shortRecordId)}</code> <i class="bi bi-box-arrow-up-right" style="font-size: 0.7em;"></i>
+                            </a>
+                        </span>
+                    </div>
+                </div>
+            `;
+        }
+
+        const renderBinding = binding => {
+            const isActive = binding.is_active;
+            const statusClass = isActive ? 'bg-success' : 'bg-secondary';
+            const statusLabel = isActive ? 'Active' : 'Released';
+            const roleClass = binding.role === 'primary' ? 'bg-primary-subtle text-primary-emphasis' : 'bg-secondary-subtle text-secondary-emphasis';
+
+            return `
+                <div class="d-flex align-items-center justify-content-between py-1 ${isActive ? '' : 'opacity-50'}">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge ${statusClass} badge-sm">${statusLabel}</span>
+                        <span class="badge ${roleClass}">${escapeHtml(binding.role || 'primary')}</span>
+                        <span class="font-monospace small text-truncate" style="max-width: 200px;" title="${escapeHtml(binding.lablet_instance_id)}">
+                            <i class="bi bi-grid-3x3-gap me-1"></i>${escapeHtml(binding.lablet_instance_id)}
+                        </span>
+                    </div>
+                    <small class="text-muted">
+                        ${binding.bound_at ? formatDateWithRelative(binding.bound_at) : ''}
+                        ${binding.released_at ? ` → ${formatDateWithRelative(binding.released_at)}` : ''}
+                    </small>
+                </div>
+            `;
+        };
+
+        return `
+            <div class="col-12">
+                <h6 class="border-bottom pb-2">
+                    <i class="bi bi-link-45deg me-1"></i>Lablet Bindings
+                    <span class="badge bg-info ms-2">${activeBindings.length} active</span>
+                    ${releasedBindings.length > 0 ? `<span class="badge bg-secondary ms-1">${releasedBindings.length} released</span>` : ''}
+                </h6>
+                <div class="list-group list-group-flush small">
+                    ${activeBindings.map(renderBinding).join('')}
+                    ${
+                        releasedBindings.length > 0
+                            ? `
+                        <details class="mt-1">
+                            <summary class="text-muted small cursor-pointer">Show ${releasedBindings.length} released binding(s)</summary>
+                            ${releasedBindings.map(renderBinding).join('')}
+                        </details>
+                    `
+                            : ''
+                    }
+                </div>
+                <div class="mt-1">
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis small">
+                        Record: <a href="#" class="open-lab-record-link text-decoration-none" data-lab-record-id="${escapeHtml(lab_record_id)}" title="Open Lab Record ${escapeHtml(lab_record_id)}">
+                            <code class="small">${escapeHtml(lab_record_id ? lab_record_id.split('-')[0] : '—')}</code> <i class="bi bi-box-arrow-up-right" style="font-size: 0.7em;"></i>
+                        </a>
+                    </span>
+                </div>
+            </div>
+        `;
     }
 
     getLabStateBadgeClass(state) {
@@ -987,6 +1152,26 @@ export class WorkerDetailsModal extends BaseComponent {
                 await this.handleLabAction(action, labId);
             });
         });
+
+        // Cross-link: open LabDetailModal when clicking a Record badge
+        this.$$('.open-lab-record-link').forEach(link => {
+            link.addEventListener('click', e => {
+                e.preventDefault();
+                const labRecordId = link.dataset.labRecordId;
+                if (!labRecordId) return;
+                // Close worker modal first, then open lab record modal
+                this.closeModal();
+                setTimeout(() => {
+                    const labModal = document.querySelector('lab-detail-modal');
+                    if (labModal) {
+                        labModal.open(labRecordId);
+                    } else {
+                        console.warn('[WorkerDetailsModal] lab-detail-modal element not found in DOM');
+                        showToast('Lab detail modal not available on this page', 'warning');
+                    }
+                }, 300);
+            });
+        });
     }
 
     async handleLabFileSelected(event) {
@@ -994,9 +1179,9 @@ export class WorkerDetailsModal extends BaseComponent {
         if (!file) return;
 
         try {
-            const { importLab } = await import('../api/workers.js');
+            const { importLabRecord } = await import('../api/lab-records.js');
 
-            await importLab(this.currentRegion, this.currentWorkerId, file);
+            await importLabRecord(this.currentWorkerId, file);
             showToast('Lab imported successfully', 'success');
             this.loadLabsTab(); // Refresh labs list
         } catch (error) {
@@ -1005,45 +1190,47 @@ export class WorkerDetailsModal extends BaseComponent {
         }
     }
 
-    async handleLabAction(action, labId) {
+    async handleLabAction(action, labRecordId) {
         try {
-            const { startLab, stopLab, wipeLab, deleteLab, downloadLab } = await import('../api/workers.js');
+            const { startLabRecord, stopLabRecord, wipeLabRecord, deleteLabRecord, exportLabRecord } = await import('../api/lab-records.js');
 
             switch (action) {
                 case 'start':
-                    await startLab(this.currentRegion, this.currentWorkerId, labId);
-                    showToast('Lab started', 'success');
+                    await startLabRecord(labRecordId);
+                    showToast('Lab start queued', 'success');
                     break;
                 case 'stop':
-                    await stopLab(this.currentRegion, this.currentWorkerId, labId);
-                    showToast('Lab stopped', 'success');
+                    await stopLabRecord(labRecordId);
+                    showToast('Lab stop queued', 'success');
                     break;
-                case 'wipe':
+                case 'wipe': {
                     const confirmWipe = await showConfirm('Wipe Lab', 'This will reset the lab to initial state. Continue?', () => {});
                     if (confirmWipe) {
-                        await wipeLab(this.currentRegion, this.currentWorkerId, labId);
-                        showToast('Lab wiped', 'success');
+                        await wipeLabRecord(labRecordId);
+                        showToast('Lab wipe queued', 'success');
                     }
                     break;
-                case 'delete':
+                }
+                case 'delete': {
                     const confirmDelete = await showConfirm('Delete Lab', 'This will permanently delete the lab. Continue?', () => {});
                     if (confirmDelete) {
-                        await deleteLab(this.currentRegion, this.currentWorkerId, labId);
-                        showToast('Lab deleted', 'success');
+                        await deleteLabRecord(labRecordId);
+                        showToast('Lab delete queued', 'success');
                     }
                     break;
-                case 'export':
-                    const { downloadLab } = await import('../api/workers.js');
-                    const labData = await downloadLab(this.currentRegion, this.currentWorkerId, labId);
+                }
+                case 'export': {
+                    const labData = await exportLabRecord(labRecordId);
                     const blob = new Blob([labData], { type: 'application/x-yaml' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `lab-${labId}.yaml`;
+                    a.download = `lab-${labRecordId}.yaml`;
                     a.click();
                     URL.revokeObjectURL(url);
                     showToast('Lab exported', 'success');
                     break;
+                }
             }
 
             // Refresh labs list after action
@@ -1256,7 +1443,7 @@ export class WorkerDetailsModal extends BaseComponent {
         if (!updatedAt) return;
 
         try {
-            this.lastRefreshedAt = new Date(updatedAt);
+            this.lastRefreshedAt = parseUTCDate(updatedAt);
             if (isNaN(this.lastRefreshedAt.getTime())) {
                 console.warn('[WorkerDetailsModal] Invalid date received:', updatedAt);
                 return;

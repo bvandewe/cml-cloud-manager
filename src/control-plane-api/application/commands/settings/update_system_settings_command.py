@@ -19,6 +19,7 @@ class UpdateSystemSettingsCommand(Command[OperationResult[dict[str, Any]]]):
     worker_provisioning: dict[str, Any] | None = None
     monitoring: dict[str, Any] | None = None
     idle_detection: dict[str, Any] | None = None
+    discovery: dict[str, Any] | None = None
     updated_by: str | None = None
 
 
@@ -58,10 +59,18 @@ class UpdateSystemSettingsCommandHandler(CommandHandler[UpdateSystemSettingsComm
 
                 idle_detection = replace(current, **request.idle_detection)
 
+            discovery = None
+            if request.discovery:
+                current = settings.state.discovery
+                from dataclasses import replace
+
+                discovery = replace(current, **request.discovery)
+
             settings.update(
                 worker_provisioning=worker_provisioning,
                 monitoring=monitoring,
                 idle_detection=idle_detection,
+                discovery=discovery,
                 updated_by=request.updated_by,
             )
 
@@ -73,6 +82,7 @@ class UpdateSystemSettingsCommandHandler(CommandHandler[UpdateSystemSettingsComm
                 "worker_provisioning": asdict(state.worker_provisioning),
                 "monitoring": asdict(state.monitoring),
                 "idle_detection": asdict(state.idle_detection),
+                "discovery": asdict(state.discovery),
                 "updated_at": state.updated_at,
                 "updated_by": state.updated_by,
             }

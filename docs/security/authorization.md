@@ -23,7 +23,7 @@ The Cml Cloud Manager implements **Role-Based Access Control (RBAC)** using OAut
 |-----------|---------|---------|
 | **Claims** | User attributes in JWT | `sub`, `email`, `name` |
 | **Scope** | Permission boundaries | `openid`, `profile`, `email` |
-| **Audience** | Intended recipient of token | `cml-cloud-manager-api` |
+| **Audience** | Intended recipient of token | `lablet-cloud-manager-api` |
 | **Roles** | User permissions/groups | `admin`, `user`, `guest` |
 
 ## OAuth2 Bouncer Analogy
@@ -96,7 +96,7 @@ graph TB
 
 ```json
 {
-  "aud": "cml-cloud-manager-api"
+  "aud": "lablet-cloud-manager-api"
 }
 ```
 
@@ -129,7 +129,7 @@ graph TB
 |---------------|--------------|-------------|---------|
 | **Claims** | "Who is this person?" | `sub`, `email`, `name` | Identity information |
 | **Scope** | "What areas can they see?" | `openid profile email` | Information access boundaries |
-| **Audience** | "Is this wristband for THIS club?" | `aud: "cml-cloud-manager-api"` | Token validity for specific API |
+| **Audience** | "Is this wristband for THIS club?" | `aud: "lablet-cloud-manager-api"` | Token validity for specific API |
 | **Role** | "What color wristband do they have?" | `realm_access.roles: ["admin"]` | Permission level |
 
 ## Implementation Guide
@@ -221,9 +221,9 @@ def get_user_from_jwt(self, token: str) -> dict | None:
 ```python
 # Environment variables
 VERIFY_AUDIENCE=true
-EXPECTED_AUDIENCE=cml-cloud-manager-api
+EXPECTED_AUDIENCE=lablet-cloud-manager-api
 VERIFY_ISSUER=true
-EXPECTED_ISSUER=http://localhost:8180/realms/cml-cloud-manager
+EXPECTED_ISSUER=http://localhost:8180/realms/lablet-cloud-manager
 ```
 
 ### Step 2: Role Extraction
@@ -265,8 +265,8 @@ def _map_claims(self, payload: dict) -> dict:
   "realm_access": {
     "roles": ["admin", "user", "offline_access"]
   },
-  "aud": "cml-cloud-manager-api",
-  "iss": "http://localhost:8180/realms/cml-cloud-manager",
+  "aud": "lablet-cloud-manager-api",
+  "iss": "http://localhost:8180/realms/lablet-cloud-manager",
   "exp": 1735689600,
   "iat": 1735686000
 }
@@ -480,7 +480,7 @@ graph TB
 ```python
 # Environment variables
 VERIFY_AUDIENCE=true
-EXPECTED_AUDIENCE=cml-cloud-manager-api
+EXPECTED_AUDIENCE=lablet-cloud-manager-api
 ```
 
 This configures the JWT verification to check the `aud` claim:
@@ -502,30 +502,30 @@ payload = jwt.decode(
 Configure the audience mapper to add `aud` claim to tokens:
 
 1. **Navigate to Client Scopes**:
-   - Keycloak Admin Console → Realm (e.g., `cml-cloud-manager`) → Client Scopes
+   - Keycloak Admin Console → Realm (e.g., `lablet-cloud-manager`) → Client Scopes
 
 2. **Create Audience Mapper**:
-   - Select/create client scope (e.g., `cml-cloud-manager-api-scope`)
+   - Select/create client scope (e.g., `lablet-cloud-manager-api-scope`)
    - Click **Add mapper** → **By configuration** → **Audience**
 
 3. **Configure Mapper**:
 
    ```yaml
    Name: audience-mapper
-   Included Client Audience: cml-cloud-manager-api  # Must match EXPECTED_AUDIENCE
+   Included Client Audience: lablet-cloud-manager-api  # Must match EXPECTED_AUDIENCE
    Add to ID token: OFF
    Add to access token: ON
    ```
 
 4. **Assign to Client**:
-   - Clients → `cml-cloud-manager-client` → Client Scopes
-   - Add `cml-cloud-manager-api-scope` to **Assigned Default Client Scopes**
+   - Clients → `lablet-cloud-manager-client` → Client Scopes
+   - Add `lablet-cloud-manager-api-scope` to **Assigned Default Client Scopes**
 
 **Result:** JWT tokens will contain:
 
 ```json
 {
-  "aud": "cml-cloud-manager-api"
+  "aud": "lablet-cloud-manager-api"
 }
 ```
 
@@ -538,12 +538,12 @@ Configure the audience mapper to add `aud` claim to tokens:
 **Configuration:**
 
 1. **Create Client**:
-   - Clients → Create → Client ID: `cml-cloud-manager-frontend`
+   - Clients → Create → Client ID: `lablet-cloud-manager-frontend`
 
 2. **Settings**:
 
    ```yaml
-   Client ID: cml-cloud-manager-frontend
+   Client ID: lablet-cloud-manager-frontend
    Name: Cml Cloud Manager Frontend
    Enabled: ON
    Client authentication: OFF  # Public client
@@ -558,11 +558,11 @@ Configure the audience mapper to add `aud` claim to tokens:
    ```
 
 3. **Client Scopes**:
-   - Assign `openid`, `profile`, `email`, `cml-cloud-manager-api-scope`
+   - Assign `openid`, `profile`, `email`, `lablet-cloud-manager-api-scope`
 
 **Flow:** Backend-for-Frontend (BFF) Pattern with Authorization Code Flow
 
-The cml-cloud-manager uses a **Backend-for-Frontend (BFF)** pattern where the backend handles the OAuth2 flow and manages tokens server-side. The browser only receives an httpOnly session cookie.
+The lablet-cloud-manager uses a **Backend-for-Frontend (BFF)** pattern where the backend handles the OAuth2 flow and manages tokens server-side. The browser only receives an httpOnly session cookie.
 
 ```mermaid
 sequenceDiagram
@@ -608,12 +608,12 @@ sequenceDiagram
 **Configuration:**
 
 1. **Create Client**:
-   - Clients → Create → Client ID: `cml-cloud-manager-service`
+   - Clients → Create → Client ID: `lablet-cloud-manager-service`
 
 2. **Settings**:
 
    ```yaml
-   Client ID: cml-cloud-manager-service
+   Client ID: lablet-cloud-manager-service
    Name: Cml Cloud Manager Backend Service
    Enabled: ON
    Client authentication: ON  # Confidential client
@@ -651,10 +651,10 @@ import requests
 
 # Request token
 response = requests.post(
-    "http://localhost:8180/realms/cml-cloud-manager/protocol/openid-connect/token",
+    "http://localhost:8180/realms/lablet-cloud-manager/protocol/openid-connect/token",
     data={
         "grant_type": "client_credentials",
-        "client_id": "cml-cloud-manager-service",
+        "client_id": "lablet-cloud-manager-service",
         "client_secret": "your-client-secret",  # pragma: allowlist secret
     }
 )
@@ -670,7 +670,7 @@ response = requests.get("http://localhost:8000/api/tasks", headers=headers)
 #### Create Realm Roles
 
 1. **Navigate to Roles**:
-   - Keycloak Admin Console → Realm (e.g., `cml-cloud-manager`) → Realm roles
+   - Keycloak Admin Console → Realm (e.g., `lablet-cloud-manager`) → Realm roles
 
 2. **Create Roles**:
    - Click **Create role**
@@ -751,7 +751,7 @@ By default, Keycloak includes `realm_access.roles` in tokens. Verify this:
 #### Using Keycloak Admin Console
 
 1. **Navigate to Client**:
-   - Clients → `cml-cloud-manager-client` → Client scopes tab
+   - Clients → `lablet-cloud-manager-client` → Client scopes tab
 
 2. **Evaluate Token**:
    - Click **Evaluate** → Select user
@@ -762,9 +762,9 @@ By default, Keycloak includes `realm_access.roles` in tokens. Verify this:
 ```bash
 # Get token
 TOKEN=$(curl -s -X POST \
-  "http://localhost:8180/realms/cml-cloud-manager/protocol/openid-connect/token" \
+  "http://localhost:8180/realms/lablet-cloud-manager/protocol/openid-connect/token" \
   -d "grant_type=password" \
-  -d "client_id=cml-cloud-manager-client" \
+  -d "client_id=lablet-cloud-manager-client" \
   -d "username=admin@example.com" \
   -d "password=admin123" \
   | jq -r '.access_token')
@@ -832,7 +832,7 @@ Always verify audience to prevent token reuse:
 ```python
 # Environment
 VERIFY_AUDIENCE=true
-EXPECTED_AUDIENCE=cml-cloud-manager-api
+EXPECTED_AUDIENCE=lablet-cloud-manager-api
 ```
 
 ### 5. Use Short-Lived Tokens
@@ -967,10 +967,10 @@ JWT token invalid: Audience doesn't match
 
    ```python
    # Code
-   EXPECTED_AUDIENCE=cml-cloud-manager-api
+   EXPECTED_AUDIENCE=lablet-cloud-manager-api
 
    # JWT
-   "aud": "cml-cloud-manager-api"  # ✅ Match
+   "aud": "lablet-cloud-manager-api"  # ✅ Match
    ```
 
 ### Issue: User Has Unexpected Roles
@@ -1011,7 +1011,7 @@ JWT token invalid: Audience doesn't match
 
 2. **Client scope not assigned**
 
-   **Check:** Clients → `cml-cloud-manager-client` → Client scopes
+   **Check:** Clients → `lablet-cloud-manager-client` → Client scopes
 
    **Solution:** Ensure `roles` is in **Assigned Default Client Scopes**.
 

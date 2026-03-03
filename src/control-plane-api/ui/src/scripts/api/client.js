@@ -15,7 +15,8 @@ export async function apiRequest(url, options = {}) {
     };
 
     // Only set Content-Type if not sending FormData (browser will set it with boundary)
-    if (!(options.body instanceof FormData)) {
+    // and only when there IS a body to send (avoid empty JSON body on POST/PUT with no payload)
+    if (options.body != null && !(options.body instanceof FormData)) {
         headers['Content-Type'] = 'application/json';
     }
 
@@ -44,11 +45,11 @@ export async function apiRequest(url, options = {}) {
             const errorData = await response.json();
             // Extract error message from various possible response formats
             if (errorData.error) {
-                errorMessage = errorData.error;
+                errorMessage = typeof errorData.error === 'string' ? errorData.error : JSON.stringify(errorData.error);
             } else if (errorData.message) {
-                errorMessage = errorData.message;
+                errorMessage = typeof errorData.message === 'string' ? errorData.message : JSON.stringify(errorData.message);
             } else if (errorData.detail) {
-                errorMessage = errorData.detail;
+                errorMessage = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
             } else if (typeof errorData === 'string') {
                 errorMessage = errorData;
             }

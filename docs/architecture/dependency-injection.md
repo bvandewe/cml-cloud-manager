@@ -153,7 +153,7 @@ def create_app() -> FastAPI:
         builder,
         entity_type=Task,
         key_type=str,
-        database_name="cml_cloud_manager",
+        database_name="lablet_cloud_manager",
         collection_name="tasks"
     )
 
@@ -291,7 +291,7 @@ MotorRepository.configure(
     builder,
     entity_type=Task,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="tasks"
 )
 
@@ -319,7 +319,7 @@ class MongoTaskRepository(
     def __init__(self, mongo_client, serializer, mediator=None):
         super().__init__(
             client=mongo_client,
-            database_name="cml_cloud_manager",
+            database_name="lablet_cloud_manager",
             collection_name="tasks",
             serializer=serializer,
             mediator=mediator

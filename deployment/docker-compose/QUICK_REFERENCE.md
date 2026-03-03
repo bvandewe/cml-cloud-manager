@@ -19,7 +19,7 @@ docker-compose -f deployment/docker-compose/docker-compose.prod.yml down
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| CML Cloud Manager | http://localhost | Via Keycloak |
+| Lablet Cloud Manager | http://localhost | Via Keycloak |
 | API | http://localhost/api/ | Via Keycloak |
 | Health Check | http://localhost/health | None |
 
@@ -137,32 +137,32 @@ curl http://grafana.localhost/api/health
 
 ```promql
 # API request rate
-rate(http_server_requests_total{job="cml-cloud-manager-api"}[5m])
+rate(http_server_requests_total{job="lablet-cloud-manager-api"}[5m])
 
 # Worker job execution count
-increase(background_job_executions_total{job="cml-cloud-manager-worker"}[1h])
+increase(background_job_executions_total{job="lablet-cloud-manager-worker"}[1h])
 
 # Memory usage
-process_resident_memory_bytes{job=~"cml-cloud-manager-.*"}
+process_resident_memory_bytes{job=~"lablet-cloud-manager-.*"}
 
 # CPU usage
-rate(process_cpu_seconds_total{job=~"cml-cloud-manager-.*"}[5m])
+rate(process_cpu_seconds_total{job=~"lablet-cloud-manager-.*"}[5m])
 ```
 
 ## 🔎 Log Queries (Loki via Grafana)
 
 ```logql
 # API logs
-{job="cml-cloud-manager-api"}
+{job="lablet-cloud-manager-api"}
 
 # Worker logs
-{job="cml-cloud-manager-worker"}
+{job="lablet-cloud-manager-worker"}
 
 # Error logs only
-{job=~"cml-cloud-manager-.*"} |= "ERROR"
+{job=~"lablet-cloud-manager-.*"} |= "ERROR"
 
 # Logs with trace correlation
-{job="cml-cloud-manager-api"} | json | trace_id != ""
+{job="lablet-cloud-manager-api"} | json | trace_id != ""
 ```
 
 ## 🎯 Trace Queries (Tempo via Grafana)
@@ -172,7 +172,7 @@ rate(process_cpu_seconds_total{job=~"cml-cloud-manager-.*"}[5m])
 
 ```traceql
 # Find traces from API service
-{ service.name = "cml-cloud-manager-api" }
+{ service.name = "lablet-cloud-manager-api" }
 
 # Find slow traces (>1s)
 { duration > 1s }
@@ -259,7 +259,7 @@ docker cp $(docker-compose -f deployment/docker-compose/docker-compose.prod.yml 
 
 ```bash
 # Backup all volumes
-docker run --rm -v cml-cloud-manager_mongodb_data:/data -v $(pwd):/backup \
+docker run --rm -v lablet-cloud-manager_mongodb_data:/data -v $(pwd):/backup \
   alpine tar czf /backup/mongodb_data.tar.gz -C /data .
 ```
 

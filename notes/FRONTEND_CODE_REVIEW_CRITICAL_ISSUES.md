@@ -2,7 +2,7 @@
 
 ## Summary
 
-After reviewing the CML Cloud Manager frontend codebase, I've identified **7 critical maintainability issues** that make the current implementation unmaintainable and difficult to extend. This document provides specific code examples and recommendations.
+After reviewing the Lablet Cloud Manager frontend codebase, I've identified **7 critical maintainability issues** that make the current implementation unmaintainable and difficult to extend. This document provides specific code examples and recommendations.
 
 ---
 

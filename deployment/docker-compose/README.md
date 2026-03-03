@@ -1,6 +1,6 @@
 # Production Docker Compose Setup
 
-This directory contains the production Docker Compose configuration for CML Cloud Manager.
+This directory contains the production Docker Compose configuration for Lablet Cloud Manager.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ CML_WORKER_KEY_NAME=your-key-name
 ### 2. Start the Stack
 
 ```bash
-cd /path/to/cml-cloud-manager
+cd /path/to/lablet-cloud-manager
 docker-compose -f deployment/docker-compose/docker-compose.prod.yml --env-file deployment/docker-compose/.env.prod up -d
 ```
 
@@ -48,7 +48,7 @@ docker-compose -f deployment/docker-compose/docker-compose.prod.yml --env-file d
 
 **Main Entry Point (via Nginx):**
 
-- **CML Cloud Manager**: http://localhost (port 80)
+- **Lablet Cloud Manager**: http://localhost (port 80)
 - **API**: http://localhost/api/
 - **Health Check**: http://localhost/health
 
@@ -116,7 +116,7 @@ docker-compose -f deployment/docker-compose/docker-compose.prod.yml --env-file d
 
 ## Network Configuration
 
-All services run on the `cml-cloud-manager-net` Docker bridge network, allowing them to communicate using service names as hostnames.
+All services run on the `lablet-cloud-manager-net` Docker bridge network, allowing them to communicate using service names as hostnames.
 
 ## Service Dependencies
 
@@ -272,7 +272,7 @@ docker-compose -f deployment/docker-compose/docker-compose.prod.yml logs -f work
 Verify Keycloak realm import:
 
 ```bash
-docker-compose -f deployment/docker-compose/docker-compose.prod.yml logs keycloak | grep "cml-cloud-manager"
+docker-compose -f deployment/docker-compose/docker-compose.prod.yml logs keycloak | grep "lablet-cloud-manager"
 ```
 
 ## Security Considerations

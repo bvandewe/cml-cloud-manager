@@ -78,11 +78,7 @@ class GetWorkerActivityQueryHandler(QueryHandler[GetWorkerActivityQuery, Operati
                     "target_pause_at": worker.state.target_pause_at,
                     "is_idle_detection_enabled": worker.state.is_idle_detection_enabled,
                     "in_snooze_period": worker.in_snooze_period(),
-                    "idle_duration_minutes": (
-                        worker.calculate_idle_duration().total_seconds() / 60
-                        if worker.calculate_idle_duration()
-                        else None
-                    ),
+                    "idle_duration_minutes": (worker.calculate_idle_duration().total_seconds() / 60 if worker.calculate_idle_duration() else None),
                 }
 
                 log.debug(f"Retrieved activity data for worker {query.worker_id}")

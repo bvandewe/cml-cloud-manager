@@ -50,7 +50,7 @@ The documentation will automatically deploy when:
 After the workflow completes (2-3 minutes):
 
 1. Go to **Settings** → **Pages**
-2. You should see: "Your site is live at https://bvandewe.github.io/cml-cloud-manager"
+2. You should see: "Your site is live at https://bvandewe.github.io/lablet-cloud-manager"
 3. Click the URL to view the documentation
 
 ## Troubleshooting
@@ -221,9 +221,9 @@ make docs-clean    # Clean build artifacts
 
 ## URLs
 
-- **Live Site**: https://bvandewe.github.io/cml-cloud-manager
-- **Repository**: https://github.com/bvandewe/cml-cloud-manager
-- **Workflow**: https://github.com/bvandewe/cml-cloud-manager/actions/workflows/docs.yml
+- **Live Site**: https://bvandewe.github.io/lablet-cloud-manager
+- **Repository**: https://github.com/bvandewe/lablet-cloud-manager
+- **Workflow**: https://github.com/bvandewe/lablet-cloud-manager/actions/workflows/docs.yml
 
 ## Support
 

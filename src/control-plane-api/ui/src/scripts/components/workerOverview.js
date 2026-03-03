@@ -3,7 +3,7 @@
  * Pure rendering for worker AWS overview section.
  */
 
-import { formatDateWithRelative } from '../utils/dates.js';
+import { formatDateWithRelative, parseUTCDate } from '../utils/dates.js';
 import { escapeHtml } from './escape.js';
 import { isAdmin } from '../utils/roles.js';
 import { getStatusBadgeClass, getServiceStatusBadgeClass } from './status-badges.js';
@@ -11,11 +11,20 @@ import { getStatusBadgeClass, getServiceStatusBadgeClass } from './status-badges
 export function renderWorkerOverview(worker) {
     if (!worker) return '<div class="alert alert-warning">Worker data unavailable</div>';
     return `
+    <div class="row mb-3" aria-label="Runtime infrastructure" role="group">
+      <div class="col-12">
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge bg-dark"><i class="bi bi-cloud"></i> AWS EC2</span>
+          <span class="text-muted small">Runtime Infrastructure</span>
+          <span class="text-muted small ms-auto">State Version: <code>${worker.state_version ?? 'N/A'}</code></span>
+        </div>
+      </div>
+    </div>
     <div class="row" aria-label="Worker basic information" role="group">
       <div class="col-md-6">
         <h5 class="border-bottom pb-2 mb-3">Basic Information</h5>
         <table class="table table-sm table-borderless" aria-label="Basic worker attributes">
-          <tr><td class="text-muted" width="40%">Name:</td><td><strong>${escapeHtml(worker.name || 'N/A')}</strong></td></tr>
+          <tr><td class="text-muted" width="40%">Name:</td><td><strong>${escapeHtml(worker.aws_tags?.Name || worker.name || 'N/A')}</strong>${worker.aws_tags?.Name && worker.name !== worker.aws_tags.Name ? `<br><span class="text-muted small">${escapeHtml(worker.name)}</span>` : ''}</td></tr>
           <tr><td class="text-muted">Worker ID:</td><td><code class="small">${worker.id}</code></td></tr>
           <tr><td class="text-muted">Instance ID:</td><td>${
               worker.aws_instance_id
@@ -29,7 +38,7 @@ export function renderWorkerOverview(worker) {
                 worker.status === 'pending' && worker.start_initiated_at
                     ? (() => {
                           try {
-                              const startedMs = Date.parse(worker.start_initiated_at);
+                              const startedMs = parseUTCDate(worker.start_initiated_at).getTime();
                               const diffSec = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
                               const m = Math.floor(diffSec / 60);
                               const s = diffSec % 60;
@@ -44,7 +53,7 @@ export function renderWorkerOverview(worker) {
                 worker.status === 'stopping' && worker.stop_initiated_at
                     ? (() => {
                           try {
-                              const stopMs = Date.parse(worker.stop_initiated_at);
+                              const stopMs = parseUTCDate(worker.stop_initiated_at).getTime();
                               const diffSec = Math.max(0, Math.floor((Date.now() - stopMs) / 1000));
                               const m = Math.floor(diffSec / 60);
                               const s = diffSec % 60;
@@ -77,13 +86,18 @@ export function renderWorkerOverview(worker) {
       <div class="col-md-6">
         <h5 class="border-bottom pb-2 mb-3">Network</h5>
         <table class="table table-sm table-borderless" aria-label="Network attributes">
-          <tr><td class="text-muted" width="40%">Public IP:</td><td>${worker.public_ip || '<span class="text-muted">N/A</span>'}</td></tr>
+          <tr><td class="text-muted" width="40%">Public IP:</td><td>${worker.public_ip ? `<a href="https://${escapeHtml(worker.public_ip)}" target="_blank" class="text-decoration-none" title="Open via HTTPS">${escapeHtml(worker.public_ip)} <i class="bi bi-box-arrow-up-right small"></i></a>` : '<span class="text-muted">N/A</span>'}</td></tr>
           <tr><td class="text-muted">Private IP:</td><td>${worker.private_ip || '<span class="text-muted">N/A</span>'}</td></tr>
-          <tr><td class="text-muted">HTTPS Endpoint:</td><td>${
-              worker.https_endpoint
-                  ? `<a href="${worker.https_endpoint}" target="_blank" class="text-decoration-none" aria-label="Open HTTPS endpoint">${worker.https_endpoint} <i class="bi bi-box-arrow-up-right"></i></a>`
-                  : '<span class="text-muted">N/A</span>'
-          }</td></tr>
+          <tr><td class="text-muted">HTTPS Endpoint:</td><td>${(() => {
+              const endpoint = worker.https_endpoint;
+              const fallbackUrl = worker.public_ip ? `https://${worker.public_ip}` : null;
+              const displayUrl = endpoint || fallbackUrl;
+              if (displayUrl) {
+                  const label = endpoint ? escapeHtml(endpoint) : `${escapeHtml(fallbackUrl)} <span class="badge bg-warning text-dark ms-1" style="font-size: 0.7em;">via Public IP</span>`;
+                  return `<a href="${escapeHtml(displayUrl)}" target="_blank" class="text-decoration-none" aria-label="Open HTTPS endpoint">${label} <i class="bi bi-box-arrow-up-right"></i></a>`;
+              }
+              return '<span class="text-muted">N/A</span>';
+          })()}</td></tr>
         </table>
       </div>
       <div class="col-md-6">
@@ -125,7 +139,7 @@ export function renderWorkerOverview(worker) {
         <table class="table table-sm table-borderless" aria-label="Lifecycle timestamps">
           <tr><td class="text-muted" width="40%"><i class="bi bi-plus-circle"></i> Created:</td><td>${formatDateWithRelative(worker.created_at)}</td></tr>
           <tr><td class="text-muted"><i class="bi bi-arrow-repeat"></i> Updated:</td><td>${formatDateWithRelative(worker.updated_at)}</td></tr>
-          <tr><td class="text-muted"><i class="bi bi-clock-history"></i> Last Refreshed:</td><td>${worker.last_refreshed_at ? formatDateWithRelative(worker.last_refreshed_at) : '<span class="text-muted">N/A</span>'}</td></tr>
+          <tr><td class="text-muted"><i class="bi bi-clock-history"></i> Last Synced:</td><td>${worker.cml_last_synced_at ? formatDateWithRelative(worker.cml_last_synced_at) : '<span class="text-muted">N/A</span>'}</td></tr>
           <tr><td class="text-muted"><i class="bi bi-hourglass-split"></i> Next Refresh:</td><td>${worker.next_refresh_at ? formatDateWithRelative(worker.next_refresh_at) : '<span class="text-muted">N/A</span>'}</td></tr>
           <tr><td class="text-muted"><i class="bi bi-x-circle"></i> Terminated:</td><td>${worker.terminated_at ? formatDateWithRelative(worker.terminated_at) : '<span class="text-muted">N/A</span>'}</td></tr>
         </table>
@@ -133,8 +147,22 @@ export function renderWorkerOverview(worker) {
       <div class="col-md-6">
         <h5 class="border-bottom pb-2 mb-3">Activity & Usage</h5>
         <table class="table table-sm table-borderless" aria-label="Activity and usage statistics">
-          <tr><td class="text-muted" width="40%">Pause Count:</td><td>${worker.pause_count || 0}</td></tr>
-          <tr><td class="text-muted">Resume Count:</td><td>${worker.resume_count || 0}</td></tr>
+          <tr><td class="text-muted" width="40%">Running Labs:</td><td>${(() => {
+              const count = worker.active_labs_count ?? worker.cml_labs_count ?? 0;
+              return count > 0 ? `<span class="badge bg-info">${count}</span>` : '<span class="text-muted">0</span>';
+          })()}</td></tr>
+          <tr><td class="text-muted">Resource Util:</td><td>${(() => {
+              const cpu = worker.cpu_utilization;
+              const mem = worker.memory_utilization;
+              const disk = worker.disk_utilization ?? worker.storage_utilization;
+              const parts = [];
+              if (cpu != null) parts.push(`CPU ${parseFloat(cpu).toFixed(1)}%`);
+              if (mem != null) parts.push(`Mem ${parseFloat(mem).toFixed(1)}%`);
+              if (disk != null) parts.push(`Disk ${parseFloat(disk).toFixed(1)}%`);
+              return parts.length > 0 ? `<span class="small">${parts.join(' · ')}</span>` : '<span class="text-muted">N/A</span>';
+          })()}</td></tr>
+          <tr><td class="text-muted">Pauses:</td><td>${(worker.auto_pause_count || 0) + (worker.manual_pause_count || 0)} <span class="text-muted small">(auto: ${worker.auto_pause_count || 0}, manual: ${worker.manual_pause_count || 0})</span></td></tr>
+          <tr><td class="text-muted">Resumes:</td><td>${(worker.auto_resume_count || 0) + (worker.manual_resume_count || 0)} <span class="text-muted small">(auto: ${worker.auto_resume_count || 0}, manual: ${worker.manual_resume_count || 0})</span></td></tr>
           <tr><td class="text-muted">Idle Detection:</td><td>${worker.is_idle_detection_enabled ? '<span class="badge bg-success">Enabled</span>' : '<span class="badge bg-secondary">Disabled</span>'}</td></tr>
           <tr><td class="text-muted">Last Activity:</td><td>${worker.last_activity_at ? formatDateWithRelative(worker.last_activity_at) : '<span class="text-muted">N/A</span>'}</td></tr>
         </table>

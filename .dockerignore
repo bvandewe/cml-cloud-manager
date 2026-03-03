@@ -19,10 +19,10 @@ build
 
 # Node
 node_modules
-src/ui/node_modules
-src/ui/.parcel-cache
-src/ui/dist
-src/ui/src/tmp_build
+src/*/ui/node_modules
+src/*/ui/.parcel-cache
+src/*/ui/dist
+src/*/ui/src/tmp_build
 
 # Logs
 logs

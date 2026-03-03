@@ -11,7 +11,7 @@ MotorRepository.configure(
     builder,
     entity_type=Task,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="tasks",
     domain_repository_type=TaskRepository,  # Resolves to MotorRepository[Task, str]
 )
@@ -29,7 +29,7 @@ MotorRepository.configure(
     builder,
     entity_type=Task,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="tasks",
 )
 
@@ -53,7 +53,7 @@ MotorRepository.configure(
     builder,
     entity_type=Task,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="tasks",
     domain_repository_type=TaskRepository,  # Should resolve to MongoTaskRepository
 )
@@ -228,7 +228,7 @@ MotorRepository.configure(
     builder,
     entity_type=Task,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="tasks",
     domain_repository_type=TaskRepository,
     implementation_type=MongoTaskRepository,
@@ -331,7 +331,7 @@ MotorRepository.configure(
     builder,
     entity_type=Task,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="tasks",
     domain_repository_type=TaskRepository,
     implementation_type=MongoTaskRepository,

@@ -51,15 +51,19 @@ def map_worker_to_dto(worker: CMLWorker) -> CMLWorkerDto:
         name=s.name,
         aws_region=s.aws_region,
         aws_instance_id=s.aws_instance_id,
-        instance_type=s.instance_type,
+        instance_type=getattr(s, "instance_type", "unknown"),
+        state_version=s.state_version,
         # Status
         status=s.status.value,
+        desired_status=s.desired_status.value,
         service_status=s.service_status.value,
         # AMI
         ami_id=s.ami_id,
         ami_name=s.ami_name,
         ami_description=s.ami_description,
         ami_creation_date=s.ami_creation_date,
+        # Template
+        template_name=s.template_name,
         # Network
         https_endpoint=s.https_endpoint,
         public_ip=s.public_ip,
@@ -85,9 +89,7 @@ def map_worker_to_dto(worker: CMLWorker) -> CMLWorkerDto:
         # CloudWatch Metrics
         cloudwatch_cpu_utilization=s.cloudwatch_cpu_utilization,
         cloudwatch_memory_utilization=s.cloudwatch_memory_utilization,
-        cloudwatch_last_collected_at=(
-            s.cloudwatch_last_collected_at.isoformat() if s.cloudwatch_last_collected_at else None
-        ),
+        cloudwatch_last_collected_at=(s.cloudwatch_last_collected_at.isoformat() if s.cloudwatch_last_collected_at else None),
         cloudwatch_detailed_monitoring_enabled=s.cloudwatch_detailed_monitoring_enabled,
         # Calculated utilization
         cpu_utilization=_clamp(cpu_util),
@@ -120,6 +122,16 @@ def map_worker_to_dto(worker: CMLWorker) -> CMLWorkerDto:
         last_resumed_at=s.last_resumed_at.isoformat() if s.last_resumed_at else None,
         paused_by=s.paused_by,
         pause_reason=s.pause_reason,
+        # Capacity Management
+        # Use getattr with defaults for fields that may not exist on workers
+        # persisted before the capacity management phase was added.
+        declared_capacity=s.declared_capacity.to_dict() if getattr(s, "declared_capacity", None) else None,
+        allocated_capacity=s.allocated_capacity.to_dict() if getattr(s, "allocated_capacity", None) else None,
+        session_ids=list(getattr(s, "session_ids", None) or []),
+        # Port Usage — defaults to 0; enriched by query handler via PortAllocationService
+        allocated_port_count=0,
+        available_port_count=0,
+        port_utilization_pct=0.0,
     )
 
 

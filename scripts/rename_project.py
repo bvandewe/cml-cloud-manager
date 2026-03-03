@@ -4,31 +4,25 @@ Project Renamer Utility
 =======================
 
 Purpose:
-    Turn this repo into a reusable starter by safely replacing occurrences of the
-    original project name ("cml-cloud-manager" and its variants) with a new name.
+    Rename the project from "Lablet Cloud Manager" (CCM) to "Lablet Cloud Manager" (LCM)
+    by safely replacing all occurrences of the original project name variants.
 
 Features:
-    - Derives multiple naming styles (slug, snake, Pascal, title, UPPER_SNAKE) from one input.
-    - Replaces common variants: cml-cloud-manager, cml_cloud_manager, Cml Cloud Manager, CmlCloudManager, CML_CLOUD_MANAGER.
-    - Updates service identifiers (e.g., service_name, KEYCLOAK_REALM, KEYCLOAK_CLIENT_ID) optionally.
+    - Replaces all common variants: CCM/LCM, ccm/lcm, LabletCloudManager/LabletCloudManager, etc.
+    - Handles special cases like lcm-core, lcm_core, /lcm/ (etcd prefix), etc.
     - Dry-run mode shows planned changes without modifying files.
-    - Skips binary/large/unrelated paths (venv, .git, node_modules, __pycache__, *.pyc, *.png/.jpg, package lock files, dist assets).
-    - Optional path-based include/exclude filters.
+    - Skips binary/large/unrelated paths (venv, .git, node_modules, __pycache__, etc.).
     - Prints a concise summary of changed files.
 
 Usage Examples:
     Dry run (recommended first):
-        python scripts/rename_project.py --new-name "Acme Tasks" --dry-run
+        python scripts/rename_project.py --dry-run
 
     Execute replacements:
-        python scripts/rename_project.py --new-name "Acme Tasks"
-
-    Override derived styles explicitly:
-        python scripts/rename_project.py --new-name "Acme Tasks" \
-            --slug acme-tasks --snake acme_tasks --pascal AcmeTasks --upper ACME_TASKS
+        python scripts/rename_project.py
 
     Restrict to src + docs only:
-        python scripts/rename_project.py --new-name "Acme Tasks" --include src docs
+        python scripts/rename_project.py --include src docs
 
 Caution:
     - Commit or stash your work before running.
@@ -38,24 +32,41 @@ Caution:
 Exit Codes:
     0 success, 1 usage error, 2 runtime error.
 """
+
 from __future__ import annotations
 
 import argparse
-import re
 import sys
-from dataclasses import dataclass
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Mapping
 
-# Original name variants to search for
-ORIGINAL_VARIANTS = {
-    "cml-cloud-manager",  # slug
-    "cml_cloud_manager",  # snake
-    "Cml Cloud Manager",  # title/spaced
-    "CmlCloudManager",  # Pascal
-    "CML_CLOUD_MANAGER",  # upper snake
-    "Cml Cloud Manager API",  # special case
-}
+# Replacement mapping: OLD -> NEW
+# Order matters! More specific patterns should come first to avoid partial replacements.
+REPLACEMENTS: list[tuple[str, str]] = [
+    # Full project names (most specific first)
+    ("Lablet Cloud Manager", "Lablet Cloud Manager"),
+    ("lablet-cloud-manager", "lablet-cloud-manager"),
+    ("lablet_cloud_manager", "lablet_cloud_manager"),
+    ("LabletCloudManager", "LabletCloudManager"),
+    # Core package naming
+    ("lcm-core", "lcm-core"),
+    ("lcm_core", "lcm_core"),
+    ("LcmCore", "LcmCore"),
+    # etcd key prefix (careful - very specific)
+    ('key_prefix="/lcm"', 'key_prefix="/lcm"'),
+    ('key_prefix: str = "/lcm"', 'key_prefix: str = "/lcm"'),
+    ("/lcm-test", "/lcm-test"),  # test prefixes
+    ("/lcm/", "/lcm/"),  # key paths in comments/docs
+    # Abbreviations in various contexts
+    ("LCM_", "LCM_"),  # environment variables
+    ("LCM-", "LCM-"),  # kebab-case identifiers
+    ("lcm-", "lcm-"),  # kebab-case identifiers
+    ("lcm_", "lcm_"),  # snake_case identifiers
+    # Standalone abbreviations (be careful - only in specific contexts)
+    # These are commented out as they're too aggressive and could match "CML" incorrectly
+    # ("CCM", "LCM"),  # uppercase abbreviation
+    # ("ccm", "lcm"),  # lowercase abbreviation
+]
 
 # Files/directories to ignore when traversing
 DEFAULT_EXCLUDES = {
@@ -69,73 +80,24 @@ DEFAULT_EXCLUDES = {
     "logs",
     ".pytest_cache",
     ".parcel-cache",
+    "site",  # mkdocs build output
+    "htmlcov",  # coverage reports
 }
 
 # Extensions to skip (binary / generated)
-SKIP_EXTS = {
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".webp",
-    ".svg",
-    ".ico",
-    ".lock",
-    ".woff",
-    ".woff2",
-    ".map",
-}
-SKIP_FILE_PATTERNS = {".pyc"}
+SKIP_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".lock", ".woff", ".woff2", ".map", ".db", ".sqlite"}
+SKIP_FILE_PATTERNS = {".pyc", ".pyo"}
 
-
-@dataclass
-class NameStyles:
-    title: str
-    slug: str
-    snake: str
-    pascal: str
-    upper: str
-
-    @staticmethod
-    def derive(base: str) -> "NameStyles":
-        # Normalize whitespace
-        words = re.split(r"[\s_-]+", base.strip())
-        clean_words = [w for w in words if w]
-        if not clean_words:
-            raise ValueError("Cannot derive name styles from empty input")
-        title = " ".join(w.capitalize() for w in clean_words)
-        slug = "-".join(w.lower() for w in clean_words)
-        snake = "_".join(w.lower() for w in clean_words)
-        pascal = "".join(w.capitalize() for w in clean_words)
-        upper = "_".join(w.upper() for w in clean_words)
-        return NameStyles(title=title, slug=slug, snake=snake, pascal=pascal, upper=upper)
-
-    def replacement_map(self) -> Mapping[str, str]:
-        return {
-            "cml-cloud-manager": self.slug,
-            "cml_cloud_manager": self.snake,
-            "Cml Cloud Manager": self.title,
-            "CmlCloudManager": self.pascal,
-            "CML_CLOUD_MANAGER": self.upper,
-            "Cml Cloud Manager API": f"{self.title} API",
-        }
+# Files to skip entirely (by name)
+SKIP_FILES = {"poetry.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Rename project occurrences of 'cml-cloud-manager' variants.")
-    p.add_argument("--new-name", required=True, help="Base name for project (e.g. 'Acme Tasks')")
-    p.add_argument("--slug", help="Override slug variant")
-    p.add_argument("--snake", help="Override snake_case variant")
-    p.add_argument("--pascal", help="Override PascalCase variant")
-    p.add_argument("--upper", help="Override UPPER_SNAKE variant")
+    p = argparse.ArgumentParser(description="Rename project from 'Lablet Cloud Manager' (CCM) to 'Lablet Cloud Manager' (LCM).")
     p.add_argument("--dry-run", action="store_true", help="Show changes without writing")
     p.add_argument("--include", nargs="*", help="Limit replacements to these top-level paths")
     p.add_argument("--exclude", nargs="*", help="Additional paths to exclude")
-    p.add_argument(
-        "--update-keycloak",
-        action="store_true",
-        help="Also replace KEYCLOAK_REALM and client ids if present",
-    )
+    p.add_argument("--verbose", "-v", action="store_true", help="Show detailed replacement info")
     return p.parse_args()
 
 
@@ -144,6 +106,8 @@ def should_skip(path: Path) -> bool:
         return True
     if path.is_dir():
         return False
+    if path.name in SKIP_FILES:
+        return True
     if path.suffix.lower() in SKIP_EXTS:
         return True
     if any(str(path).endswith(pattern) for pattern in SKIP_FILE_PATTERNS):
@@ -175,110 +139,119 @@ def iter_candidate_files(root: Path, includes: list[str] | None) -> Iterable[Pat
             yield p
 
 
-def replace_in_file(path: Path, replacements: Mapping[str, str]) -> tuple[bool, int]:
+def replace_in_file(path: Path, replacements: list[tuple[str, str]], verbose: bool = False) -> tuple[bool, int, list[str]]:
+    """Replace all occurrences in a file. Returns (modified, count, details)."""
     try:
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        return False, 0
+        return False, 0, []
     original = text
     total_subs = 0
-    for old, new in replacements.items():
+    details = []
+    for old, new in replacements:
         if old in text:
             count = text.count(old)
             text = text.replace(old, new)
             total_subs += count
+            if verbose:
+                details.append(f"    '{old}' -> '{new}' ({count}x)")
     if text != original:
         path.write_text(text, encoding="utf-8")
-        return True, total_subs
-    return False, 0
+        return True, total_subs, details
+    return False, 0, []
 
 
 def main() -> int:
     args = parse_args()
-    try:
-        styles = NameStyles.derive(args.new_name)
-    except ValueError as e:
-        print(f"[error] {e}")
-        return 1
 
-    # Override if provided
-    if args.slug:
-        styles.slug = args.slug
-    if args.snake:
-        styles.snake = args.snake
-    if args.pascal:
-        styles.pascal = args.pascal
-    if args.upper:
-        styles.upper = args.upper
-
-    replacements = dict(styles.replacement_map())
-
-    # Optional Keycloak realm/client updates (best-effort basic patterns)
-    if args.update_keycloak:
-        # NOTE: user must adjust Keycloak server config externally.
-        replacements["cml-cloud-manager-backend"] = f"{styles.slug}-backend"
-        replacements["cml-cloud-manager"] = styles.slug  # realm name occurrences
-        replacements["cml-cloud-manager-backend-secret-change-in-production"] = (
-            f"{styles.slug}-backend-secret-change-in-production"
-        )
+    # Use the predefined replacements
+    replacements = REPLACEMENTS
 
     excludes = set(DEFAULT_EXCLUDES)
     if args.exclude:
         excludes.update(args.exclude)
 
     root = Path.cwd()
-    print("=== Project Rename Plan ===")
-    print(f"Root: {root}")
-    print(
-        f"New Name Styles: title='{styles.title}', slug='{styles.slug}', snake='{styles.snake}', pascal='{styles.pascal}', upper='{styles.upper}'"
-    )
+    print("=" * 60)
+    print("  Lablet Cloud Manager -> Lablet Cloud Manager Rename")
+    print("=" * 60)
+    print(f"\nRoot: {root}")
     if args.dry_run:
         print("Mode: DRY-RUN (no files will be modified)")
-    print("Replacements:")
-    for k, v in replacements.items():
-        print(f"  {k} -> {v}")
+    else:
+        print("Mode: EXECUTE (files will be modified)")
+    print(f"\nReplacements ({len(replacements)} patterns):")
+    for old, new in replacements:
+        print(f"  '{old}' -> '{new}')")
 
-    changed_files = []
+    changed_files: list[tuple[Path, int, list[str]]] = []
     total_subs = 0
+    scanned = 0
+
     for file_path in iter_candidate_files(root, args.include):
         if any(part in excludes for part in file_path.parts):
             continue
+        scanned += 1
         try:
             with file_path.open("r", encoding="utf-8") as fh:
                 content = fh.read()
         except UnicodeDecodeError:
             continue
+
         new_content = content
         file_subs = 0
-        for old, new in replacements.items():
+        details = []
+
+        for old, new in replacements:
             if old in new_content:
                 count = new_content.count(old)
                 new_content = new_content.replace(old, new)
                 file_subs += count
+                if args.verbose:
+                    details.append(f"    '{old}' -> '{new}' ({count}x)")
+
         if file_subs > 0:
             if not args.dry_run:
                 file_path.write_text(new_content, encoding="utf-8")
-            changed_files.append((file_path, file_subs))
+            changed_files.append((file_path, file_subs, details))
             total_subs += file_subs
 
-    print("\nSummary:")
+    print(f"\n{'=' * 60}")
+    print("SUMMARY")
+    print("=" * 60)
+    print(f"  Files scanned: {scanned}")
     print(f"  Files changed: {len(changed_files)}")
     print(f"  Total substitutions: {total_subs}")
-    for fp, count in changed_files[:25]:  # limit output
-        print(f"   - {fp} ({count} substitutions)")
-    if len(changed_files) > 25:
-        print(f"   ... (+{len(changed_files)-25} more)")
+
+    if changed_files:
+        print("\nChanged files:")
+        for fp, count, details in changed_files[:50]:  # limit output
+            rel_path = fp.relative_to(root) if fp.is_relative_to(root) else fp
+            print(f"  ✓ {rel_path} ({count} substitutions)")
+            if args.verbose and details:
+                for d in details:
+                    print(d)
+        if len(changed_files) > 50:
+            print(f"  ... (+{len(changed_files) - 50} more files)")
 
     if args.dry_run:
-        print("\nDry run complete. Re-run without --dry-run to apply changes.")
+        print("\n" + "=" * 60)
+        print("DRY RUN COMPLETE - No files were modified.")
+        print("Re-run without --dry-run to apply changes.")
+        print("=" * 60)
     else:
-        print("\nRename applied. Review changes and adjust remaining identifiers (e.g., Docker image names) if needed.")
+        print("\n" + "=" * 60)
+        print("RENAME COMPLETE")
+        print("=" * 60)
 
-    print("\nNext steps (manual):")
-    print("  1. Rename repository folder and remote origin if desired.")
-    print("  2. Update Keycloak realm/client to match new identifiers (if --update-keycloak used).")
-    print("  3. Search for any lingering custom branding.")
-    print("  4. Run tests to confirm functionality: 'poetry run pytest -q'.")
+    print("\nManual steps required:")
+    print("  1. Rename the repository folder: lablet-cloud-manager -> lablet-cloud-manager")
+    print("  2. Update git remote origin URL if applicable")
+    print("  3. Update Keycloak realm/client names if used")
+    print("  4. Update Docker image names/tags")
+    print("  5. Run tests: 'make test' or 'pytest'")
+    print("  6. Search for any remaining 'ccm' or 'cml-cloud' occurrences")
+
     return 0
 
 

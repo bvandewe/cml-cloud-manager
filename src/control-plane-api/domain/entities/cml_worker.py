@@ -14,26 +14,34 @@ from uuid import uuid4
 from multipledispatch import dispatch
 from neuroglia.data.abstractions import AggregateRoot, AggregateState
 
-from domain.enums import CMLServiceStatus, CMLWorkerStatus, LicenseStatus
+from domain.enums import CML_WORKER_VALID_TRANSITIONS, CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 from domain.events.cloudwatch_monitoring_updated_domain_event import CloudWatchMonitoringUpdatedDomainEvent
 from domain.events.cml_worker import (
     CMLServiceStatusUpdatedDomainEvent,
+    CMLWorkerCapacityUpdatedDomainEvent,
     CMLWorkerCreatedDomainEvent,
+    CMLWorkerDesiredStatusUpdatedDomainEvent,
     CMLWorkerEndpointUpdatedDomainEvent,
     CMLWorkerImportedDomainEvent,
     CMLWorkerInstanceAssignedDomainEvent,
     CMLWorkerLicenseDeregisteredDomainEvent,
     CMLWorkerLicenseDeregistrationCompletedDomainEvent,
     CMLWorkerLicenseDeregistrationFailedDomainEvent,
+    CMLWorkerLicenseDeregistrationRequestedDomainEvent,
     CMLWorkerLicenseDeregistrationStartedDomainEvent,
     CMLWorkerLicenseRegistrationCompletedDomainEvent,
     CMLWorkerLicenseRegistrationFailedDomainEvent,
+    CMLWorkerLicenseRegistrationRequestedDomainEvent,
     CMLWorkerLicenseRegistrationStartedDomainEvent,
     CMLWorkerLicenseUpdatedDomainEvent,
+    CMLWorkerPortsAllocatedDomainEvent,
+    CMLWorkerPortsReleasedDomainEvent,
     CMLWorkerStatusUpdatedDomainEvent,
     CMLWorkerTagsUpdatedDomainEvent,
     CMLWorkerTelemetryUpdatedDomainEvent,
     CMLWorkerTerminatedDomainEvent,
+    LabletSessionAssignedDomainEvent,
+    LabletSessionRemovedDomainEvent,
     WorkerDataRefreshCompletedDomainEvent,
     WorkerDataRefreshRequestedDomainEvent,
     WorkerDataRefreshSkippedDomainEvent,
@@ -62,6 +70,8 @@ from domain.value_objects.cml_metrics import (
     DomInfoStats,
     MemoryStats,
 )
+from domain.value_objects.port_allocation import PortAllocation
+from domain.value_objects.worker_capacity import WorkerCapacity
 
 
 class CMLWorkerState(AggregateState[str]):
@@ -77,6 +87,7 @@ class CMLWorkerState(AggregateState[str]):
     ami_description: str | None
     ami_creation_date: str | None
     status: CMLWorkerStatus
+    desired_status: CMLWorkerStatus  # Spec: What the user wants (reconciliation target)
     service_status: CMLServiceStatus
 
     # CML-specific attributes
@@ -108,6 +119,9 @@ class CMLWorkerState(AggregateState[str]):
     poll_interval: int | None  # Metrics collection interval in seconds
     next_refresh_at: datetime | None  # Next scheduled metrics collection time
 
+    # On-demand refresh
+    refresh_requested_at: datetime | None  # Timestamp of last user-triggered refresh request
+
     # Lifecycle timestamps
     created_at: datetime
     updated_at: datetime
@@ -138,6 +152,14 @@ class CMLWorkerState(AggregateState[str]):
     # Audit
     created_by: str | None
     terminated_by: str | None
+    origin: WorkerOrigin  # Provenance: how this worker was created
+
+    # Capacity Management (Phase 1 - Lablet Integration)
+    template_name: str | None  # Worker template name (e.g., "m5zn.metal-cml-2.9")
+    declared_capacity: WorkerCapacity | None  # Maximum capacity from template
+    allocated_capacity: WorkerCapacity  # Sum of capacity used by lablet sessions
+    port_allocations: list[PortAllocation]  # Ports allocated to lablet sessions
+    session_ids: list[str]  # IDs of lablet sessions assigned to this worker
 
     def __init__(self) -> None:
         super().__init__()
@@ -151,6 +173,7 @@ class CMLWorkerState(AggregateState[str]):
         self.ami_description = None
         self.ami_creation_date = None
         self.status = CMLWorkerStatus.PENDING
+        self.desired_status = CMLWorkerStatus.RUNNING  # Default desired state
         self.service_status = CMLServiceStatus.UNAVAILABLE
 
         self.metrics = CMLMetrics()
@@ -201,8 +224,19 @@ class CMLWorkerState(AggregateState[str]):
         self.target_pause_at = None
         self.is_idle_detection_enabled = True  # Enabled by default
 
+        # On-demand refresh
+        self.refresh_requested_at = None
+
         self.created_by = None
         self.terminated_by = None
+        self.origin = WorkerOrigin.UNKNOWN
+
+        # Capacity Management initialization (Phase 1 - Lablet Integration)
+        self.template_name = None
+        self.declared_capacity = None
+        self.allocated_capacity = WorkerCapacity.zero()
+        self.port_allocations = []
+        self.session_ids = []
 
     @dispatch(CMLWorkerCreatedDomainEvent)
     def on(self, event: CMLWorkerCreatedDomainEvent) -> None:  # type: ignore[override]
@@ -217,10 +251,12 @@ class CMLWorkerState(AggregateState[str]):
         self.ami_description = event.ami_description
         self.ami_creation_date = event.ami_creation_date
         self.status = event.status
+        self.desired_status = event.desired_status  # Spec: reconciliation target
         self.metrics = replace(self.metrics, version=event.cml_version)
         self.created_at = event.created_at
         self.updated_at = event.created_at
         self.created_by = event.created_by
+        self.origin = event.origin
 
     @dispatch(CMLWorkerImportedDomainEvent)
     def on(self, event: CMLWorkerImportedDomainEvent) -> None:  # type: ignore[override]
@@ -239,18 +275,24 @@ class CMLWorkerState(AggregateState[str]):
         self.created_at = event.created_at
         self.updated_at = event.created_at
         self.created_by = event.created_by
+        self.origin = event.origin
 
         # Map EC2 instance state to CMLWorkerStatus
         if event.instance_state == "running":
             self.status = CMLWorkerStatus.RUNNING
+            self.desired_status = CMLWorkerStatus.RUNNING  # Imported running = user wants running
         elif event.instance_state == "stopped":
             self.status = CMLWorkerStatus.STOPPED
+            self.desired_status = CMLWorkerStatus.STOPPED  # Imported stopped = keep stopped
         elif event.instance_state == "stopping":
             self.status = CMLWorkerStatus.STOPPING
+            self.desired_status = CMLWorkerStatus.STOPPED  # Stopping = user wants stopped
         elif event.instance_state == "pending":
             self.status = CMLWorkerStatus.PENDING
+            self.desired_status = CMLWorkerStatus.RUNNING  # Pending = user wants running
         else:
             self.status = CMLWorkerStatus.UNKNOWN
+            self.desired_status = CMLWorkerStatus.RUNNING  # Unknown = assume user wants running
 
     @dispatch(CMLWorkerStatusUpdatedDomainEvent)
     def on(self, event: CMLWorkerStatusUpdatedDomainEvent) -> None:  # type: ignore[override]
@@ -282,6 +324,16 @@ class CMLWorkerState(AggregateState[str]):
             self.cloudwatch_last_collected_at = None
             # Reset CML metrics (worker is not running, no CML data available)
             self.metrics = CMLMetrics()
+
+    @dispatch(CMLWorkerDesiredStatusUpdatedDomainEvent)
+    def on(self, event: CMLWorkerDesiredStatusUpdatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the desired status updated event to the state (spec change).
+
+        This updates the user's desired state (spec). The worker-controller
+        will reconcile actual state to match this desired state.
+        """
+        self.desired_status = event.new_desired_status
+        self.updated_at = event.updated_at
 
     @dispatch(CMLServiceStatusUpdatedDomainEvent)
     def on(self, event: CMLServiceStatusUpdatedDomainEvent) -> None:  # type: ignore[override]
@@ -372,20 +424,8 @@ class CMLWorkerState(AggregateState[str]):
                             if cpu_data
                             else None
                         ),
-                        memory=(
-                            MemoryStats(
-                                total=mem_data.get("total"), free=mem_data.get("free"), used=mem_data.get("used")
-                            )
-                            if mem_data
-                            else None
-                        ),
-                        disk=(
-                            DiskStats(
-                                total=disk_data.get("total"), free=disk_data.get("free"), used=disk_data.get("used")
-                            )
-                            if disk_data
-                            else None
-                        ),
+                        memory=(MemoryStats(total=mem_data.get("total"), free=mem_data.get("free"), used=mem_data.get("used")) if mem_data else None),
+                        disk=(DiskStats(total=disk_data.get("total"), free=disk_data.get("free"), used=disk_data.get("used")) if disk_data else None),
                         dominfo=(
                             DomInfoStats(
                                 allocated_cpus=dom_data.get("allocated_cpus"),
@@ -495,6 +535,19 @@ class CMLWorkerState(AggregateState[str]):
         self.aws_tags = event.aws_tags
         self.updated_at = event.updated_at
 
+    @dispatch(CMLWorkerLicenseRegistrationRequestedDomainEvent)
+    def on(self, event: CMLWorkerLicenseRegistrationRequestedDomainEvent) -> None:  # type: ignore[override]
+        """Apply license registration requested event to the state.
+
+        ADR-016: Stores intent for worker-controller to reconcile.
+        """
+        self.license = replace(
+            self.license,
+            pending_token=event.license_token,
+            pending_operation="register",
+        )
+        self.updated_at = datetime.fromisoformat(event.requested_at)
+
     @dispatch(CMLWorkerLicenseRegistrationStartedDomainEvent)
     def on(self, event: CMLWorkerLicenseRegistrationStartedDomainEvent) -> None:  # type: ignore[override]
         """Apply license registration started event to the state."""
@@ -503,15 +556,45 @@ class CMLWorkerState(AggregateState[str]):
 
     @dispatch(CMLWorkerLicenseRegistrationCompletedDomainEvent)
     def on(self, event: CMLWorkerLicenseRegistrationCompletedDomainEvent) -> None:  # type: ignore[override]
-        """Apply license registration completed event to the state."""
-        self.license = replace(self.license, status=LicenseStatus.REGISTERED, operation_in_progress=False)
+        """Apply license registration completed event to the state.
+
+        ADR-016: Clears pending fields after successful registration.
+        """
+        self.license = replace(
+            self.license,
+            status=LicenseStatus.REGISTERED,
+            token=self.license.pending_token,  # Move pending to current
+            pending_token=None,
+            pending_operation=None,
+            operation_in_progress=False,
+        )
         self.updated_at = datetime.fromisoformat(event.completed_at)
 
     @dispatch(CMLWorkerLicenseRegistrationFailedDomainEvent)
     def on(self, event: CMLWorkerLicenseRegistrationFailedDomainEvent) -> None:  # type: ignore[override]
-        """Apply license registration failed event to the state."""
-        self.license = replace(self.license, operation_in_progress=False)
+        """Apply license registration failed event to the state.
+
+        ADR-016: Clears pending fields after failed registration.
+        """
+        self.license = replace(
+            self.license,
+            pending_token=None,
+            pending_operation=None,
+            operation_in_progress=False,
+        )
         self.updated_at = datetime.fromisoformat(event.failed_at)
+
+    @dispatch(CMLWorkerLicenseDeregistrationRequestedDomainEvent)
+    def on(self, event: CMLWorkerLicenseDeregistrationRequestedDomainEvent) -> None:  # type: ignore[override]
+        """Apply license deregistration requested event to the state.
+
+        ADR-016: Stores intent for worker-controller to reconcile.
+        """
+        self.license = replace(
+            self.license,
+            pending_operation="deregister",
+        )
+        self.updated_at = datetime.fromisoformat(event.requested_at)
 
     @dispatch(CMLWorkerLicenseDeregistrationStartedDomainEvent)
     def on(self, event: CMLWorkerLicenseDeregistrationStartedDomainEvent) -> None:  # type: ignore[override]
@@ -521,14 +604,31 @@ class CMLWorkerState(AggregateState[str]):
 
     @dispatch(CMLWorkerLicenseDeregistrationCompletedDomainEvent)
     def on(self, event: CMLWorkerLicenseDeregistrationCompletedDomainEvent) -> None:  # type: ignore[override]
-        """Apply license deregistration completed event to the state."""
-        self.license = replace(self.license, status=LicenseStatus.UNREGISTERED, operation_in_progress=False)
+        """Apply license deregistration completed event to the state.
+
+        ADR-016: Clears pending fields and token after successful deregistration.
+        """
+        self.license = replace(
+            self.license,
+            status=LicenseStatus.UNREGISTERED,
+            token=None,
+            pending_token=None,
+            pending_operation=None,
+            operation_in_progress=False,
+        )
         self.updated_at = datetime.fromisoformat(event.completed_at)
 
     @dispatch(CMLWorkerLicenseDeregistrationFailedDomainEvent)
     def on(self, event: CMLWorkerLicenseDeregistrationFailedDomainEvent) -> None:  # type: ignore[override]
-        """Apply license deregistration failed event to the state."""
-        self.license = replace(self.license, operation_in_progress=False)
+        """Apply license deregistration failed event to the state.
+
+        ADR-016: Clears pending fields after failed deregistration.
+        """
+        self.license = replace(
+            self.license,
+            pending_operation=None,
+            operation_in_progress=False,
+        )
         self.updated_at = datetime.fromisoformat(event.failed_at)
 
     @dispatch(CMLWorkerLicenseDeregisteredDomainEvent)
@@ -619,6 +719,89 @@ class CMLWorkerState(AggregateState[str]):
         self.is_idle_detection_enabled = event.is_enabled
         self.updated_at = event.toggled_at
 
+    # =========================================================================
+    # Capacity Management Event Handlers (Phase 1 - Lablet Integration)
+    # =========================================================================
+
+    @dispatch(CMLWorkerCapacityUpdatedDomainEvent)
+    def on(self, event: CMLWorkerCapacityUpdatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply capacity updated event to the state."""
+        self.template_name = event.template_name
+        self.declared_capacity = WorkerCapacity(
+            cpu_cores=event.declared_capacity_cpu_cores,
+            memory_gb=event.declared_capacity_memory_gb,
+            storage_gb=event.declared_capacity_storage_gb,
+            max_nodes=event.declared_capacity_max_nodes,
+        )
+        self.updated_at = event.updated_at
+
+    @dispatch(CMLWorkerPortsAllocatedDomainEvent)
+    def on(self, event: CMLWorkerPortsAllocatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply ports allocated event to the state."""
+        allocation = PortAllocation(
+            session_id=event.session_id,
+            ports=event.ports,
+            allocated_at=event.allocated_at,
+        )
+        # Append new allocation (create new list to avoid mutation issues)
+        self.port_allocations = list(self.port_allocations) + [allocation]
+        self.updated_at = event.allocated_at
+
+    @dispatch(CMLWorkerPortsReleasedDomainEvent)
+    def on(self, event: CMLWorkerPortsReleasedDomainEvent) -> None:  # type: ignore[override]
+        """Apply ports released event to the state."""
+        # Remove allocation for this session
+        self.port_allocations = [alloc for alloc in self.port_allocations if alloc.session_id != event.session_id]
+        self.updated_at = event.released_at
+
+    @dispatch(LabletSessionAssignedDomainEvent)
+    def on(self, event: LabletSessionAssignedDomainEvent) -> None:  # type: ignore[override]
+        """Apply lablet session assigned event to the state."""
+        # Add session to tracking list
+        if event.session_id not in self.session_ids:
+            self.session_ids = list(self.session_ids) + [event.session_id]
+
+        # Update allocated capacity
+        session_capacity = WorkerCapacity(
+            cpu_cores=event.allocated_cpu_cores,
+            memory_gb=event.allocated_memory_gb,
+            storage_gb=event.allocated_storage_gb,
+            max_nodes=event.allocated_nodes,
+        )
+        self.allocated_capacity = self.allocated_capacity.add(session_capacity)
+        self.updated_at = event.assigned_at
+
+    @dispatch(LabletSessionRemovedDomainEvent)
+    def on(self, event: LabletSessionRemovedDomainEvent) -> None:  # type: ignore[override]
+        """Apply lablet session removed event to the state."""
+        # Remove session from tracking list
+        self.session_ids = [sid for sid in self.session_ids if sid != event.session_id]
+
+        # Release capacity (subtract from allocated)
+        released_capacity = WorkerCapacity(
+            cpu_cores=event.released_cpu_cores,
+            memory_gb=event.released_memory_gb,
+            storage_gb=event.released_storage_gb,
+            max_nodes=event.released_nodes,
+        )
+        self.allocated_capacity = WorkerCapacity(
+            cpu_cores=max(0, self.allocated_capacity.cpu_cores - released_capacity.cpu_cores),
+            memory_gb=max(0, self.allocated_capacity.memory_gb - released_capacity.memory_gb),
+            storage_gb=max(0, self.allocated_capacity.storage_gb - released_capacity.storage_gb),
+            max_nodes=(max(0, (self.allocated_capacity.max_nodes or 0) - (released_capacity.max_nodes or 0)) if self.allocated_capacity.max_nodes is not None else None),
+        )
+        self.updated_at = event.removed_at
+
+
+class InvalidCMLWorkerTransitionError(Exception):
+    """Raised when an invalid CMLWorker state transition is attempted."""
+
+    def __init__(self, from_status: CMLWorkerStatus, to_status: CMLWorkerStatus, message: str | None = None):
+        self.from_status = from_status
+        self.to_status = to_status
+        self.message = message or f"Invalid CMLWorker transition from {from_status.value} to {to_status.value}"
+        super().__init__(self.message)
+
 
 class CMLWorker(AggregateRoot[CMLWorkerState, str]):
     """CML Worker aggregate root following the AggregateState pattern.
@@ -641,6 +824,7 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
         created_at: datetime | None = None,
         created_by: str | None = None,
         worker_id: str | None = None,
+        origin: WorkerOrigin = WorkerOrigin.USER_CREATED,
     ) -> None:
         """Initialize a new CML Worker.
 
@@ -677,6 +861,7 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
                     cml_version=cml_version,
                     created_at=created_time,
                     created_by=created_by,
+                    origin=origin,
                 )
             )
         )
@@ -695,12 +880,13 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
         ami_creation_date: str | None = None,
         public_ip: str | None = None,
         private_ip: str | None = None,
+        origin: WorkerOrigin = WorkerOrigin.EC2_DISCOVERY,
     ) -> "CMLWorker":
         """Factory method to import an existing EC2 instance as a CML Worker.
 
         This creates a worker from an already-provisioned EC2 instance without
         creating a new instance. Used for registering instances that were
-        created outside of the CML Cloud Manager system.
+        created outside of the Lablet Cloud Manager system.
 
         Args:
             name: Friendly name for the worker
@@ -741,6 +927,7 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
             private_ip=private_ip,
             created_by=created_by,
             created_at=created_at,
+            origin=origin,
         )
 
         worker.state.on(worker.register_event(event))  # type: ignore
@@ -781,6 +968,35 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
             raise ValueError("CMLWorker aggregate identifier has not been initialized")
         return cast(str, aggregate_id)
 
+    # =========================================================================
+    # STATE MACHINE GUARD
+    # =========================================================================
+
+    def _validate_transition(self, to_status: CMLWorkerStatus) -> bool:
+        """Validate that a state transition is allowed.
+
+        Unlike LabRecord (which raises), this logs a warning and returns False
+        for invalid transitions.  The reconciler receives status from AWS EC2
+        which may skip intermediate states, so we must never block reconciliation.
+
+        Returns:
+            True if the transition is valid, False otherwise.
+        """
+        import logging
+
+        valid_targets = CML_WORKER_VALID_TRANSITIONS.get(self.state.status, [])
+        if to_status not in valid_targets:
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "CMLWorker %s: unexpected transition %s → %s (allowed: %s). Proceeding anyway — reconciler must not be blocked.",
+                self.id(),
+                self.state.status.value,
+                to_status.value,
+                [s.value for s in valid_targets],
+            )
+            return False
+        return True
+
     def update_status(self, new_status: CMLWorkerStatus) -> bool:
         """Update the EC2 instance status.
 
@@ -792,6 +1008,8 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
         """
         if self.state.status == new_status:
             return False
+
+        self._validate_transition(new_status)
 
         old_status = self.state.status
         now = datetime.now(timezone.utc)
@@ -806,6 +1024,47 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
                     new_status=new_status,
                     updated_at=now,
                     transition_initiated_at=transition_ts,
+                )
+            )
+        )
+        return True
+
+    def update_desired_status(
+        self,
+        new_desired_status: CMLWorkerStatus,
+        requested_by: str | None = None,
+        reason: str | None = None,
+    ) -> bool:
+        """Update the desired status (spec) - what the user wants.
+
+        This follows the Kubernetes-like reconciliation pattern:
+        - desired_status = spec (what user wants)
+        - status = state (actual EC2 state)
+
+        The worker-controller watches for desired_status changes and
+        reconciles actual state to match.
+
+        Args:
+            new_desired_status: Target status the user wants
+            requested_by: User or system requesting the change
+            reason: Optional reason for the change
+
+        Returns:
+            True if desired_status was changed, False if already at target
+        """
+        if self.state.desired_status == new_desired_status:
+            return False
+
+        old_desired_status = self.state.desired_status
+        self.state.on(
+            self.register_event(  # type: ignore
+                CMLWorkerDesiredStatusUpdatedDomainEvent(
+                    aggregate_id=self.id(),
+                    old_desired_status=old_desired_status,
+                    new_desired_status=new_desired_status,
+                    updated_at=datetime.now(timezone.utc),
+                    requested_by=requested_by,
+                    reason=reason,
                 )
             )
         )
@@ -1061,9 +1320,7 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
                 # Check for license changes
                 license_changed = False
                 if license_info:
-                    current_reg = (
-                        self.state.license.raw_info.get("registration_status") if self.state.license.raw_info else None
-                    )
+                    current_reg = self.state.license.raw_info.get("registration_status") if self.state.license.raw_info else None
                     new_reg = license_info.get("registration_status")
                     if current_reg != new_reg:
                         license_changed = True
@@ -1073,9 +1330,7 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
                 # Check for system health changes (is_licensed)
                 health_changed = False
                 if system_health:
-                    current_licensed = (
-                        self.state.metrics.system_health.is_licensed if self.state.metrics.system_health else False
-                    )
+                    current_licensed = self.state.metrics.system_health.is_licensed if self.state.metrics.system_health else False
                     new_licensed = system_health.get("is_licensed", False)
                     if current_licensed != new_licensed:
                         health_changed = True
@@ -1181,6 +1436,24 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
         )
         return True
 
+    def request_refresh(self) -> None:
+        """Request an on-demand data refresh for this worker.
+
+        Sets refresh_requested_at timestamp. The worker-controller reconciler
+        checks this field and performs a full data collection (EC2 details + CML data)
+        when it's set, then clears it after completion.
+        """
+        self.state.refresh_requested_at = datetime.now(timezone.utc)
+        self.state.updated_at = datetime.now(timezone.utc)
+
+    def clear_refresh_request(self) -> None:
+        """Clear the on-demand refresh request after completion.
+
+        Called by the CPA when worker-controller reports back the refreshed data.
+        """
+        self.state.refresh_requested_at = None
+        self.state.updated_at = datetime.now(timezone.utc)
+
     def update_cloudwatch_monitoring(self, enabled: bool) -> bool:
         """Update the worker's CloudWatch detailed monitoring status.
 
@@ -1217,6 +1490,58 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
                     name=self.state.name,
                     terminated_at=datetime.now(timezone.utc),
                     terminated_by=terminated_by,
+                )
+            )
+        )
+
+    def request_license_registration(
+        self,
+        license_token: str,
+        initiated_by: str | None = None,
+        reregister: bool = False,
+    ) -> None:
+        """Request license registration (ADR-016: stores intent).
+
+        Control-plane-api calls this to store the desired license token.
+        Worker-controller will reconcile by calling the CML API.
+
+        Args:
+            license_token: The license token to register
+            initiated_by: User ID who initiated registration
+            reregister: Whether to re-register an existing license
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                CMLWorkerLicenseRegistrationRequestedDomainEvent(
+                    aggregate_id=self.id(),
+                    worker_id=self.id(),
+                    license_token=license_token,
+                    reregister=reregister,
+                    requested_at=datetime.now(timezone.utc).isoformat(),
+                    initiated_by=initiated_by or "system",
+                )
+            )
+        )
+
+    def request_license_deregistration(
+        self,
+        initiated_by: str | None = None,
+    ) -> None:
+        """Request license deregistration (ADR-016: stores intent).
+
+        Control-plane-api calls this to request license deregistration.
+        Worker-controller will reconcile by calling the CML API.
+
+        Args:
+            initiated_by: User ID who initiated deregistration
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                CMLWorkerLicenseDeregistrationRequestedDomainEvent(
+                    aggregate_id=self.id(),
+                    worker_id=self.id(),
+                    requested_at=datetime.now(timezone.utc).isoformat(),
+                    initiated_by=initiated_by or "system",
                 )
             )
         )
@@ -1477,11 +1802,7 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
         Returns:
             True if worker is running and service is available
         """
-        return (
-            self.state.status == CMLWorkerStatus.RUNNING
-            and self.state.service_status == CMLServiceStatus.AVAILABLE
-            and self.state.https_endpoint is not None
-        )
+        return self.state.status == CMLWorkerStatus.RUNNING and self.state.service_status == CMLServiceStatus.AVAILABLE and self.state.https_endpoint is not None
 
     def update_activity(
         self,
@@ -1666,3 +1987,268 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
                     )
                 )
             )
+
+    # =========================================================================
+    # Capacity Management Methods (Phase 1 - Lablet Integration)
+    # =========================================================================
+
+    def update_capacity(
+        self,
+        template_name: str | None,
+        cpu_cores: int,
+        memory_gb: int,
+        storage_gb: int,
+        max_nodes: int | None = None,
+    ) -> None:
+        """Update the worker's declared capacity.
+
+        Args:
+            template_name: Name of the worker template
+            cpu_cores: Total CPU cores available
+            memory_gb: Total memory in GB
+            storage_gb: Total storage in GB
+            max_nodes: Maximum CML node count (optional)
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                CMLWorkerCapacityUpdatedDomainEvent(
+                    aggregate_id=self.id(),
+                    template_name=template_name,
+                    declared_capacity_cpu_cores=cpu_cores,
+                    declared_capacity_memory_gb=memory_gb,
+                    declared_capacity_storage_gb=storage_gb,
+                    declared_capacity_max_nodes=max_nodes,
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+
+    def allocate_ports(
+        self,
+        session_id: str,
+        ports: dict[str, int],
+    ) -> None:
+        """Allocate ports for a lablet session.
+
+        Args:
+            session_id: LabletSession ID
+            ports: Mapping of logical names to port numbers
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                CMLWorkerPortsAllocatedDomainEvent(
+                    aggregate_id=self.id(),
+                    session_id=session_id,
+                    ports=ports,
+                    allocated_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+
+    def release_ports(self, session_id: str) -> None:
+        """Release ports allocated to a lablet session.
+
+        Args:
+            session_id: LabletSession ID whose ports to release
+        """
+        # Find the allocation to determine which ports to release
+        allocation = next(
+            (a for a in self.state.port_allocations if a.session_id == session_id),
+            None,
+        )
+        if allocation:
+            self.state.on(
+                self.register_event(  # type: ignore
+                    CMLWorkerPortsReleasedDomainEvent(
+                        aggregate_id=self.id(),
+                        session_id=session_id,
+                        released_ports=list(allocation.ports.values()),
+                        released_at=datetime.now(timezone.utc),
+                    )
+                )
+            )
+
+    def assign_lablet_session(
+        self,
+        session_id: str,
+        cpu_cores: int,
+        memory_gb: int,
+        storage_gb: int,
+        max_nodes: int | None = None,
+    ) -> None:
+        """Assign a lablet session to this worker.
+
+        Args:
+            session_id: LabletSession ID
+            cpu_cores: CPU cores required
+            memory_gb: Memory required in GB
+            storage_gb: Storage required in GB
+            max_nodes: Node count for this session
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletSessionAssignedDomainEvent(
+                    aggregate_id=self.id(),
+                    session_id=session_id,
+                    allocated_cpu_cores=cpu_cores,
+                    allocated_memory_gb=memory_gb,
+                    allocated_storage_gb=storage_gb,
+                    allocated_nodes=max_nodes,
+                    assigned_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+
+    def remove_lablet_session(
+        self,
+        session_id: str,
+        cpu_cores: int,
+        memory_gb: int,
+        storage_gb: int,
+        max_nodes: int | None = None,
+    ) -> None:
+        """Remove a lablet session from this worker.
+
+        Args:
+            session_id: LabletSession ID to remove
+            cpu_cores: CPU cores to release
+            memory_gb: Memory to release in GB
+            storage_gb: Storage to release in GB
+            max_nodes: Node count to release
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletSessionRemovedDomainEvent(
+                    aggregate_id=self.id(),
+                    session_id=session_id,
+                    released_cpu_cores=cpu_cores,
+                    released_memory_gb=memory_gb,
+                    released_storage_gb=storage_gb,
+                    released_nodes=max_nodes,
+                    removed_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+
+    # =========================================================================
+    # Capacity Computed Properties (Phase 1 - Lablet Integration)
+    # =========================================================================
+
+    @property
+    def available_capacity(self) -> WorkerCapacity | None:
+        """Calculate available capacity (declared - allocated).
+
+        When declared_capacity is not set (e.g., discovered workers that
+        haven't had capacity derivation triggered yet), falls back to
+        deriving capacity from CML system_info hardware metrics.
+
+        Returns:
+            WorkerCapacity representing remaining capacity,
+            or None if no capacity data is available at all.
+        """
+        effective_declared = self.state.declared_capacity
+        if effective_declared is None:
+            effective_declared = self._derive_capacity_from_metrics()
+        if effective_declared is None:
+            return None
+        return effective_declared.subtract(self.state.allocated_capacity)
+
+    def _derive_capacity_from_metrics(self) -> WorkerCapacity | None:
+        """Derive declared capacity from CML system_info hardware metrics.
+
+        Workers discovered via EC2 may not have declared_capacity set until
+        the update_capacity() domain method is called. This method provides
+        a fallback by reading actual hardware specs from CML telemetry.
+
+        Returns:
+            WorkerCapacity derived from system_info, or None if metrics
+            are not available.
+        """
+        system_info = self.state.metrics.system_info if self.state.metrics else None
+        if system_info is None:
+            return None
+
+        cpu_count = system_info.cpu_count
+        memory_total = system_info.memory_total  # bytes
+        disk_total = system_info.disk_total  # bytes
+
+        if cpu_count and memory_total and disk_total:
+            return WorkerCapacity(
+                cpu_cores=int(cpu_count),
+                memory_gb=int(memory_total / (1024**3)),
+                storage_gb=int(disk_total / (1024**3)),
+                max_nodes=None,
+            )
+        return None
+
+    @property
+    def available_ports(self) -> set[int]:
+        """Get ports that are currently available (not allocated).
+
+        Returns:
+            Set of available port numbers in the allowed range (2000-9999).
+        """
+        # Get all currently allocated ports
+        allocated = set()
+        for allocation in self.state.port_allocations:
+            allocated.update(allocation.ports.values())
+
+        # Available ports are the full range minus allocated
+        all_ports = set(range(2000, 10000))
+        return all_ports - allocated
+
+    def can_accommodate(self, required_capacity: WorkerCapacity) -> bool:
+        """Check if this worker can accommodate the required capacity.
+
+        Args:
+            required_capacity: Capacity requirements to check
+
+        Returns:
+            True if the worker has sufficient available capacity
+        """
+        available = self.available_capacity
+        if available is None:
+            return False
+        return available.can_fit(required_capacity)
+
+    def get_next_available_ports(self, count: int) -> list[int]:
+        """Get the next N available ports.
+
+        Args:
+            count: Number of ports needed
+
+        Returns:
+            List of available port numbers
+
+        Raises:
+            ValueError: If not enough ports are available
+        """
+        available = sorted(self.available_ports)
+        if len(available) < count:
+            raise ValueError(f"Not enough available ports: need {count}, have {len(available)}")
+        return available[:count]
+
+    def has_session(self, session_id: str) -> bool:
+        """Check if a lablet session is assigned to this worker.
+
+        Args:
+            session_id: LabletSession ID to check
+
+        Returns:
+            True if the session is assigned to this worker
+        """
+        return session_id in self.state.session_ids
+
+    def get_port_allocation(self, session_id: str) -> PortAllocation | None:
+        """Get port allocation for a specific session.
+
+        Args:
+            session_id: LabletSession ID
+
+        Returns:
+            PortAllocation if found, None otherwise
+        """
+        return next(
+            (a for a in self.state.port_allocations if a.session_id == session_id),
+            None,
+        )

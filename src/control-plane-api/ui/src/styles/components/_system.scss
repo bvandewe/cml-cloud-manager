@@ -1,59 +1,82 @@
-/**
- * System Monitoring Styles
- */
+// =============================================================================
+// SYSTEM MONITORING COMPONENT
+// System view specific styles
+// =============================================================================
 
 #system-view {
     .card {
-        transition: all 0.3s ease;
+        transition: all $transition-normal;
 
         &:hover {
-            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            box-shadow: var(--shadow-lg, $shadow-lg);
         }
     }
 
     .nav-tabs {
+        border-bottom: 2px solid var(--color-border, $color-border);
+
         .nav-link {
-            color: #6c757d;
+            color: var(--color-text-secondary, $color-text-secondary);
+            border: none;
+            padding: $spacing-2 $spacing-4;
+            font-weight: $font-weight-medium;
 
             &:hover {
-                color: #0d6efd;
+                color: var(--color-primary, $color-primary);
+                border: none;
             }
 
             &.active {
-                color: #0d6efd;
+                color: var(--color-primary, $color-primary);
+                border: none;
+                border-bottom: 2px solid var(--color-primary, $color-primary);
+                margin-bottom: -2px;
             }
         }
     }
 
     .table {
         code {
-            font-size: 0.875rem;
-            color: #d63384;
-            background-color: #f8f9fa;
-            padding: 0.2rem 0.4rem;
-            border-radius: 0.25rem;
+            font-size: $font-size-sm;
+            color: $color-pink;
+            background-color: var(--color-bg-tertiary, $color-bg-tertiary);
+            padding: $spacing-1 $spacing-2;
+            border-radius: $border-radius-sm;
         }
     }
 
     .badge {
-        font-size: 0.875rem;
-        font-weight: 500;
+        font-size: $font-size-sm;
+        font-weight: $font-weight-medium;
     }
 
     // Health component cards
     .health-component {
         .card-body {
-            padding: 1rem;
+            padding: $spacing-3;
         }
 
         .status-icon {
             width: 48px;
             height: 48px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5rem;
+            border-radius: $border-radius-circle;
+            @include flex-center;
+            font-size: $font-size-xxl;
+
+            &.healthy {
+                background-color: rgba($color-success, 0.1);
+                color: $color-success;
+            }
+
+            &.unhealthy {
+                background-color: rgba($color-danger, 0.1);
+                color: $color-danger;
+            }
+
+            &.degraded {
+                background-color: rgba($color-warning, 0.1);
+                color: $color-warning;
+            }
         }
     }
 
@@ -61,5 +84,89 @@
     .spinner-border {
         width: 2rem;
         height: 2rem;
+    }
+}
+
+// Metrics display
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: $spacing-4;
+}
+
+.metric-card {
+    @include card-base;
+    padding: $spacing-3;
+
+    .metric-label {
+        font-size: $font-size-xs;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--color-text-muted, $color-text-muted);
+        margin-bottom: $spacing-1;
+    }
+
+    .metric-value {
+        font-size: $font-size-xxl;
+        font-weight: $font-weight-bold;
+        color: var(--color-text-primary, $color-text-primary);
+    }
+
+    .metric-unit {
+        font-size: $font-size-sm;
+        color: var(--color-text-secondary, $color-text-secondary);
+        margin-left: $spacing-1;
+    }
+
+    .metric-change {
+        font-size: $font-size-xs;
+        margin-top: $spacing-1;
+
+        &.positive {
+            color: $color-success;
+        }
+
+        &.negative {
+            color: $color-danger;
+        }
+    }
+}
+
+// Progress bars
+.progress {
+    height: 8px;
+    border-radius: $border-radius-sm;
+    background-color: var(--color-bg-tertiary, $color-bg-tertiary);
+    overflow: hidden;
+
+    .progress-bar {
+        border-radius: $border-radius-sm;
+        transition: width $transition-normal;
+    }
+}
+
+// Grafana panel embedding
+.grafana-panel {
+    border-radius: $border-radius-md;
+    overflow: hidden;
+    background-color: var(--color-bg-primary, $color-bg-primary);
+
+    iframe {
+        border: none;
+        width: 100%;
+    }
+
+    .grafana-loading {
+        @include flex-center;
+        min-height: 200px;
+        color: var(--color-text-muted, $color-text-muted);
+    }
+
+    .grafana-error {
+        @include flex-center;
+        min-height: 200px;
+        color: $color-danger;
+        text-align: center;
+        padding: $spacing-4;
     }
 }

@@ -1,6 +1,6 @@
 # Implementation Patterns Cheat Sheet
 
-**Purpose**: Quick reference for implementing features in CML Cloud Manager
+**Purpose**: Quick reference for implementing features in Lablet Cloud Manager
 **Audience**: Human developers and AI agents
 **Status**: Based on actual implementation (November 2025)
 
@@ -60,7 +60,7 @@ def create_app() -> FastAPI:
         builder,
         entity_type=CMLWorker,
         key_type=str,
-        database_name="cml_cloud_manager",
+        database_name="lablet_cloud_manager",
         collection_name="cml_workers",
         domain_repository_type=CMLWorkerRepository,
         implementation_type=MongoCMLWorkerRepository,
@@ -1415,7 +1415,7 @@ class SSEEventRelay:
         self,
         event_type: str,
         data: dict,
-        source: str = "cml-cloud-manager"
+        source: str = "lablet-cloud-manager"
     ) -> None:
         """Broadcast event to matching clients."""
         event_message = {

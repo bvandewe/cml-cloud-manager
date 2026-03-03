@@ -1,5 +1,300 @@
-/* Navbar Component Styles */
+// =============================================================================
+// NAVBAR COMPONENT
+// App navigation bar with pill tabs - Light theme matching Skills Manager
+// =============================================================================
 
+// Main navbar container - white background with bottom border
+.lcm-navbar,
+.navbar {
+    z-index: z("header");
+    background-color: var(--color-bg-primary, $color-bg-primary);
+    border-bottom: 1px solid var(--color-border, $color-border);
+    padding: $spacing-2 0;
+    min-height: 56px;
+
+    // Ensure text is dark on light background
+    color: var(--color-text-primary, $color-text-primary);
+
+    // Theme toggle icon switching
+    .theme-icon-light,
+    .theme-icon-dark {
+        font-size: $font-size-lg;
+    }
+}
+
+// Navbar brand styling
 .navbar-brand {
-    font-weight: 600;
+    font-weight: $font-weight-semibold;
+    display: flex;
+    align-items: center;
+    gap: $spacing-2;
+    color: var(--color-text-primary, $color-text-primary);
+    text-decoration: none;
+
+    &:hover {
+        color: var(--color-primary, $color-primary);
+    }
+
+    i {
+        font-size: $font-size-xl;
+        color: var(--color-primary, $color-primary);
+    }
+}
+
+// Mobile toggler for light theme
+.navbar-toggler {
+    border-color: var(--color-border, $color-border);
+
+    .navbar-toggler-icon {
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba(0, 0, 0, 0.55)' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+    }
+}
+
+// Main nav tabs - pill style matching Skills Manager
+#main-nav,
+#admin-nav {
+    .nav-link {
+        border-radius: $border-radius-pill;
+        padding: $spacing-2 $spacing-3;
+        transition: all $transition-fast;
+        font-weight: $font-weight-medium;
+        font-size: $font-size-sm;
+        color: var(--color-text-secondary, $color-text-secondary);
+        text-decoration: none;
+
+        &.active {
+            background-color: var(--color-primary, $color-primary);
+            color: var(--color-text-inverse, $color-text-inverse);
+
+            // Keep text white on hover for active tab
+            &:hover {
+                background-color: var(--color-primary-hover, darken($color-primary, 10%));
+                color: var(--color-text-inverse, $color-text-inverse);
+                text-decoration: none;
+            }
+        }
+
+        &:not(.active):hover {
+            background-color: rgba($color-primary, 0.1);
+            color: var(--color-primary, $color-primary);
+            text-decoration: none;
+        }
+
+        i {
+            font-size: $font-size-sm;
+        }
+    }
+
+    // Dropdown toggle styling
+    .dropdown-toggle {
+        color: var(--color-text-secondary, $color-text-secondary);
+
+        &:hover,
+        &.show {
+            color: var(--color-primary, $color-primary);
+        }
+    }
+}
+
+// Connection status indicator - real-time SSE status
+.connection-indicator {
+    display: flex;
+    align-items: center;
+    gap: $spacing-1;
+    padding: $spacing-1 $spacing-2;
+    border-radius: $border-radius-sm;
+    font-size: $font-size-xs;
+    color: var(--color-text-muted, $color-text-muted);
+    transition: all $transition-fast;
+
+    i {
+        font-size: $font-size-sm;
+    }
+
+    .connection-text {
+        font-weight: $font-weight-medium;
+    }
+
+    // Connected state - green
+    &.connected {
+        color: $color-success;
+
+        i {
+            animation: pulse 2s infinite;
+        }
+    }
+
+    // Connecting state - amber
+    &.connecting {
+        color: $color-warning;
+
+        i {
+            animation: blink 1s infinite;
+        }
+    }
+
+    // Disconnected state - muted
+    &.disconnected {
+        color: var(--color-text-muted, $color-text-muted);
+    }
+
+    // Error state - red
+    &.error {
+        color: $color-danger;
+    }
+}
+
+// Pulse animation for connected indicator
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+// Blink animation for connecting state
+@keyframes blink {
+    0%,
+    50%,
+    100% {
+        opacity: 1;
+    }
+    25%,
+    75% {
+        opacity: 0.3;
+    }
+}
+
+// Icon-only button (theme toggle)
+.btn-icon {
+    background: transparent;
+    border: none;
+    padding: $spacing-2;
+    border-radius: $border-radius-sm;
+    color: var(--color-text-secondary, $color-text-secondary);
+    cursor: pointer;
+    transition: all $transition-fast;
+
+    &:hover {
+        background-color: var(--color-bg-secondary, $color-bg-secondary);
+        color: var(--color-text-primary, $color-text-primary);
+    }
+
+    i {
+        font-size: $font-size-lg;
+    }
+}
+
+// User dropdown
+#user-dropdown,
+.user-dropdown,
+lcm-user-menu {
+    .dropdown-toggle {
+        display: flex;
+        align-items: center;
+        gap: $spacing-2;
+        background: transparent;
+        border: none;
+        color: var(--color-text-primary, $color-text-primary);
+        padding: $spacing-1 $spacing-2;
+        border-radius: $border-radius-sm;
+        cursor: pointer;
+        transition: all $transition-fast;
+
+        &:hover {
+            background-color: var(--color-bg-secondary, $color-bg-secondary);
+        }
+
+        &::after {
+            margin-left: $spacing-1;
+        }
+    }
+
+    // User avatar
+    .user-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background-color: var(--color-primary, $color-primary);
+        color: var(--color-text-inverse, $color-text-inverse);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: $font-size-sm;
+        font-weight: $font-weight-semibold;
+    }
+}
+
+// Dropdown menus
+.dropdown-menu {
+    border-radius: $border-radius-md;
+    box-shadow: var(--shadow-lg, $shadow-lg);
+    border: 1px solid var(--color-border, $color-border);
+    padding: $spacing-2;
+    background-color: var(--color-bg-primary, $color-bg-primary);
+    min-width: 200px;
+
+    .dropdown-item {
+        border-radius: $border-radius-sm;
+        padding: $spacing-2 $spacing-3;
+        font-size: $font-size-sm;
+        color: var(--color-text-primary, $color-text-primary);
+
+        &:hover,
+        &:focus {
+            background-color: var(--color-bg-secondary, $color-bg-secondary);
+            color: var(--color-text-primary, $color-text-primary);
+        }
+
+        i {
+            margin-right: $spacing-2;
+            width: 1rem;
+            text-align: center;
+            color: var(--color-text-muted, $color-text-muted);
+        }
+    }
+
+    .dropdown-header {
+        font-size: $font-size-xs;
+        font-weight: $font-weight-semibold;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--color-text-muted, $color-text-muted);
+        padding: $spacing-2 $spacing-3;
+    }
+
+    .dropdown-divider {
+        margin: $spacing-2 0;
+        border-color: var(--color-border, $color-border);
+    }
+}
+
+// Dark theme overrides
+[data-bs-theme="dark"] {
+    .lcm-navbar,
+    .navbar {
+        background-color: var(--color-bg-primary);
+        border-bottom-color: var(--color-border);
+        color: var(--color-text-primary);
+    }
+
+    .navbar-brand {
+        color: var(--color-text-primary);
+    }
+
+    .navbar-toggler-icon {
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba(255, 255, 255, 0.75)' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+    }
+
+    .dropdown-menu {
+        background-color: var(--color-bg-secondary);
+        border-color: var(--color-border);
+
+        .dropdown-item:hover {
+            background-color: var(--color-bg-tertiary);
+        }
+    }
 }

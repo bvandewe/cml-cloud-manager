@@ -4,8 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from application.queries.get_cml_workers_query import (GetCMLWorkersQuery,
-                                                       GetCMLWorkersQueryHandler)
+from application.queries.get_cml_workers_query import GetCMLWorkersQuery, GetCMLWorkersQueryHandler
 from domain.enums import CMLWorkerStatus
 from integration.enums import AwsRegion
 from tests.fixtures.mixins import BaseTestCase
@@ -20,9 +19,7 @@ class TestGetCMLWorkersQuery(BaseTestCase):
         return GetCMLWorkersQueryHandler(worker_repository=mock_repository)
 
     @pytest.mark.asyncio
-    async def test_get_active_workers_default(
-        self, handler: GetCMLWorkersQueryHandler, mock_repository: MagicMock
-    ) -> None:
+    async def test_get_active_workers_default(self, handler: GetCMLWorkersQueryHandler, mock_repository: MagicMock) -> None:
         """Test that default query returns active workers."""
         # Arrange
         mock_repository.get_active_workers_async = self.create_async_mock(return_value=[])
@@ -70,15 +67,11 @@ class TestGetCMLWorkersQuery(BaseTestCase):
         mock_repository.get_by_status_async.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_status_takes_precedence_over_include_terminated(
-        self, handler: GetCMLWorkersQueryHandler, mock_repository: MagicMock
-    ) -> None:
+    async def test_status_takes_precedence_over_include_terminated(self, handler: GetCMLWorkersQueryHandler, mock_repository: MagicMock) -> None:
         """Test that status filter takes precedence over include_terminated."""
         # Arrange
         mock_repository.get_by_status_async = self.create_async_mock(return_value=[])
-        query = GetCMLWorkersQuery(
-            aws_region=AwsRegion.US_EAST_1, status=CMLWorkerStatus.RUNNING, include_terminated=True
-        )
+        query = GetCMLWorkersQuery(aws_region=AwsRegion.US_EAST_1, status=CMLWorkerStatus.RUNNING, include_terminated=True)
 
         # Act
         result = await handler.handle_async(query)

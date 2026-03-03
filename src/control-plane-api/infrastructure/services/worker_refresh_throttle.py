@@ -127,9 +127,7 @@ class WorkerRefreshThrottle:
         now = datetime.now(timezone.utc)
         max_age = timedelta(hours=max_age_hours)
 
-        old_entries = [
-            worker_id for worker_id, last_refresh in self._last_refresh.items() if now - last_refresh > max_age
-        ]
+        old_entries = [worker_id for worker_id, last_refresh in self._last_refresh.items() if now - last_refresh > max_age]
 
         for worker_id in old_entries:
             del self._last_refresh[worker_id]

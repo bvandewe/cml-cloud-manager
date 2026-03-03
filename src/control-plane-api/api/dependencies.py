@@ -35,7 +35,7 @@ def get_auth_service(request: Request) -> DualAuthService:
     """
     auth_service = getattr(request.state, "auth_service", None)
     if auth_service is None:
-        raise RuntimeError("AuthService not found in request state. " "Ensure DI middleware is properly configured.")
+        raise RuntimeError("AuthService not found in request state. Ensure DI middleware is properly configured.")
     return auth_service
 
 
@@ -76,9 +76,7 @@ async def get_current_user(
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Bearer token expired. Re-authorize to obtain a new access token.",
-                    headers={
-                        "WWW-Authenticate": 'Bearer error="invalid_token", error_description="The access token expired"'
-                    },
+                    headers={"WWW-Authenticate": 'Bearer error="invalid_token", error_description="The access token expired"'},
                 )
         except HTTPException:
             raise  # re-raise our explicit expired error
@@ -101,14 +99,12 @@ async def get_current_user(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired bearer token.",
-                headers={
-                    "WWW-Authenticate": 'Bearer error="invalid_token", error_description="Invalid or expired token"'
-                },
+                headers={"WWW-Authenticate": 'Bearer error="invalid_token", error_description="Invalid or expired token"'},
             )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated. Provide either session cookie or Bearer token.",
-            headers={"WWW-Authenticate": 'Bearer realm="cml-cloud-manager"'},
+            headers={"WWW-Authenticate": 'Bearer realm="lablet-cloud-manager"'},
         )
 
     return user

@@ -18,7 +18,7 @@ app = create_app()
 if __name__ == "__main__":
     import uvicorn
 
-    print("🚀 Starting CML Cloud Manager API Server")
+    print("🚀 Starting Lablet Cloud Manager API Server")
     print(f"   - API: http://{app_settings.app_host}:{app_settings.app_port}/api/docs")
     print(f"   - UI: http://{app_settings.app_host}:{app_settings.app_port}/")
     print(f"   - SSE: http://{app_settings.app_host}:{app_settings.app_port}/api/events/stream")

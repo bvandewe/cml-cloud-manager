@@ -1,6 +1,68 @@
-/* Modal Component Styles */
+// =============================================================================
+// MODALS COMPONENT
+// Modal dialogs and overlays
+// =============================================================================
 
-/* Modal improvements for better UX */
+// Modal content
+.modal-content {
+    border: none;
+    border-radius: $border-radius-lg;
+    box-shadow: var(--shadow-xl, $shadow-xl);
+}
+
+// Modal header
+.modal-header {
+    background-color: var(--color-bg-secondary, $color-bg-secondary);
+    border-bottom: 1px solid var(--color-border, $color-border);
+    border-radius: $border-radius-lg $border-radius-lg 0 0;
+    padding: $spacing-4;
+
+    .modal-title {
+        font-weight: $font-weight-semibold;
+        display: flex;
+        align-items: center;
+        gap: $spacing-2;
+
+        i {
+            font-size: $font-size-xl;
+            color: var(--color-primary, $color-primary);
+        }
+    }
+
+    .btn-close {
+        padding: $spacing-2;
+    }
+}
+
+// Modal body
+.modal-body {
+    padding: $spacing-4;
+
+    .form-label {
+        font-weight: $font-weight-semibold;
+        margin-bottom: $spacing-2;
+    }
+}
+
+// Modal footer
+.modal-footer {
+    background-color: var(--color-bg-secondary, $color-bg-secondary);
+    border-top: 1px solid var(--color-border, $color-border);
+    border-radius: 0 0 $border-radius-lg $border-radius-lg;
+    padding: $spacing-3 $spacing-4;
+    gap: $spacing-2;
+}
+
+// Modal sizes
+.modal-lg {
+    max-width: 700px;
+}
+
+.modal-xl {
+    max-width: 900px;
+}
+
+// Scrollable modal improvements
 .modal-dialog-scrollable {
     max-height: calc(100vh - 3.5rem);
 
@@ -10,6 +72,7 @@
 
     .modal-body {
         overflow-y: auto;
+        @include custom-scrollbar;
 
         form {
             min-height: 100%;
@@ -17,20 +80,51 @@
     }
 }
 
-/* Make description textarea grow with available space */
+// Confirmation modal
+.modal-confirm {
+    text-align: center;
+
+    .modal-body {
+        padding: $spacing-6;
+
+        .confirm-icon {
+            font-size: 4rem;
+            margin-bottom: $spacing-4;
+
+            &.text-warning {
+                color: $color-warning;
+            }
+
+            &.text-danger {
+                color: $color-danger;
+            }
+        }
+
+        .confirm-title {
+            font-size: $font-size-xl;
+            font-weight: $font-weight-semibold;
+            margin-bottom: $spacing-2;
+        }
+
+        .confirm-message {
+            color: var(--color-text-secondary, $color-text-secondary);
+        }
+    }
+
+    .modal-footer {
+        justify-content: center;
+    }
+}
+
+// Form modals with flex-grow textarea
 #create-task-form,
 #edit-task-form {
     .flex-grow-1 {
-        min-height: 200px; // Minimum height for description
+        min-height: 200px;
 
         textarea {
             min-height: 200px;
             resize: vertical;
         }
     }
-}
-
-/* Larger modal for better form visibility */
-.modal-lg {
-    max-width: 700px;
 }

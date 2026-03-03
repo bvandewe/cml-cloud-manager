@@ -63,7 +63,7 @@ Updated references in:
 - **Source**: `.github/copilot-instructions.md` (maintained manually)
 - **MkDocs page**: `docs/development/ai-agent-guide.md` (includes snippet)
 - **Built output**: `site/development/ai-agent-guide/index.html` (auto-generated)
-- **Online**: https://bvandewe.github.io/cml-cloud-manager/development/ai-agent-guide/
+- **Online**: https://bvandewe.github.io/lablet-cloud-manager/development/ai-agent-guide/
 
 ## Maintenance Workflow
 

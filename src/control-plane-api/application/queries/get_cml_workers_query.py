@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class GetCMLWorkersQuery(Query[OperationResult[list[dict[str, Any]]]]):
     """Query to retrieve CML Workers filtered by region and/or status."""
 
-    aws_region: AwsRegion
+    aws_region: AwsRegion | None = None
     status: CMLWorkerStatus | None = None
     include_terminated: bool = False
 
@@ -42,13 +42,17 @@ class GetCMLWorkersQueryHandler(QueryHandler[GetCMLWorkersQuery, OperationResult
             else:
                 workers = await self.worker_repository.get_active_workers_async()
 
-            # Filter by AWS region
-            filtered_workers = [worker for worker in workers if worker.state.aws_region == request.aws_region.value]
+            # Filter by AWS region if specified
+            if request.aws_region:
+                filtered_workers = [worker for worker in workers if worker.state.aws_region == request.aws_region.value]
+            else:
+                filtered_workers = workers
 
             # Use DTO mapper for consistent transformation
             result = [worker_dto_to_dict(map_worker_to_dto(worker)) for worker in filtered_workers]
 
-            logger.info(f"Retrieved {len(result)} CML workers in region {request.aws_region.value}")
+            region_msg = request.aws_region.value if request.aws_region else "all regions"
+            logger.info(f"Retrieved {len(result)} CML workers in {region_msg}")
             return self.ok(result)
 
         except Exception as e:

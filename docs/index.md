@@ -1,4 +1,4 @@
-# Welcome to CML Cloud Manager
+# Welcome to Lablet Cloud Manager
 
 > A production-ready reference implementation for managing, monitoring, and operating CML Workers with real-time updates, background processing, and role-based access control.
 
@@ -11,9 +11,9 @@ This project demonstrates how to build a modern web application using the **[neu
 - Role-based access (Admin / Manager / User)
 - Observability with OpenTelemetry
 
-![Cml Cloud Manager demo](./assets/cml-cloud-manager_v0.1.0.gif)
+![Cml Cloud Manager demo](./assets/lablet-cloud-manager_v0.1.0.gif)
 
-**[Online Documentation](https://bvandewe.github.io/cml-cloud-manager/)**
+**[Online Documentation](https://bvandewe.github.io/lablet-cloud-manager/)**
 
 ## Getting Started
 
@@ -113,7 +113,7 @@ This is a starter app template. When adapting for your project:
 
 ### Documentation
 
-- [GitHub Repository](https://github.com/bvandewe/cml-cloud-manager)
+- [GitHub Repository](https://github.com/bvandewe/lablet-cloud-manager)
 - [API Documentation](http://localhost:8020/api/docs) (when running)
 - [Deployment Guide](deployment/github-pages-setup.md)
 
@@ -134,7 +134,7 @@ This is a starter app template. When adapting for your project:
 
 1. Check [Common Issues](troubleshooting/common-issues.md)
 2. Review relevant documentation section
-3. Search [GitHub Issues](https://github.com/bvandewe/cml-cloud-manager/issues)
+3. Search [GitHub Issues](https://github.com/bvandewe/lablet-cloud-manager/issues)
 4. Create a new issue with details
 
 ---

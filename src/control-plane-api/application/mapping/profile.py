@@ -29,8 +29,6 @@ class Profile(MappingProfile):
                     self.create_map(map_from, type_)
                 if map_to is not None:
                     # Create mapping; assignment variable removed (unused)
-                    self.create_map(
-                        type_, map_to
-                    )  # todo: make it work by changing how profile is used, so that it can return an expression
+                    self.create_map(type_, map_to)  # todo: make it work by changing how profile is used, so that it can return an expression
                     # if hasattr(type_, "__orig_bases__") and next((base for base in type_.__orig_bases__ if base.__name__ == "AggregateRoot"), None) is not None:
                     #     map.convert_using(lambda context: context.mapper.map(context.source.state, context.destination_type))

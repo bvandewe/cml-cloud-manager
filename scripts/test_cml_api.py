@@ -57,7 +57,7 @@ async def setup_repository() -> MongoCMLWorkerRepository:
     # Create repository
     repository = MongoCMLWorkerRepository(
         client=client,
-        database_name="cml_cloud_manager",
+        database_name="lablet_cloud_manager",
         collection_name="cml_workers",
         serializer=serializer,
         entity_type=CMLWorker,

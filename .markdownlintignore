@@ -1,7 +1,9 @@
 # Ignore agent definition files (they use XML-like tags for instructions)
+
 .github/agents/
 
 # Ignore vendor/generated files
+
 node_modules/
 **/node_modules/
 **/dist/

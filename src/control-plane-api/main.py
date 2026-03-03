@@ -3,66 +3,71 @@
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
-from api.services import DualAuthService
-from api.services.openapi_config import (configure_api_openapi,
-                                         configure_mounted_apps_openapi_prefix)
-from application.services.background_scheduler import BackgroundTaskScheduler
-from application.services.cml_health_service import CMLHealthService
-from application.services.sse_event_relay import SSEEventRelayHostedService
-from application.services.system_configuration_service import SystemConfigurationService
-from application.services.system_health_service import SystemHealthService
-from application.settings import app_settings, configure_logging
-from domain.entities import Task
-from domain.entities.cml_worker import CMLWorker
-from domain.entities.lab_record import LabRecord
-from domain.entities.system_settings import SystemSettings
-from domain.repositories import TaskRepository
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from domain.repositories.lab_record_repository import LabRecordRepository
-from domain.repositories.system_settings_repository import SystemSettingsRepository
-from domain.services.idle_detection_service import IdleDetectionService
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from infrastructure.services.worker_refresh_throttle import WorkerRefreshThrottle
-from integration.repositories.motor_cml_worker_repository import \
-    MongoCMLWorkerRepository
-from integration.repositories.motor_lab_record_repository import \
-    MongoLabRecordRepository
-from integration.repositories.motor_system_settings_repository import \
-    MongoSystemSettingsRepository
-from integration.repositories.motor_task_repository import MongoTaskRepository
-from integration.services.aws_ec2_api_client import AwsEc2Client
-from integration.services.cml_api_client import CMLApiClientFactory
+
+# Generic Database Seeding Infrastructure (lcm-core)
+from lcm_core.infrastructure import configure_logging
+from lcm_core.infrastructure.seeding import DatabaseSeederService
 from neuroglia.data.infrastructure.mongo import MotorRepository
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_ingestor import \
-    CloudEventIngestor
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_middleware import \
-    CloudEventMiddleware
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import \
-    CloudEventPublisher
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_ingestor import CloudEventIngestor
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_middleware import CloudEventMiddleware
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublisher
 from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Mediator
 from neuroglia.observability import Observability
 from neuroglia.serialization.json import JsonSerializer
 
-"""Pre-config logging file truncation for LOCAL_DEV before handlers attach."""
-try:
-    if os.getenv("LOCAL_DEV", "").lower() in ("1", "true", "yes", True):
-        log_file = os.getenv("LOG_FILE", "logs/debug.log")
-        if os.path.isabs(log_file):
-            debug_log_path = Path(log_file)
-        else:
-            debug_log_path = Path(__file__).parent / log_file
+from api.services import DualAuthService
+from api.services.openapi_config import configure_api_openapi, configure_mounted_apps_openapi_prefix
+from application.services.event_deduplication_service import EventDeduplicationService
+from application.services.port_allocation_service import PortAllocationService
+from application.services.port_mapping_resolution_service import PortMappingResolutionService
+from application.services.sse_event_relay import SSEEventRelayHostedService
+from application.services.system_configuration_service import SystemConfigurationService
+from application.services.system_health_service import SystemHealthService
+from application.services.worker_template_service import WorkerTemplateService
+from application.settings import app_settings
+from domain.entities.cml_worker import CMLWorker
+from domain.entities.lab_record import LabRecord
+from domain.entities.lablet_definition import LabletDefinition
+from domain.entities.lablet_session import LabletSession
+from domain.entities.system_settings import SystemSettings
+from domain.entities.worker_template import WorkerTemplate
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from domain.repositories.grading_session_repository import GradingSessionRepository
+from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
+from domain.repositories.lablet_session_repository import LabletSessionRepository
+from domain.repositories.score_report_repository import ScoreReportRepository
+from domain.repositories.system_settings_repository import SystemSettingsRepository
+from domain.repositories.user_session_repository import UserSessionRepository
+from domain.repositories.worker_template_repository import WorkerTemplateRepository
+from domain.services.idle_detection_service import IdleDetectionService
 
-        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
-        # Truncate (create empty) before FileHandler opens in append mode
-        debug_log_path.write_text("")
-except Exception:
-    # Safe to ignore; will still proceed with logging configuration
-    print("Truncating log file failed")
+# Entity-specific seeders for this service
+from infrastructure.seeding import LabletDefinitionSeeder, SystemSettingsSeeder, WorkerTemplateSeeder
+from infrastructure.services.worker_refresh_throttle import WorkerRefreshThrottle
+from integration.repositories.mongo_worker_template_repository import MongoWorkerTemplateRepository
+from integration.repositories.motor_cml_worker_repository import MongoCMLWorkerRepository
+from integration.repositories.motor_grading_session_repository import MongoGradingSessionRepository
+from integration.repositories.motor_lab_record_repository import MongoLabRecordRepository
+from integration.repositories.motor_lablet_definition_repository import MongoLabletDefinitionRepository
+from integration.repositories.motor_lablet_session_repository import MongoLabletSessionRepository
+from integration.repositories.motor_score_report_repository import MongoScoreReportRepository
+from integration.repositories.motor_system_settings_repository import MongoSystemSettingsRepository
+from integration.repositories.motor_user_session_repository import MongoUserSessionRepository
 
+# ADR-015: AwsEc2Client and CMLApiClientFactory removed - external calls delegated to controllers
+from integration.services.etcd_client import EtcdClient
+from integration.services.etcd_state_store import EtcdStateStore
+from integration.services.lds_adapter import LdsAdapter
+
+# Configure logging using centralized lcm_core function
+# LOG_TO_FILE, LOG_FILE, LOG_FILE_TRUNCATE_ON_START are read from environment
 configure_logging(log_level=app_settings.log_level)
 log = logging.getLogger(__name__)
 
@@ -158,23 +163,12 @@ def create_app() -> FastAPI:
     CloudEventIngestor.configure(builder, ["application.events.integration"])
     Observability.configure(builder)
 
-    # Configure MongoDB repository
-    MotorRepository.configure(
-        builder,
-        entity_type=Task,
-        key_type=str,
-        database_name="cml_cloud_manager",
-        collection_name="tasks",
-        domain_repository_type=TaskRepository,
-        implementation_type=MongoTaskRepository,
-    )
-
     # Configure CML Worker MongoDB repository
     MotorRepository.configure(
         builder,
         entity_type=CMLWorker,
         key_type=str,
-        database_name="cml_cloud_manager",
+        database_name="lablet_cloud_manager",
         collection_name="cml_workers",
         domain_repository_type=CMLWorkerRepository,
         implementation_type=MongoCMLWorkerRepository,
@@ -185,7 +179,7 @@ def create_app() -> FastAPI:
         builder,
         entity_type=LabRecord,
         key_type=str,
-        database_name="cml_cloud_manager",
+        database_name="lablet_cloud_manager",
         collection_name="lab_records",
         domain_repository_type=LabRecordRepository,
         implementation_type=MongoLabRecordRepository,
@@ -196,32 +190,128 @@ def create_app() -> FastAPI:
         builder,
         entity_type=SystemSettings,
         key_type=str,
-        database_name="cml_cloud_manager",
+        database_name="lablet_cloud_manager",
         collection_name="system_settings",
         domain_repository_type=SystemSettingsRepository,
         implementation_type=MongoSystemSettingsRepository,
     )
 
-    # Configure BackgroundTaskScheduler for worker monitoring jobs
-    # import pkgutil
+    # Configure Worker Template Repository
+    MotorRepository.configure(
+        builder,
+        entity_type=WorkerTemplate,
+        key_type=str,
+        database_name="lablet_cloud_manager",
+        collection_name="worker_templates",
+        domain_repository_type=WorkerTemplateRepository,
+        implementation_type=MongoWorkerTemplateRepository,
+    )
 
-    # import application.jobs
+    # Configure LabletSession Repository (Phase 7E: replaces LabletInstance)
+    MotorRepository.configure(
+        builder,
+        entity_type=LabletSession,
+        key_type=str,
+        database_name="lablet_cloud_manager",
+        collection_name="lablet_sessions",
+        domain_repository_type=LabletSessionRepository,
+        implementation_type=MongoLabletSessionRepository,
+    )
 
-    # job_modules = [
-    #     f"application.jobs.{name}" for _, name, _ in pkgutil.iter_modules(application.jobs.__path__)
-    # ]
-    BackgroundTaskScheduler.configure(builder, modules=["application.jobs"])
+    # Configure LabletDefinition Repository (for lab definition templates)
+    MotorRepository.configure(
+        builder,
+        entity_type=LabletDefinition,
+        key_type=str,
+        database_name="lablet_cloud_manager",
+        collection_name="lablet_definitions",
+        domain_repository_type=LabletDefinitionRepository,
+        implementation_type=MongoLabletDefinitionRepository,
+    )
+
+    # Configure child entity repositories (Phase 7E — ADR-021)
+    # These use plain Motor collections, not MotorRepository.configure(),
+    # because they are Entity[str] not AggregateRoot.
+    def _register_child_repos(b: WebApplicationBuilder) -> None:
+        """Register child entity repositories with manual Motor collection wiring."""
+        from motor.motor_asyncio import AsyncIOMotorClient
+
+        def user_session_factory(sp: Any) -> MongoUserSessionRepository:
+            client = sp.get_required_service(AsyncIOMotorClient)
+            serializer = sp.get_required_service(JsonSerializer)
+            return MongoUserSessionRepository(client, "lablet_cloud_manager", "user_sessions", serializer)
+
+        def grading_session_factory(sp: Any) -> MongoGradingSessionRepository:
+            client = sp.get_required_service(AsyncIOMotorClient)
+            serializer = sp.get_required_service(JsonSerializer)
+            return MongoGradingSessionRepository(client, "lablet_cloud_manager", "grading_sessions", serializer)
+
+        def score_report_factory(sp: Any) -> MongoScoreReportRepository:
+            client = sp.get_required_service(AsyncIOMotorClient)
+            serializer = sp.get_required_service(JsonSerializer)
+            return MongoScoreReportRepository(client, "lablet_cloud_manager", "score_reports", serializer)
+
+        b.services.add_scoped(UserSessionRepository, implementation_factory=user_session_factory)
+        b.services.add_scoped(GradingSessionRepository, implementation_factory=grading_session_factory)
+        b.services.add_scoped(ScoreReportRepository, implementation_factory=score_report_factory)
+
+    _register_child_repos(builder)
+
+    # NOTE: APScheduler has been removed per ADR-011.
+    # Background jobs are now handled by dedicated controllers:
+    # - worker-controller: WorkerReconciler (includes discovery loop)
+    # - lablet-controller: LabletReconciler
+    # - resource-scheduler: ResourceScheduler
+    # See docs/architecture/adr/ADR-011-apscheduler-removal.md
 
     # Configure Application Services
     DualAuthService.configure(builder)
     SSEEventRelayHostedService.configure(builder)
-    AwsEc2Client.configure(builder)
-    CMLApiClientFactory.configure(builder)
+    # ADR-015: AwsEc2Client and CMLApiClientFactory removed
+    # External AWS/CML calls are now delegated to worker-controller and lablet-controller
     SystemHealthService.configure(builder)
-    CMLHealthService.configure(builder)
     SystemConfigurationService.configure(builder)
     IdleDetectionService.configure(builder)
     WorkerRefreshThrottle.configure(builder)
+
+    # Configure etcd services (for state coordination - Lablet Resource Manager)
+    EtcdClient.configure(builder)
+    EtcdStateStore.configure(builder)
+
+    # Configure Event Deduplication Service (for idempotent CloudEvent processing)
+    builder.services.add_scoped(EventDeduplicationService)
+
+    # Configure Port Allocation Service (depends on EtcdStateStore)
+    PortAllocationService.configure(builder)
+
+    # Configure Port Mapping Resolution Service (Phase 11 — resolves ports for LabletRecordRun)
+    builder.services.add_scoped(PortMappingResolutionService)
+
+    # Configure LDS Adapter (Phase 12 — LDS session operations for LabletRecordRun)
+    LdsAdapter.configure(
+        builder.services,
+        base_url=app_settings.lds_base_url,
+        username=app_settings.lds_username,
+        password=app_settings.lds_password,
+        verify_ssl=app_settings.lds_verify_ssl,
+        timeout=app_settings.lds_timeout,
+    )
+
+    # Configure Worker Template Service (query/update operations)
+    WorkerTemplateService.configure(builder)
+
+    # Configure Database Seeder (seeds aggregates from YAML on startup)
+    # Seeds: SystemSettings, WorkerTemplates, LabletDefinitions (in dependency order)
+    seeds_dir = Path(__file__).parent / "data" / "seeds"
+    DatabaseSeederService.configure(
+        builder,
+        seeds_dir=seeds_dir,
+        entity_seeders=[
+            SystemSettingsSeeder(),  # Order 5: Seed settings first
+            WorkerTemplateSeeder(),  # Order 10: Seed templates second
+            LabletDefinitionSeeder(),  # Order 20: Seed lablet definitions third
+        ],
+    )
 
     # Add SubApp for API with controllers
     builder.add_sub_app(
@@ -254,7 +344,7 @@ def create_app() -> FastAPI:
 
     # Build the application
     app = builder.build_app_with_lifespan(
-        title="CML Cloud Manager",
+        title="Lablet Cloud Manager",
         description="Task management application with multi-app architecture",
         version="1.0.0",
         debug=True,
@@ -292,4 +382,7 @@ if __name__ == "__main__":
         host=app_settings.app_host,
         port=app_settings.app_port,
         reload=app_settings.debug,
+        reload_dirs=["/app", "/core"] if app_settings.debug else None,
+        reload_excludes=["logs", "static", "data", "*.log"] if app_settings.debug else None,
+        log_level=app_settings.log_level.lower(),
     )

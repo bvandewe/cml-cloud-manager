@@ -13,7 +13,6 @@
 
 import * as bootstrap from 'bootstrap';
 import { eventBus, EventTypes } from '../core/EventBus.js';
-import { sseService } from '../services/SSEService.js';
 import { setupCreateWorkerModal, setupImportWorkerModal, setupDeleteWorkerModal, setupLicenseModal } from '../ui/worker-modals.js';
 import { isAdminOrManager } from '../utils/roles.js';
 import './WorkerCard.js';
@@ -50,8 +49,7 @@ class WorkersApp {
         // Subscribe to filter changes
         this.subscribeToEvents();
 
-        // Connect SSE
-        this.connectSSE();
+        // SSE is now connected globally by app.js via LcmSSEAdapter
 
         // Render the UI
         this.render();
@@ -252,11 +250,12 @@ class WorkersApp {
     }
 
     /**
-     * Connect to SSE
+     * Cleanup on app unmount
      */
-    connectSSE() {
-        console.log('[WorkersApp] Connecting SSE...');
-        sseService.connect();
+    destroy() {
+        console.log('[WorkersApp] Destroying...');
+        // SSE disconnect is handled globally by app.js
+        this.initialized = false;
     }
 
     /**
@@ -486,15 +485,6 @@ class WorkersApp {
             console.warn('[WorkersApp] Invalid parameters for opening modal:', { workerId, region });
         }
     }
-
-    /**
-     * Cleanup on app unmount
-     */
-    destroy() {
-        console.log('[WorkersApp] Destroying...');
-        sseService.disconnect();
-        this.initialized = false;
-    }
 }
 
 // Create singleton instance
@@ -502,13 +492,22 @@ const workersApp = new WorkersApp();
 
 /**
  * Initialize workers view (called from app.js)
+ * Now always uses WorkersPage component.
  */
 export function initializeWorkersView(user) {
     console.log('[WorkersApp] initializeWorkersView called');
 
-    // Always use Web Components implementation
-    console.log('[WorkersApp] Using Web Components implementation');
-    workersApp.initialize(user);
+    // Use WorkersPage component
+    console.log('[WorkersApp] Using WorkersPage component');
+    const container = document.getElementById('workers-container');
+    if (container) {
+        // Clear and insert WorkersPage component
+        container.innerHTML = '<workers-page id="workers-page"></workers-page>';
+        const workersPage = container.querySelector('workers-page');
+        if (workersPage) {
+            workersPage.initialize(user);
+        }
+    }
 }
 
 export default workersApp;

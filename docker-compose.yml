@@ -1,504 +1,573 @@
-# CML Cloud Manager - Multi-Service Docker Compose Configuration
-# This file orchestrates all microservices: control-plane-api, scheduler, controller
+# Lablet Cloud Manager - Multi-Service Docker Compose Configuration
+# This file orchestrates all microservices: control-plane-api, resource-scheduler, lablet-controller, worker-controller
 
-name: cml-cloud-manager
+name: lablet-cloud-manager
 
 services:
-  # =========================================================================
-  # MICROSERVICES
-  # =========================================================================
+    # =========================================================================
+    # MICROSERVICES
+    # =========================================================================
 
-  # 📱 Control Plane API (with UI)
-  # http://localhost:${APP_PORT:-8020}/
-  control-plane-api:
-    build:
-      context: ./src/control-plane-api
-      dockerfile: Dockerfile
-    command:
-      [
-        "sh",
-        "-c",
-        "pip install debugpy -t /tmp && PYTHONPATH=/tmp:/app python -m debugpy --listen 0.0.0.0:5678 -m uvicorn main:create_app --factory --host 0.0.0.0 --port 8080 --reload --reload-dir /app",
-      ]
-    ports:
-      - "${APP_PORT:-8020}:8080"
-      - "5680:5678" # Debug port
-    environment:
-      # Core Application
-      APP_NAME: ${APP_NAME:-control-plane-api}
-      APP_VERSION: ${IMAGE_TAG:-v0.1.0}
-      ENVIRONMENT: development
-      DEBUG: true
-      LOG_LEVEL: DEBUG
-      APP_HOST: 0.0.0.0
-      APP_PORT: 8080
-      APP_URL: http://localhost:${APP_PORT:-8020}
-      PYTHONPATH: "/app"
-      LOCAL_DEV: true
+    # 📱 Control Plane API (with UI)
+    # http://localhost:${APP_PORT:-8020}/
+    control-plane-api:
+        build:
+            context: ./src
+            dockerfile: control-plane-api/Dockerfile
+        command: ['sh', '-c', 'pip install debugpy watchfiles -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        ports:
+            - '${APP_PORT:-8020}:8080'
+            - '5680:5678' # Debug port
+        environment:
+            # Core Application
+            APP_NAME: ${APP_NAME:-control-plane-api}
+            APP_VERSION: ${IMAGE_TAG:-v0.1.0}
+            ENVIRONMENT: development
+            DEBUG: true
+            LOG_LEVEL: DEBUG
+            LOG_TO_FILE: 'true'
+            LOG_FILE: logs/control-plane-api.log
+            LOG_FILE_TRUNCATE_ON_START: 'true'
+            APP_HOST: 0.0.0.0
+            APP_PORT: 8080
+            APP_URL: http://localhost:${APP_PORT:-8020}
+            PYTHONPATH: '/app:/core'
+            LOCAL_DEV: true
 
-      # Security & Authentication
-      ENABLE_CORS: "true"
-      KEYCLOAK_URL: http://localhost:${KEYCLOAK_PORT:-8021}
-      KEYCLOAK_URL_INTERNAL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-cml-cloud-manager}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-cml-cloud-manager-public}
-      VERIFY_ISSUER: true
-      EXPECTED_ISSUER: "http://localhost:${KEYCLOAK_PORT:-8021}/realms/cml-cloud-manager"
-      VERIFY_AUDIENCE: true
-      EXPECTED_AUDIENCE: '["cml-cloud-manager"]'
-      REFRESH_AUTO_LEEWAY_SECONDS: 60
-      SESSION_MAX_DURATION_MINUTES: ${SESSION_MAX_DURATION_MINUTES:-60}
+            # Security & Authentication
+            ENABLE_CORS: 'true'
+            KEYCLOAK_URL: http://localhost:${KEYCLOAK_PORT:-8021}
+            KEYCLOAK_URL_INTERNAL: http://keycloak:8080
+            KEYCLOAK_REALM: ${KEYCLOAK_REALM:-lablet-cloud-manager}
+            KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-lablet-cloud-manager-public}
+            VERIFY_ISSUER: true
+            EXPECTED_ISSUER: 'http://localhost:${KEYCLOAK_PORT:-8021}/realms/lablet-cloud-manager'
+            VERIFY_AUDIENCE: true
+            EXPECTED_AUDIENCE: '["lablet-cloud-manager"]'
 
-      # Database & Persistence
-      CONNECTION_STRINGS: '{"mongo": "mongodb://root:${MONGODB_PASSWORD:-password123}@mongodb:27017/?authSource=admin"}'
-      REDIS_URL: redis://redis:6379/0
-      REDIS_ENABLED: ${REDIS_ENABLED:-false}
-      REDIS_KEY_PREFIX: "session:"
+            # Token Lifespans (aligned with Keycloak realm settings)
+            ACCESS_TOKEN_LIFESPAN_SECONDS: ${ACCESS_TOKEN_LIFESPAN_SECONDS:-1500}
+            SSO_SESSION_IDLE_TIMEOUT_MINUTES: ${SSO_SESSION_IDLE_TIMEOUT_MINUTES:-30}
+            SSO_SESSION_MAX_LIFESPAN_MINUTES: ${SSO_SESSION_MAX_LIFESPAN_MINUTES:-600}
+            REFRESH_AUTO_LEEWAY_SECONDS: ${REFRESH_AUTO_LEEWAY_SECONDS:-300}
 
-      # etcd (for Lablet Resource Manager)
-      ETCD_HOST: etcd
-      ETCD_PORT: 2379
+            # Database & Persistence
+            CONNECTION_STRINGS: '{"mongo": "mongodb://root:${MONGODB_PASSWORD:-password123}@mongodb:27017/?authSource=admin"}'
+            REDIS_URL: redis://redis:6379/0
+            REDIS_ENABLED: ${REDIS_ENABLED:-false}
+            REDIS_KEY_PREFIX: 'session:'
 
-      # AWS & CML Worker
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      CML_WORKER_AMI_NAME_DEFAULT: ${CML_WORKER_AMI_NAME_DEFAULT}
-      CML_WORKER_INSTANCE_TYPE_DEFAULT: ${CML_WORKER_INSTANCE_TYPE_DEFAULT}
-      CML_WORKER_SECURITY_GROUP_IDS: ${CML_WORKER_SECURITY_GROUP_IDS}
-      CML_WORKER_SUBNET_ID: ${CML_WORKER_SUBNET_ID}
-      CML_WORKER_KEY_NAME: ${CML_WORKER_KEY_NAME}
-      CML_WORKER_USERNAME: ${CML_WORKER_USERNAME}
-      CML_WORKER_API_USERNAME: ${CML_WORKER_API_USERNAME}
-      CML_WORKER_API_PASSWORD: ${CML_WORKER_API_PASSWORD}
+            # etcd (for Lablet Resource Manager)
+            ETCD_HOST: etcd
+            ETCD_PORT: 2379
 
-      # Monitoring & Background Jobs
-      WORKER_MONITORING_ENABLED: "false"
-      AUTO_IMPORT_WORKERS_ENABLED: ${AUTO_IMPORT_WORKERS_ENABLED:-false}
-      AUTO_IMPORT_WORKERS_INTERVAL: ${AUTO_IMPORT_WORKERS_INTERVAL:-300}
-      AUTO_IMPORT_WORKERS_REGION: ${AUTO_IMPORT_WORKERS_REGION:-us-east-1}
-      AUTO_IMPORT_WORKERS_AMI_NAME: ${AUTO_IMPORT_WORKERS_AMI_NAME}
-      AUTO_IMPORT_WORKERS_FORCE_REQUEUE: true
-      LABS_REFRESH_INTERVAL: ${LABS_REFRESH_INTERVAL:-1800}
-      WORKER_METRICS_POLL_INTERVAL: ${WORKER_METRICS_POLL_INTERVAL:-300}
+            # AWS & CML Worker
+            AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+            AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+            CML_WORKER_AMI_NAME_DEFAULT: ${CML_WORKER_AMI_NAME_DEFAULT}
+            CML_WORKER_INSTANCE_TYPE_DEFAULT: ${CML_WORKER_INSTANCE_TYPE_DEFAULT}
+            CML_WORKER_SECURITY_GROUP_IDS: ${CML_WORKER_SECURITY_GROUP_IDS}
+            CML_WORKER_SUBNET_ID: ${CML_WORKER_SUBNET_ID}
+            CML_WORKER_KEY_NAME: ${CML_WORKER_KEY_NAME}
+            CML_WORKER_USERNAME: ${CML_WORKER_USERNAME}
+            CML_WORKER_API_USERNAME: ${CML_WORKER_API_USERNAME}
+            CML_WORKER_API_PASSWORD: ${CML_WORKER_API_PASSWORD}
 
-      # Observability
-      OTEL_SERVICE_NAME: control-plane-api
-      OTEL_SERVICE_VERSION: 1.0.0
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
-      OTEL_LOGS_EXPORTER: none
-      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "false"
+            # Monitoring & Background Jobs
+            WORKER_MONITORING_ENABLED: 'false'
+            AUTO_IMPORT_WORKERS_ENABLED: ${AUTO_IMPORT_WORKERS_ENABLED:-false}
+            AUTO_IMPORT_WORKERS_INTERVAL: ${AUTO_IMPORT_WORKERS_INTERVAL:-300}
+            AUTO_IMPORT_WORKERS_REGION: ${AUTO_IMPORT_WORKERS_REGION:-us-east-1}
+            AUTO_IMPORT_WORKERS_AMI_NAME: ${AUTO_IMPORT_WORKERS_AMI_NAME}
+            AUTO_IMPORT_WORKERS_FORCE_REQUEUE: true
+            LABS_REFRESH_INTERVAL: ${LABS_REFRESH_INTERVAL:-1800}
+            WORKER_METRICS_POLL_INTERVAL: ${WORKER_METRICS_POLL_INTERVAL:-300}
 
-      # Cloud Events
-      CLOUD_EVENT_SINK: http://event-player:8080/events/pub
-      CLOUD_EVENT_SOURCE: https://cml-cloud-manager.io
-      CLOUD_EVENT_TYPE_PREFIX: io.cml-cloud-manager
+            # Observability
+            OTEL_SERVICE_NAME: control-plane-api
+            OTEL_SERVICE_VERSION: 1.0.0
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+            OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+            OTEL_TRACES_EXPORTER: otlp
+            OTEL_METRICS_EXPORTER: otlp
+            OTEL_LOGS_EXPORTER: none
+            OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: 'false'
 
-    volumes:
-      - ./src/control-plane-api:/app
-    networks:
-      - cml-cloud-manager-net
-    depends_on:
-      - mongodb
-      - keycloak
-      - redis
-      - etcd
+            # Grafana (for embedded panels in UI)
+            GRAFANA_URL: ${GRAFANA_URL:-http://localhost:3000}
+            PROMETHEUS_ENABLED: ${PROMETHEUS_ENABLED:-true}
 
-  # 📅 Scheduler Service
-  # Handles LabletInstance placement decisions
-  scheduler:
-    build:
-      context: ./src/scheduler
-      dockerfile: Dockerfile
-    command:
-      [
-        "sh",
-        "-c",
-        "pip install debugpy -t /tmp && PYTHONPATH=/tmp:/app python -m debugpy --listen 0.0.0.0:5678 main.py",
-      ]
-    ports:
-      - "8081:8081" # Health check
-      - "5681:5678" # Debug port
-    environment:
-      # Service Identity
-      SCHEDULER_INSTANCE_ID: scheduler-1
-      LOG_LEVEL: DEBUG
+            # Cloud Events
+            CLOUD_EVENT_SINK: http://event-player:8080/events/pub
+            CLOUD_EVENT_SOURCE: https://lablet-cloud-manager.io
+            CLOUD_EVENT_TYPE_PREFIX: io.lablet-cloud-manager
 
-      # etcd Configuration
-      ETCD_HOST: etcd
-      ETCD_PORT: 2379
+            # Service-to-Service API Key (for internal endpoints)
+            INTERNAL_API_KEY: ${INTERNAL_API_KEY:-lcm-internal-api-key-change-in-production}
 
-      # Control Plane API
-      CONTROL_PLANE_API_URL: http://control-plane-api:8080
+            # Controller Service URLs (Docker-internal for server-side health checks)
+            WORKER_CONTROLLER_URL: http://worker-controller:8083
+            LABLET_CONTROLLER_URL: http://lablet-controller:8082
+            RESOURCE_SCHEDULER_URL: http://resource-scheduler:8081
 
-      # Leader Election
-      LEADER_LEASE_TTL: 15
-      LEADER_KEY: /ccm/scheduler/leader
+        volumes:
+            - ./src/control-plane-api:/app
+            - ./src/core:/core
+        networks:
+            - lablet-cloud-manager-net
+        depends_on:
+            - mongodb
+            - keycloak
+            - redis
+            - etcd
 
-      # Scheduling
-      RECONCILE_INTERVAL: 30
-      TIMESLOT_LEAD_TIME_MINUTES: 35
+    # 📅 Resource Scheduler Service
+    # Handles LabletInstance placement decisions
+    resource-scheduler:
+        build:
+            context: ./src/resource-scheduler
+            dockerfile: Dockerfile
+        command: ['sh', '-c', 'pip install debugpy watchfiles -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        ports:
+            - '8081:8081' # Health check
+            - '5681:5678' # Debug port
+        environment:
+            # Core Application
+            APP_NAME: resource-scheduler
+            APP_VERSION: ${IMAGE_TAG:-v0.1.0}
+            IMAGE_TAG: ${RESOURCE_SCHEDULER_IMAGE_TAG:-v0.1.0}
+            ENVIRONMENT: development
+            DEBUG: 'true'
+            LOG_LEVEL: DEBUG
+            LOG_TO_FILE: 'true'
+            LOG_FILE: logs/resource-scheduler.log
+            LOG_FILE_TRUNCATE_ON_START: 'true'
+            APP_HOST: 0.0.0.0
+            APP_PORT: 8081
 
-      # Observability
-      OTEL_SERVICE_NAME: scheduler
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+            # etcd Configuration
+            ETCD_HOST: etcd
+            ETCD_PORT: 2379
 
-    volumes:
-      - ./src/scheduler:/app
-    networks:
-      - cml-cloud-manager-net
-    depends_on:
-      - etcd
-      - control-plane-api
+            # Control Plane API
+            CONTROL_PLANE_API_URL: http://control-plane-api:8080
+            CONTROL_PLANE_API_KEY: ${INTERNAL_API_KEY:-lcm-internal-api-key-change-in-production}
 
-  # 🎛️ Resource Controller Service
-  # Handles reconciliation, auto-scaling, cloud provider operations
-  controller:
-    build:
-      context: ./src/controller
-      dockerfile: Dockerfile
-    command:
-      [
-        "sh",
-        "-c",
-        "pip install debugpy -t /tmp && PYTHONPATH=/tmp:/app python -m debugpy --listen 0.0.0.0:5678 main.py",
-      ]
-    ports:
-      - "8082:8082" # Health check
-      - "5682:5678" # Debug port
-    environment:
-      # Service Identity
-      CONTROLLER_INSTANCE_ID: controller-1
-      LOG_LEVEL: DEBUG
+            # Leader Election
+            LEADER_LEASE_TTL: 15
+            LEADER_KEY: /lcm/resource-scheduler/leader
 
-      # etcd Configuration
-      ETCD_HOST: etcd
-      ETCD_PORT: 2379
+            # Scheduling
+            RECONCILE_INTERVAL: ${RESOURCE_SCHEDULER_RECONCILE_INTERVAL:-30}
+            RECONCILE_POLLING_ENABLED: ${RESOURCE_SCHEDULER_RECONCILE_POLLING_ENABLED:-true}
+            TIMESLOT_LEAD_TIME_MINUTES: ${RESOURCE_SCHEDULER_TIMESLOT_LEAD_TIME_MINUTES:-35}
 
-      # Control Plane API
-      CONTROL_PLANE_API_URL: http://control-plane-api:8080
+            # Observability
+            OTEL_SERVICE_NAME: resource-scheduler
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
 
-      # Leader Election
-      LEADER_LEASE_TTL: 15
-      LEADER_KEY: /ccm/controller/leader
+            # Keycloak Authentication (for admin endpoints)
+            KEYCLOAK_URL: http://localhost:${KEYCLOAK_PORT:-8021}
+            KEYCLOAK_URL_INTERNAL: http://keycloak:8080
+            KEYCLOAK_REALM: ${KEYCLOAK_REALM:-lablet-cloud-manager}
+            KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-lablet-cloud-manager-public}
 
-      # Reconciliation
-      RECONCILE_INTERVAL: 30
-      SCALE_DOWN_GRACE_PERIOD_MINUTES: 30
-      WORKER_BOOTUP_DELAY_MINUTES: 20
+        volumes:
+            - ./src/resource-scheduler:/app
+            - ./src/core:/core
+            # Preserve Docker-built static files (prevents local empty static/ from overwriting)
+            - resource-scheduler-static:/app/static
+        networks:
+            - lablet-cloud-manager-net
+        depends_on:
+            - etcd
+            - control-plane-api
+        healthcheck:
+            test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:8081/api/health")']
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 15s
 
-      # AWS Configuration
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    # 🎛️ Lablet Controller Service
+    # Handles LabletInstance reconciliation, auto-scaling, cloud provider operations
+    lablet-controller:
+        build:
+            context: ./src/lablet-controller
+            dockerfile: Dockerfile
+        command: ['sh', '-c', 'pip install debugpy watchfiles -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        ports:
+            - '8082:8082' # Health check
+            - '5682:5678' # Debug port
+        environment:
+            # Core Application
+            APP_NAME: lablet-controller
+            APP_VERSION: ${IMAGE_TAG:-v0.1.0}
+            IMAGE_TAG: ${LABLET_CONTROLLER_IMAGE_TAG:-v0.1.0}
+            ENVIRONMENT: development
+            DEBUG: 'true'
+            LOG_LEVEL: DEBUG
+            LOG_TO_FILE: 'true'
+            LOG_FILE: logs/lablet-controller.log
+            LOG_FILE_TRUNCATE_ON_START: 'true'
+            APP_HOST: 0.0.0.0
+            APP_PORT: 8082
 
-      # Observability
-      OTEL_SERVICE_NAME: controller
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+            # etcd Configuration
+            ETCD_HOST: etcd
+            ETCD_PORT: 2379
 
-    volumes:
-      - ./src/controller:/app
-    networks:
-      - cml-cloud-manager-net
-    depends_on:
-      - etcd
-      - control-plane-api
+            # Control Plane API
+            CONTROL_PLANE_API_URL: http://control-plane-api:8080
+            CONTROL_PLANE_API_KEY: ${INTERNAL_API_KEY:-lcm-internal-api-key-change-in-production}
 
-  # 📦 Background Worker (legacy - for current CCM functionality)
-  # Will be deprecated as functionality moves to scheduler/controller
-  worker:
-    build:
-      context: ./src/control-plane-api
-      dockerfile: Dockerfile
-    command:
-      [
-        "sh",
-        "-c",
-        'pip install debugpy watchfiles && python -m watchfiles --ignore-paths /app/logs "sh -c ''sleep 1 && exec python background_worker.py''" .',
-      ]
-    ports:
-      - "5683:5679"
-    environment:
-      # Core Application
-      APP_NAME: ${APP_NAME:-worker}
-      APP_VERSION: ${IMAGE_TAG:-v0.1.0}
-      ENVIRONMENT: development
-      DEBUG: true
-      LOG_LEVEL: DEBUG
-      PYTHONPATH: "/app"
-      LOCAL_DEV: true
-      LOG_FILE: "/tmp/worker-debug.log"
-      DEBUG_WORKER: "true"
+            # Leader Election
+            LEADER_LEASE_TTL: 15
+            LEADER_KEY: /lcm/lablet-controller/leader
 
-      # Database & Persistence
-      CONNECTION_STRINGS: '{"mongo": "mongodb://root:${MONGODB_PASSWORD:-password123}@mongodb:27017/?authSource=admin"}'
-      REDIS_URL: redis://redis:6379/0
-      REDIS_ENABLED: ${REDIS_ENABLED:-false}
-      REDIS_KEY_PREFIX: "session:"
+            # Reconciliation
+            RECONCILE_INTERVAL: ${LABLET_CONTROLLER_RECONCILE_INTERVAL:-30}
+            RECONCILE_POLLING_ENABLED: ${LABLET_CONTROLLER_RECONCILE_POLLING_ENABLED:-true}
+            SCALE_DOWN_GRACE_PERIOD_MINUTES: ${LABLET_CONTROLLER_SCALE_DOWN_GRACE_PERIOD_MINUTES:-30}
+            WORKER_BOOTUP_DELAY_MINUTES: ${LABLET_CONTROLLER_WORKER_BOOTUP_DELAY_MINUTES:-20}
 
-      # AWS & CML Worker
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      CML_WORKER_AMI_NAME_DEFAULT: ${CML_WORKER_AMI_NAME_DEFAULT}
-      CML_WORKER_INSTANCE_TYPE_DEFAULT: ${CML_WORKER_INSTANCE_TYPE_DEFAULT}
-      CML_WORKER_SECURITY_GROUP_IDS: ${CML_WORKER_SECURITY_GROUP_IDS}
-      CML_WORKER_SUBNET_ID: ${CML_WORKER_SUBNET_ID}
-      CML_WORKER_KEY_NAME: ${CML_WORKER_KEY_NAME}
-      CML_WORKER_USERNAME: ${CML_WORKER_USERNAME}
-      CML_WORKER_API_USERNAME: ${CML_WORKER_API_USERNAME}
-      CML_WORKER_API_PASSWORD: ${CML_WORKER_API_PASSWORD}
+            # CML Worker API Credentials
+            CML_WORKER_API_USERNAME: ${CML_WORKER_API_USERNAME}
+            CML_WORKER_API_PASSWORD: ${CML_WORKER_API_PASSWORD}
 
-      # Monitoring & Background Jobs
-      WORKER_MONITORING_ENABLED: "true"
-      AUTO_IMPORT_WORKERS_ENABLED: ${AUTO_IMPORT_WORKERS_ENABLED:-false}
-      AUTO_IMPORT_WORKERS_INTERVAL: ${AUTO_IMPORT_WORKERS_INTERVAL:-300}
-      AUTO_IMPORT_WORKERS_REGION: ${AUTO_IMPORT_WORKERS_REGION:-us-east-1}
-      AUTO_IMPORT_WORKERS_AMI_NAME: ${AUTO_IMPORT_WORKERS_AMI_NAME}
-      AUTO_IMPORT_WORKERS_FORCE_REQUEUE: true
-      LABS_REFRESH_INTERVAL: ${LABS_REFRESH_INTERVAL:-1800}
-      WORKER_METRICS_POLL_INTERVAL: ${WORKER_METRICS_POLL_INTERVAL:-300}
+            # Observability
+            OTEL_SERVICE_NAME: lablet-controller
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
 
-      # Observability
-      OTEL_SERVICE_NAME: cml-cloud-manager-worker
-      OTEL_SERVICE_VERSION: 1.0.0
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+            # Keycloak Authentication (for admin endpoints)
+            KEYCLOAK_URL: http://localhost:${KEYCLOAK_PORT:-8021}
+            KEYCLOAK_URL_INTERNAL: http://keycloak:8080
+            KEYCLOAK_REALM: ${KEYCLOAK_REALM:-lablet-cloud-manager}
+            KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-lablet-cloud-manager-public}
 
-      # Cloud Events
-      CLOUD_EVENT_SINK: http://event-player:8080/events/pub
-      CLOUD_EVENT_SOURCE: https://cml-cloud-manager.io
-      CLOUD_EVENT_TYPE_PREFIX: io.cml-cloud-manager
+        volumes:
+            - ./src/lablet-controller:/app
+            - ./src/core:/core
+            # Preserve Docker-built static files (prevents local empty static/ from overwriting)
+            - lablet-controller-static:/app/static
+        networks:
+            - lablet-cloud-manager-net
+        depends_on:
+            - etcd
+            - control-plane-api
+        healthcheck:
+            test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:8082/api/health")']
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 15s
 
-    volumes:
-      - ./src/control-plane-api:/app
-    networks:
-      - cml-cloud-manager-net
-    depends_on:
-      - mongodb
-      - redis
+    # 🔧 Worker Controller Service
+    # Handles CML Worker observation, metrics collection, labs sync, idle detection
+    worker-controller:
+        build:
+            context: ./src/worker-controller
+            dockerfile: Dockerfile
+        command: ['sh', '-c', 'pip install debugpy watchfiles -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        ports:
+            - '${WORKER_CONTROLLER_PORT:-8083}:8083'
+            - '5683:5678' # debugpy
+        environment:
+            # Core Application
+            APP_NAME: worker-controller
+            APP_VERSION: ${IMAGE_TAG:-v0.1.0}
+            IMAGE_TAG: ${WORKER_CONTROLLER_IMAGE_TAG:-v0.1.0}
+            ENVIRONMENT: development
+            DEBUG: 'true'
+            LOG_LEVEL: DEBUG
+            LOG_TO_FILE: 'true'
+            LOG_FILE: logs/worker-controller.log
+            LOG_FILE_TRUNCATE_ON_START: 'true'
+            APP_HOST: 0.0.0.0
+            APP_PORT: 8083
+            PYTHONPATH: '/app:/core'
 
-  # =========================================================================
-  # INFRASTRUCTURE SERVICES
-  # =========================================================================
+            # etcd Configuration
+            ETCD_HOST: etcd
+            ETCD_PORT: 2379
 
-  # 🔐 Keycloak (Authentication & Authorization)
-  # http://localhost:${KEYCLOAK_PORT} (admin/admin)
-  keycloak:
-    container_name: cml-cloud-manager-keycloak
-    image: quay.io/keycloak/keycloak:26.4.6
-    runtime: runc
-    command:
-      - "start-dev"
-      - "--import-realm"
-      - "--spi-login-protocol-openid-connect-legacy-logout-redirect-uri=true"
-      - "--http-enabled=true"
-      - "--hostname-strict=false"
-    ports:
-      - "${KEYCLOAK_PORT:-8021}:8080"
-    environment:
-      # Admin credentials (Keycloak 26+ format)
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-      # NOTE: Standard Token Exchange V2 is enabled by default in Keycloak 26+
-      # No KC_FEATURES needed for standard internal-to-internal token exchange
-      # Development settings (no external DB, uses H2)
-      KC_DB: dev-file
-      KC_HTTP_ENABLED: "true"
-      # Hostname configuration for development (HTTP access) - Keycloak 26+ v2 format
-      # Use full URL with http:// protocol to enable HTTP access
-      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8021}
-      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
-      KC_PROXY_HEADERS: xforwarded
-      KC_HEALTH_ENABLED: "true"
-      KC_METRICS_ENABLED: "true"
-      KC_LOG_LEVEL: info
-      # Disable SSL requirement for all realms (development only!)
-      KC_SPI_REALM_DEFAULT_SSL_REQUIRED: none
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-    volumes:
-      # Persist H2 database to maintain Keycloak configuration across container restarts
-      - keycloak_data:/opt/keycloak/data
-      # Import realm configurations on first startup
-      - ./deployment/keycloak/cml-cloud-manager-realm-export.json:/opt/keycloak/data/import/cml-cloud-manager-realm-export.json:ro
-    networks:
-      - cml-cloud-manager-net
+            # Control Plane API (ADR-001: all mutations via API)
+            CONTROL_PLANE_API_URL: http://control-plane-api:8080
+            CONTROL_PLANE_API_KEY: ${INTERNAL_API_KEY:-lcm-internal-api-key-change-in-production}
 
-  # 🗄️ MongoDB Database
-  mongodb:
-    image: mongo:6.0.21
-    restart: always
-    runtime: runc
-    command: mongod --bind_ip_all
-    ports:
-      - "${MONGODB_PORT:-8022}:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME:-root}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:-password123}
-      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-neuroglia}
-    volumes:
-      - mongodb_data:/data/db
-      - ./deployment/mongodb/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
-    networks:
-      - cml-cloud-manager-net
+            # Leader Election
+            LEADER_LEASE_TTL: 15
+            LEADER_KEY: /lcm/worker-controller/leader
 
-  # 📊 MongoDB Express (Database Admin UI)
-  mongo-express:
-    image: mongo-express:latest
-    restart: always
-    ports:
-      - "${MONGODB_EXPRESS_PORT:-8023}:8081"
-    environment:
-      ME_CONFIG_MONGODB_SERVER: mongodb
-      ME_CONFIG_MONGODB_PORT: 27017
-      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGODB_ROOT_USERNAME:-root}
-      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGODB_ROOT_PASSWORD:-password123}
-      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
-      ME_CONFIG_MONGODB_AUTH_DATABASE: admin
-      ME_CONFIG_BASICAUTH: "false"
-    networks:
-      - cml-cloud-manager-net
-    depends_on:
-      - mongodb
+            # Reconciliation
+            RECONCILE_INTERVAL: ${WORKER_CONTROLLER_RECONCILE_INTERVAL:-30}
+            RECONCILE_POLLING_ENABLED: ${WORKER_CONTROLLER_RECONCILE_POLLING_ENABLED:-true}
 
-  # 📦 etcd (State Store for Lablet Resource Manager)
-  # Used for: leader election, state watches, port allocations
-  etcd:
-    image: quay.io/coreos/etcd:v3.5.9
-    restart: always
-    ports:
-      - "${ETCD_CLIENT_PORT:-2379}:2379"
-      - "${ETCD_PEER_PORT:-2380}:2380"
-    environment:
-      ETCD_NAME: etcd-node-1
-      ETCD_DATA_DIR: /etcd-data
-      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
-      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
-      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
-      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
-      ETCD_INITIAL_CLUSTER: etcd-node-1=http://etcd:2380
-      ETCD_INITIAL_CLUSTER_STATE: new
-      ETCD_INITIAL_CLUSTER_TOKEN: ccm-etcd-cluster
-      ETCD_LOG_LEVEL: info
-    volumes:
-      - etcd_data:/etcd-data
-    networks:
-      - cml-cloud-manager-net
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "etcdctl",
-          "endpoint",
-          "health",
-          "--endpoints=http://localhost:2379",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+            # Observation Intervals
+            METRICS_POLL_INTERVAL: ${WORKER_CONTROLLER_METRICS_POLL_INTERVAL:-60}
+            LABS_SYNC_INTERVAL: ${WORKER_CONTROLLER_LABS_SYNC_INTERVAL:-300}
+            IDLE_CHECK_INTERVAL: ${WORKER_CONTROLLER_IDLE_CHECK_INTERVAL:-60}
+            IDLE_THRESHOLD_MINUTES: ${WORKER_CONTROLLER_IDLE_THRESHOLD_MINUTES:-30}
 
-  # 🎬 Event Player (Event Visualization & Replay)
-  event-player:
-    image: ghcr.io/bvandewe/events-player:v0.4.11
-    runtime: runc
-    ports:
-      - "${EVENT_PLAYER_PORT:-8024}:8080"
-    environment:
-      tag: "v0.4.11"
-      log_level: INFO
-      auth_required: "true"
-      auth_audience: cml-cloud-manager
-      auth_algorithm: RS256
-      auth_role_admin: "admin"
-      auth_role_architect: "architect"
-      auth_role_manager: "manager"
-      auth_role_vendor: "vendor"
-      auth_role_developer: "developer"
-      auth_role_user: "user"
-      oauth_server_url: http://localhost:${KEYCLOAK_PORT:-8021}
-      oauth_server_url_backend: http://keycloak:8080
-      oauth_legacy_keycloak: "false"
-      oauth_realm: ${KEYCLOAK_REALM:-cml-cloud-manager}
-      oauth_client_id: cml-cloud-manager-public
-      oauth_client_secret: ""
-      http_client_timeout: 30.0
-      default_generator_gateways: '{"urls": ["http://localhost:${EVENT_PLAYER_PORT:-8024}/events/pub", "http://event-player:8080/events/pub"]}'
-      default_generator_event: '{"event_source": "https://dummy.source.com/sys-admin", "event_type": "com.source.dummy.test.requested.v1", "event_subject": "some.interesting.concept.key_abcde12345", "event_data": {"foo": "bar"}}'
-      browser_queue_size: 1000
-      storage_max_recent_events: 5000
-      storage_max_metadata_events: 100000
-    networks:
-      - cml-cloud-manager-net
-    depends_on:
-      - keycloak
+            # CML Worker Credentials
+            CML_WORKER_API_USERNAME: ${CML_WORKER_API_USERNAME}
+            CML_WORKER_API_PASSWORD: ${CML_WORKER_API_PASSWORD}
 
-  # 🔴 Redis (Session Store)
-  redis:
-    image: redis:7.4-alpine
-    restart: always
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    networks:
-      - cml-cloud-manager-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
+            # Worker Discovery
+            WORKER_DISCOVERY_ENABLED: 'true'
+            WORKER_DISCOVERY_REGIONS: ${WORKER_DISCOVERY_REGIONS:-us-east-1}
+            WORKER_DISCOVERY_AMI_NAME: ${WORKER_DISCOVERY_AMI_NAME:-cisco-cml2.9*}
+            WORKER_DISCOVERY_INTERVAL: ${WORKER_DISCOVERY_INTERVAL:-120}
 
-  # 🔭 OpenTelemetry Collector
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.110.0
-    runtime: runc
-    command: ["--config=/etc/otel-collector-config.yaml"]
-    ports:
-      - "${OTEL_COLLECTOR_GRPC_PORT:-4317}:4317"
-      - "${OTEL_COLLECTOR_HTTP_PORT:-4318}:4318"
-      - "${OTEL_COLLECTOR_METRICS_PORT:-8888}:8888"
-      - "${OTEL_COLLECTOR_HEALTH_PORT:-13133}:13133"
-    environment:
-      MONGODB_USERNAME: ${MONGODB_OTEL_USERNAME:-otel_monitor}
-      MONGODB_PASSWORD: ${MONGODB_OTEL_PASSWORD:-otel_monitor_password}
-    volumes:
-      - ./deployment/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
-      - /:/hostfs:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - cml-cloud-manager-net
+            # AWS Configuration (for CloudWatch fallback)
+            AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+            AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+            AWS_REGION: ${AWS_REGION:-us-east-1}
 
-  # 🎨 UI Builder (Parcel Watch Mode)
-  ui-builder:
-    image: node:20-alpine
-    working_dir: /app/src/control-plane-api/ui
-    command: npm run watch
-    volumes:
-      - ./:/app
-      - /app/src/control-plane-api/ui/node_modules
-    networks:
-      - cml-cloud-manager-net
-    environment:
-      NODE_ENV: development
-    entrypoint: >
-      sh -c "
-      npm install &&
-      npm run watch
-      "
+            # Observability
+            OTEL_SERVICE_NAME: worker-controller
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+
+            # Keycloak Authentication (for admin endpoints)
+            KEYCLOAK_URL: http://localhost:${KEYCLOAK_PORT:-8021}
+            KEYCLOAK_URL_INTERNAL: http://keycloak:8080
+            KEYCLOAK_REALM: ${KEYCLOAK_REALM:-lablet-cloud-manager}
+            KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-lablet-cloud-manager-public}
+
+        volumes:
+            - ./src/worker-controller:/app
+            - ./src/core:/core
+            # Preserve Docker-built static files (prevents local empty static/ from overwriting)
+            - worker-controller-static:/app/static
+        networks:
+            - lablet-cloud-manager-net
+        depends_on:
+            - etcd
+            - control-plane-api
+            - mongodb
+            - redis
+        healthcheck:
+            test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:8083/api/health")']
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 15s
+
+    # =========================================================================
+    # INFRASTRUCTURE SERVICES
+    # =========================================================================
+
+    # 🔐 Keycloak (Authentication & Authorization)
+    # http://localhost:${KEYCLOAK_PORT} (admin/admin)
+    keycloak:
+        container_name: lablet-cloud-manager-keycloak
+        image: quay.io/keycloak/keycloak:26.4.6
+        runtime: runc
+        command:
+            - 'start-dev'
+            - '--import-realm'
+            - '--spi-login-protocol-openid-connect-legacy-logout-redirect-uri=true'
+            - '--http-enabled=true'
+            - '--hostname-strict=false'
+        ports:
+            - '${KEYCLOAK_PORT:-8021}:8080'
+        environment:
+            # Admin credentials (Keycloak 26+ format)
+            KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+            KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+            # NOTE: Standard Token Exchange V2 is enabled by default in Keycloak 26+
+            # No KC_FEATURES needed for standard internal-to-internal token exchange
+            # Development settings (no external DB, uses H2)
+            KC_DB: dev-file
+            KC_HTTP_ENABLED: 'true'
+            # Hostname configuration for development (HTTP access) - Keycloak 26+ v2 format
+            # Use full URL with http:// protocol to enable HTTP access
+            KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8021}
+            KC_HOSTNAME_BACKCHANNEL_DYNAMIC: 'true'
+            KC_PROXY_HEADERS: xforwarded
+            KC_HEALTH_ENABLED: 'true'
+            KC_METRICS_ENABLED: 'true'
+            KC_LOG_LEVEL: info
+            # Disable SSL requirement for all realms (development only!)
+            KC_SPI_REALM_DEFAULT_SSL_REQUIRED: none
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
+        volumes:
+            # Persist H2 database to maintain Keycloak configuration across container restarts
+            - keycloak_data:/opt/keycloak/data
+            # Import realm configurations on first startup
+            - ./deployment/keycloak/lablet-cloud-manager-realm-export.json:/opt/keycloak/data/import/lablet-cloud-manager-realm-export.json:ro
+        networks:
+            - lablet-cloud-manager-net
+
+    # 🗄️ MongoDB Database
+    mongodb:
+        image: mongo:6.0.21
+        restart: always
+        runtime: runc
+        command: mongod --bind_ip_all
+        ports:
+            - '${MONGODB_PORT:-8022}:27017'
+        environment:
+            MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME:-root}
+            MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:-password123}
+            MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-neuroglia}
+        volumes:
+            - mongodb_data:/data/db
+            - ./deployment/mongodb/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+        networks:
+            - lablet-cloud-manager-net
+
+    # 📊 MongoDB Express (Database Admin UI)
+    mongo-express:
+        image: mongo-express:latest
+        restart: always
+        ports:
+            - '${MONGODB_EXPRESS_PORT:-8023}:8081'
+        environment:
+            ME_CONFIG_MONGODB_SERVER: mongodb
+            ME_CONFIG_MONGODB_PORT: 27017
+            ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGODB_ROOT_USERNAME:-root}
+            ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGODB_ROOT_PASSWORD:-password123}
+            ME_CONFIG_MONGODB_ENABLE_ADMIN: 'true'
+            ME_CONFIG_MONGODB_AUTH_DATABASE: admin
+            ME_CONFIG_BASICAUTH: 'false'
+        networks:
+            - lablet-cloud-manager-net
+        depends_on:
+            - mongodb
+
+    # 📦 etcd (State Store for Lablet Resource Manager)
+    # Used for: leader election, state watches, port allocations
+    etcd:
+        image: quay.io/coreos/etcd:v3.5.9
+        restart: always
+        ports:
+            - '${ETCD_CLIENT_PORT:-2379}:2379'
+            - '${ETCD_PEER_PORT:-2380}:2380'
+        environment:
+            ETCD_NAME: etcd-node-1
+            ETCD_DATA_DIR: /etcd-data
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+            ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+            ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+            ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
+            ETCD_INITIAL_CLUSTER: etcd-node-1=http://etcd:2380
+            ETCD_INITIAL_CLUSTER_STATE: new
+            ETCD_INITIAL_CLUSTER_TOKEN: lcm-etcd-cluster
+            ETCD_LOG_LEVEL: info
+        volumes:
+            - etcd_data:/etcd-data
+        networks:
+            - lablet-cloud-manager-net
+        healthcheck:
+            test: ['CMD', 'etcdctl', 'endpoint', 'health', '--endpoints=http://localhost:2379']
+            interval: 10s
+            timeout: 5s
+            retries: 3
+
+    # 🎬 Event Player (Event Visualization & Replay)
+    event-player:
+        image: ghcr.io/bvandewe/events-player:v0.4.11
+        runtime: runc
+        ports:
+            - '${EVENT_PLAYER_PORT:-8024}:8080'
+        environment:
+            tag: 'v0.4.11'
+            log_level: INFO
+            auth_required: 'true'
+            auth_audience: lablet-cloud-manager
+            auth_algorithm: RS256
+            auth_role_admin: 'admin'
+            auth_role_architect: 'architect'
+            auth_role_manager: 'manager'
+            auth_role_vendor: 'vendor'
+            auth_role_developer: 'developer'
+            auth_role_user: 'user'
+            oauth_server_url: http://localhost:${KEYCLOAK_PORT:-8021}
+            oauth_server_url_backend: http://keycloak:8080
+            oauth_legacy_keycloak: 'false'
+            oauth_realm: ${KEYCLOAK_REALM:-lablet-cloud-manager}
+            oauth_client_id: lablet-cloud-manager-public
+            oauth_client_secret: ''
+            http_client_timeout: 30.0
+            default_generator_gateways: '{"urls": ["http://localhost:${EVENT_PLAYER_PORT:-8024}/events/pub", "http://event-player:8080/events/pub"]}'
+            default_generator_event: '{"event_source": "https://dummy.source.com/sys-admin", "event_type": "com.source.dummy.test.requested.v1", "event_subject": "some.interesting.concept.key_abcde12345", "event_data": {"foo": "bar"}}'
+            browser_queue_size: 1000
+            storage_max_recent_events: 5000
+            storage_max_metadata_events: 100000
+        networks:
+            - lablet-cloud-manager-net
+        depends_on:
+            - keycloak
+
+    # 🔴 Redis (Session Store)
+    redis:
+        image: redis:7.4-alpine
+        restart: always
+        ports:
+            - '${REDIS_PORT:-6379}:6379'
+        command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+        volumes:
+            - redis_data:/data
+        networks:
+            - lablet-cloud-manager-net
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 10s
+            timeout: 3s
+            retries: 3
+
+    # 🔭 OpenTelemetry Collector
+    otel-collector:
+        image: otel/opentelemetry-collector-contrib:0.110.0
+        runtime: runc
+        command: ['--config=/etc/otel-collector-config.yaml']
+        ports:
+            - '${OTEL_COLLECTOR_GRPC_PORT:-4317}:4317'
+            - '${OTEL_COLLECTOR_HTTP_PORT:-4318}:4318'
+            - '${OTEL_COLLECTOR_METRICS_PORT:-8888}:8888'
+            - '${OTEL_COLLECTOR_HEALTH_PORT:-13133}:13133'
+        environment:
+            MONGODB_USERNAME: ${MONGODB_OTEL_USERNAME:-otel_monitor}
+            MONGODB_PASSWORD: ${MONGODB_OTEL_PASSWORD:-otel_monitor_password}
+        volumes:
+            - ./deployment/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+            - /:/hostfs:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+        networks:
+            - lablet-cloud-manager-net
+
+    # 🎨 UI Builder (Parcel Watch Mode)
+    ui-builder:
+        image: node:20-alpine
+        working_dir: /app/src/control-plane-api/ui
+        command: npm run watch
+        volumes:
+            - ./:/app
+            - /app/src/control-plane-api/ui/node_modules
+        networks:
+            - lablet-cloud-manager-net
+        environment:
+            NODE_ENV: development
+        entrypoint: >
+            sh -c "
+            npm install &&
+            npm run watch
+            "
 
 networks:
-  cml-cloud-manager-net:
-    driver: bridge
+    lablet-cloud-manager-net:
+        driver: bridge
 
 volumes:
-  mongodb_data:
-  keycloak_data:
-  redis_data:
-  etcd_data:
+    mongodb_data:
+    keycloak_data:
+    redis_data:
+    etcd_data:
+    # UI static files built in Docker (prevents local empty folders from overwriting)
+    resource-scheduler-static:
+    lablet-controller-static:
+    worker-controller-static:

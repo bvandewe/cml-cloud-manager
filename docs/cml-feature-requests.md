@@ -1,12 +1,12 @@
 # CML Feature Requests for Cloud Manager Integration
 
 **Date:** November 26, 2025
-**Author:** Cisco Certifications Systems Team, CML Cloud Manager Team
+**Author:** Cisco Certifications Systems Team, Lablet Cloud Manager Team
 **Target Audience:** Cisco Modeling Labs (CML) Engineering Team
 
 ## Executive Summary
 
-The CML Cloud Manager is a strategic initiative by the **Cisco Certifications Systems Team** to deliver "CML-based Lablets" to a diverse audience, including internal workforce (Exam PMs, Subject Matter Experts, Systems Operators) and external users (software vendors, SMEs, and exam candidates).
+The Lablet Cloud Manager is a strategic initiative by the **Cisco Certifications Systems Team** to deliver "CML-based Lablets" to a diverse audience, including internal workforce (Exam PMs, Subject Matter Experts, Systems Operators) and external users (software vendors, SMEs, and exam candidates).
 
 **Phase 1 (Current State):**
 We currently manage CML compute resources for two primary use cases:
@@ -15,7 +15,7 @@ We currently manage CML compute resources for two primary use cases:
 2. **Exam Delivery**: Monitoring real-time provisioning of CML Workers for candidates attempting Cisco Exams via PVUE. While Cloud Manager currently observes this activity rather than orchestrating it, the lack of deep integration leads to inefficient compute usage and higher costs.
 
 **Phase 2 (Future State):**
-The roadmap involves evolving CML Cloud Manager into a comprehensive **Resource Manager** that decouples compute provisioning (CML Workers) from workload scheduling (Lablet instances). This architecture will mirror Kubernetes principles, autonomously auto-scaling compute resources to handle distributed workloads efficiently.
+The roadmap involves evolving Lablet Cloud Manager into a comprehensive **Resource Manager** that decouples compute provisioning (CML Workers) from workload scheduling (Lablet instances). This architecture will mirror Kubernetes principles, autonomously auto-scaling compute resources to handle distributed workloads efficiently.
 
 To support this evolution, optimize cloud costs, and ensure enterprise security, we require deeper integration capabilities with the CML platform. The following feature requests outline critical enhancements to CML's API and security architecture that would enable:
 

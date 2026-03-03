@@ -29,6 +29,7 @@ class EffectiveIdleDetectionSettings:
 
     enabled: bool
     timeout_minutes: int
+    check_interval_seconds: int
 
 
 @dataclass
@@ -99,7 +100,7 @@ class SystemConfigurationService:
             if idle.timeout_minutes is not None:
                 timeout = idle.timeout_minutes
 
-        return EffectiveIdleDetectionSettings(enabled=enabled, timeout_minutes=timeout)
+        return EffectiveIdleDetectionSettings(enabled=enabled, timeout_minutes=timeout, check_interval_seconds=self._static_settings.worker_metrics_poll_interval)
 
     async def get_monitoring_settings_async(self) -> EffectiveMonitoringSettings:
         """Get effective monitoring settings."""

@@ -17,7 +17,7 @@ Configure observability via environment variables in `.env` file.
 
 ```bash
 # Service name (appears in traces and metrics)
-OTEL_SERVICE_NAME=cml-cloud-manager
+OTEL_SERVICE_NAME=lablet-cloud-manager
 
 # Service version (for tracking deployments)
 OTEL_SERVICE_VERSION=1.0.0
@@ -109,7 +109,7 @@ Add custom attributes to all telemetry:
 
 ```bash
 # Deployment environment
-OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production,service.instance.id=app-1,k8s.pod.name=cml-cloud-manager-abc123
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production,service.instance.id=app-1,k8s.pod.name=lablet-cloud-manager-abc123
 ```
 
 ### Development vs Production
@@ -117,7 +117,7 @@ OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production,service.instance.id=a
 **Development** (`.env.development`):
 
 ```bash
-OTEL_SERVICE_NAME=cml-cloud-manager
+OTEL_SERVICE_NAME=lablet-cloud-manager
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_TRACES_EXPORTER=otlp
 OTEL_METRICS_EXPORTER=otlp
@@ -129,7 +129,7 @@ OTEL_LOG_LEVEL=debug
 **Production** (`.env.production`):
 
 ```bash
-OTEL_SERVICE_NAME=cml-cloud-manager
+OTEL_SERVICE_NAME=lablet-cloud-manager
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_TRACES_EXPORTER=otlp
 OTEL_METRICS_EXPORTER=otlp
@@ -360,7 +360,7 @@ from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExp
 # Configure tracer
 trace_provider = TracerProvider(
     resource=Resource.create({
-        "service.name": "cml-cloud-manager",
+        "service.name": "lablet-cloud-manager",
         "service.version": "1.0.0",
     })
 )
@@ -378,7 +378,7 @@ metric_reader = PeriodicExportingMetricReader(
 )
 meter_provider = MeterProvider(
     resource=Resource.create({
-        "service.name": "cml-cloud-manager",
+        "service.name": "lablet-cloud-manager",
         "service.version": "1.0.0",
     }),
     metric_readers=[metric_reader],
@@ -441,7 +441,7 @@ scrape_configs:
       - targets: ['otel-collector:8889']
 
   # Scrape application directly (if using Prometheus exporter)
-  - job_name: 'cml-cloud-manager'
+  - job_name: 'lablet-cloud-manager'
     static_configs:
       - targets: ['app:8000']
 ```

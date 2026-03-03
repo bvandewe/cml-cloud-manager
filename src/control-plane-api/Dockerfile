@@ -1,13 +1,20 @@
 # Dockerfile for Control Plane API
+# Build context must be set to the repo src/ directory (parent of control-plane-api)
+# so that the @neuroglia/ui-core file dependency (../../core/lcm_ui → core/lcm_ui)
+# can be resolved during the UI build stage.
 
 # Stage 1: Build UI
 FROM node:20 AS ui-build
+# Copy the shared @neuroglia/ui-core package first
+COPY core/lcm_ui /core/lcm_ui
+
 WORKDIR /app/ui
-# Copy package files first for caching
-COPY ui/package*.json ./
-RUN npm ci
-# Copy the rest of the UI source code
-COPY ui .
+# Copy the entire UI source code First
+COPY control-plane-api/ui .
+# Rewrite the file: dependency to point to the /core/lcm_ui copy
+RUN sed -i 's|file:../../core/lcm_ui|file:/core/lcm_ui|' package.json
+# Install dependencies cleanly (rm -rf first to wipe MacOS node_modules, parcel cache and old lockfile)
+RUN rm -rf node_modules .parcel-cache package-lock.json && npm install
 # Build the UI - outputs to /static (../../static relative to /app/ui)
 RUN npm run build
 
@@ -22,15 +29,19 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Poetry files
-COPY pyproject.toml poetry.lock* ./
+COPY control-plane-api/pyproject.toml ./
 
 # Install Poetry and dependencies
+# Note: We remove lcm-core path dependency during build since it's mounted at runtime
+# We also remove any lock file to ensure fresh dependency resolution after modifying pyproject.toml
 RUN pip install poetry && \
     poetry config virtualenvs.create false && \
+    sed -i '/lcm-core.*path.*develop/d' pyproject.toml && \
+    poetry lock && \
     poetry install --no-interaction --no-ansi --no-root
 
 # Copy application code
-COPY . .
+COPY control-plane-api/ .
 
 # Copy built UI assets from ui-build stage
 # Note: Parcel outputs to ../static from /app/ui, which resolves to /app/static

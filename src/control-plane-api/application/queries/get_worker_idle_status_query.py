@@ -93,9 +93,7 @@ class GetWorkerIdleStatusQueryHandler(QueryHandler[GetWorkerIdleStatusQuery, Ope
                 auto_pause_enabled = idle_settings.enabled and worker.state.is_idle_detection_enabled
 
                 # Determine if eligible for auto-pause
-                eligible_for_pause = (
-                    is_idle and auto_pause_enabled and not in_snooze and worker.state.status.value == "running"
-                )
+                eligible_for_pause = is_idle and auto_pause_enabled and not in_snooze and worker.state.status.value == "running"
 
                 # Build status response
                 status_data = {
@@ -113,10 +111,7 @@ class GetWorkerIdleStatusQueryHandler(QueryHandler[GetWorkerIdleStatusQuery, Ope
                     "checked_at": datetime.now(timezone.utc),
                 }
 
-                log.debug(
-                    f"Worker {request.worker_id} idle status: "
-                    f"idle={is_idle}, eligible_for_pause={eligible_for_pause}"
-                )
+                log.debug(f"Worker {request.worker_id} idle status: " f"idle={is_idle}, eligible_for_pause={eligible_for_pause}")
 
                 span.set_attribute("is_idle", is_idle)
                 span.set_attribute("eligible_for_pause", eligible_for_pause)

@@ -1,89 +1,110 @@
-"""Get CML Worker resources utilization query with handler."""
+"""Get CML Worker resources utilization query with handler.
+
+ADR-015: This query returns cached metrics from the database.
+It does NOT call CloudWatch directly. Metrics are collected by worker-controller
+and stored in the database for efficient retrieval.
+"""
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
 
 from domain.repositories import CMLWorkerRepository
-from integration.enums import (
-    AwsRegion,
-    Ec2InstanceResourcesUtilizationRelativeStartTime,
-)
-from integration.services.aws_ec2_api_client import (
-    AwsEc2Client,
-    Ec2InstanceResourcesUtilization,
-)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class GetCMLWorkerResourcesQuery(Query[OperationResult[Ec2InstanceResourcesUtilization]]):
-    """Query to retrieve CML Worker CloudWatch resource utilization metrics."""
+class CachedResourcesUtilization:
+    """Cached resource utilization metrics from database.
+
+    ADR-015: This replaces live CloudWatch queries with cached data.
+    Metrics are collected by worker-controller and stored in MongoDB.
+    """
+
+    cpu_utilization: float | None
+    memory_utilization: float | None
+    storage_utilization: float | None
+    last_collected_at: datetime | None
+    detailed_monitoring_enabled: bool
+    source: str = "cached"  # Indicates this is cached data, not live
+
+
+@dataclass
+class GetCMLWorkerResourcesQuery(Query[OperationResult[CachedResourcesUtilization]]):
+    """Query to retrieve CML Worker resource utilization metrics.
+
+    ADR-015: Returns cached metrics from database. Does NOT call CloudWatch.
+    """
 
     worker_id: str | None = None
     aws_instance_id: str | None = None
-    aws_region: AwsRegion | None = None
-    relative_start_time: Ec2InstanceResourcesUtilizationRelativeStartTime = (
-        Ec2InstanceResourcesUtilizationRelativeStartTime.ONE_MIN_AGO
-    )
+    aws_region: str | None = None
 
 
-class GetCMLWorkerResourcesQueryHandler(
-    QueryHandler[GetCMLWorkerResourcesQuery, OperationResult[Ec2InstanceResourcesUtilization]]
-):
-    """Handle retrieving CML Worker CloudWatch metrics."""
+class GetCMLWorkerResourcesQueryHandler(QueryHandler[GetCMLWorkerResourcesQuery, OperationResult[CachedResourcesUtilization]]):
+    """Handle retrieving CML Worker cached metrics.
+
+    ADR-015: Returns cached data from database. Does NOT call CloudWatch.
+    Worker-controller handles live metrics collection and updates the database.
+    """
 
     def __init__(
         self,
         worker_repository: CMLWorkerRepository,
-        ec2_client: AwsEc2Client,
     ):
         super().__init__()
         self.worker_repository = worker_repository
-        self.ec2_client = ec2_client
 
-    async def handle_async(
-        self, request: GetCMLWorkerResourcesQuery
-    ) -> OperationResult[Ec2InstanceResourcesUtilization]:
-        """Handle get CML worker resources query."""
+    async def handle_async(self, request: GetCMLWorkerResourcesQuery) -> OperationResult[CachedResourcesUtilization]:
+        """Handle get CML worker resources query.
+
+        ADR-015: Returns cached data from database. No CloudWatch calls.
+
+        Args:
+            request: Query with worker ID or instance ID
+
+        Returns:
+            OperationResult with cached resource utilization metrics
+        """
         try:
-            # Resolve worker to get AWS instance ID and region
-            instance_id = request.aws_instance_id
-            region = request.aws_region
+            worker = None
 
+            # Resolve worker by ID or instance ID
             if request.worker_id:
                 worker = await self.worker_repository.get_by_id_async(request.worker_id)
                 if not worker:
                     return self.not_found("CML Worker", request.worker_id)
+            elif request.aws_instance_id:
+                # Find worker by instance ID
+                all_workers = await self.worker_repository.get_all_async()
+                for w in all_workers:
+                    if w.state.aws_instance_id == request.aws_instance_id:
+                        if request.aws_region is None or w.state.aws_region == request.aws_region:
+                            worker = w
+                            break
+                if not worker:
+                    return self.not_found("CML Worker", f"instance {request.aws_instance_id}")
+            else:
+                return self.bad_request("Either worker_id or aws_instance_id must be provided")
 
-                instance_id = worker.state.aws_instance_id
-                region = AwsRegion(worker.state.aws_region)
-
-            if not instance_id:
-                return self.bad_request("Worker has no assigned AWS instance ID")
-
-            if not region:
-                return self.bad_request("AWS region must be provided or resolved from worker")
-
-            # Query CloudWatch metrics
-            logger.info(f"Querying CloudWatch metrics for instance {instance_id} " f"in region {region.value}")
-
-            metrics = self.ec2_client.get_instance_resources_utilization(
-                aws_region=region,
-                instance_id=instance_id,
-                relative_start_time=request.relative_start_time,
+            # Build cached utilization from worker state
+            state = worker.state
+            cached_metrics = CachedResourcesUtilization(
+                cpu_utilization=state.cloudwatch_cpu_utilization,
+                memory_utilization=state.cloudwatch_memory_utilization,
+                storage_utilization=None,  # Storage is tracked via CML metrics
+                last_collected_at=state.cloudwatch_last_collected_at,
+                detailed_monitoring_enabled=state.cloudwatch_detailed_monitoring_enabled,
+                source="cached",
             )
 
-            if not metrics:
-                return self.not_found(
-                    "CloudWatch metrics",
-                    f"instance {instance_id} in region {region.value}",
-                )
+            logger.info(f"Returning cached metrics for worker {worker.id()} (last collected: {state.cloudwatch_last_collected_at})")
 
-            return self.ok(metrics)
+            return self.ok(cached_metrics)
 
         except Exception as e:
             logger.error(f"Error retrieving CML worker resources: {e}", exc_info=True)

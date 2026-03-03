@@ -142,12 +142,12 @@ curl -X POST http://localhost:8000/api/tasks \
 
 1. Open http://localhost:3000
 2. Navigate to **Explore** → **Tempo**
-3. Search for service: `cml-cloud-manager`
+3. Search for service: `lablet-cloud-manager`
 
 **Metrics in Prometheus**:
 
 1. Open http://localhost:9090
-2. Execute query: `rate(cml_cloud_manager_tasks_created_total[5m])`
+2. Execute query: `rate(lablet_cloud_manager_tasks_created_total[5m])`
 
 **Full Guide**: See [Getting Started](./getting-started.md)
 
@@ -166,11 +166,11 @@ curl -X POST http://localhost:8000/api/tasks \
 
 ```promql
 # View rate in Prometheus or Grafana
-rate(cml_cloud_manager_tasks_created_total[5m])
+rate(lablet_cloud_manager_tasks_created_total[5m])
 
 # Alert when rate drops
 alert: TaskCreationRateLow
-expr: rate(cml_cloud_manager_tasks_created_total[5m]) < 1
+expr: rate(lablet_cloud_manager_tasks_created_total[5m]) < 1
 ```
 
 **Full Workflow**: See [Getting Started - Workflow 2](./getting-started.md#workflow-2-monitor-task-creation)

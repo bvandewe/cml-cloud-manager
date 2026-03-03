@@ -13,9 +13,14 @@ ifneq (,$(wildcard ./.env))
     export
 endif
 
-# Docker settings
+# Docker settings (Standalone mode - includes all infrastructure)
 COMPOSE_FILE := docker-compose.yml
 COMPOSE := docker-compose -f $(COMPOSE_FILE)
+
+# Docker settings (Shared mode - connects to aix_aix-net from AIX)
+SHARED_COMPOSE_FILE := docker-compose.shared.yml
+SHARED_ENV_FILE := .env-shared
+SHARED_COMPOSE := docker-compose -f $(SHARED_COMPOSE_FILE) --env-file $(SHARED_ENV_FILE)
 
 # Production Docker settings
 PROD_COMPOSE_FILE := deployment/docker-compose/docker-compose.prod.yml
@@ -36,13 +41,15 @@ PROD_COMPOSE := $(PROD_COMPOSE_CMD)
 
 # Microservice directories
 CONTROL_PLANE_DIR := src/control-plane-api
-SCHEDULER_DIR := src/scheduler
-CONTROLLER_DIR := src/controller
+RESOURCE_SCHEDULER_DIR := src/resource-scheduler
+LABLET_CONTROLLER_DIR := src/lablet-controller
+WORKER_CONTROLLER_DIR := src/worker-controller
 
 # Port settings with defaults (can be overridden in .env)
 APP_PORT ?= 8020
-SCHEDULER_PORT ?= 8081
-CONTROLLER_PORT ?= 8082
+RESOURCE_SCHEDULER_PORT ?= 8081
+LABLET_CONTROLLER_PORT ?= 8082
+WORKER_CONTROLLER_PORT ?= 8083
 KEYCLOAK_PORT ?= 8021
 MONGODB_PORT ?= 8022
 MONGODB_EXPRESS_PORT ?= 8023
@@ -69,7 +76,7 @@ OTEL_HTTP_URL := localhost:$(OTEL_COLLECTOR_PORT_HTTP)
 
 # Documentation settings
 DOCS_SITE_NAME ?= "Cml Cloud Manager"
-DOCS_SITE_URL ?= "https://bvandewe.github.io/cml-cloud-manager"
+DOCS_SITE_URL ?= "https://bvandewe.github.io/lablet-cloud-manager"
 DOCS_FOLDER ?= ./docs
 DOCS_DEV_PORT ?= 8000
 
@@ -87,7 +94,7 @@ NC := \033[0m # No Color
 ##@ General
 
 help: ## Display this help message
-	@echo "$(BLUE)CML Cloud Manager - Multi-Service Development Commands$(NC)"
+	@echo "$(BLUE)Lablet Cloud Manager - Multi-Service Development Commands$(NC)"
 	@echo ""
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make $(GREEN)<target>$(NC)\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  $(GREEN)%-25s$(NC) %s\n", $$1, $$2 } /^##@/ { printf "\n$(YELLOW)%s$(NC)\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
@@ -122,10 +129,10 @@ stop: ## Stop running containers
 	$(COMPOSE) stop
 	@echo "$(GREEN)Containers stopped!$(NC)"
 
-restart: ## Restart all services
+restart: ## Restart all services (with refreshed environment variables)
 	@echo "$(BLUE)Restarting Docker services...$(NC)"
-	$(COMPOSE) restart
-	@echo "$(GREEN)Services restarted!$(NC)"
+	$(COMPOSE) up -d --force-recreate
+	@echo "$(GREEN)Services restarted with refreshed environment variables!$(NC)"
 
 restart-service: ## Restart a single Docker service (usage: make restart-service SERVICE=service_name)
 	@if [ -z "$(SERVICE)" ]; then \
@@ -161,17 +168,28 @@ rebuild: ## Rebuild services from scratch without cache
 	$(COMPOSE) up -d --force-recreate
 	@echo "$(GREEN)Rebuild complete!$(NC)"
 
+rebuild-services: ## Rebuild all microservices (control-plane-api, resource-scheduler, lablet-controller, worker-controller)
+	@echo "$(BLUE)Rebuilding all microservices...$(NC)"
+	$(COMPOSE) build --no-cache control-plane-api resource-scheduler lablet-controller worker-controller
+	@echo "$(BLUE)Restarting microservices...$(NC)"
+	$(COMPOSE) up -d --force-recreate control-plane-api resource-scheduler lablet-controller worker-controller
+	@echo "$(GREEN)All microservices rebuilt and restarted!$(NC)"
+	@$(MAKE) urls
+
 logs: ## Show logs from all services
 	$(COMPOSE) logs -f
 
 logs-api: ## Show logs from the control-plane-api service
 	$(COMPOSE) logs -f control-plane-api
 
-logs-scheduler: ## Show logs from the scheduler service
-	$(COMPOSE) logs -f scheduler
+logs-resource-scheduler: ## Show logs from the resource-scheduler service
+	$(COMPOSE) logs -f resource-scheduler
 
-logs-controller: ## Show logs from the controller service
-	$(COMPOSE) logs -f controller
+logs-lablet-controller: ## Show logs from the lablet-controller service
+	$(COMPOSE) logs -f lablet-controller
+
+logs-worker-controller: ## Show logs from the worker-controller service
+	$(COMPOSE) logs -f worker-controller
 
 logs-worker: ## Show logs from the legacy worker service
 	$(COMPOSE) logs -f worker
@@ -204,7 +222,7 @@ reset-mongodb: ## Reset MongoDB (clears all data, recreates volume)
 	echo; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
 		$(COMPOSE) down mongodb mongo-express; \
-		docker volume rm cml-cloud-manager_mongodb_data 2>/dev/null || true; \
+		docker volume rm lablet-cloud-manager_mongodb_data 2>/dev/null || true; \
 		$(COMPOSE) up mongodb mongo-express -d; \
 		echo "$(GREEN)MongoDB reset!$(NC)"; \
 	else \
@@ -215,14 +233,14 @@ reset-keycloak: ## Reset Keycloak database (re-imports realm from export files)
 	@echo "$(YELLOW)Resetting Keycloak database...$(NC)"
 	$(COMPOSE) stop keycloak
 	$(COMPOSE) rm -f keycloak
-	docker volume rm cml-cloud-manager_keycloak_data 2>/dev/null || true
+	docker volume rm lablet-cloud-manager_keycloak_data 2>/dev/null || true
 	$(COMPOSE) up keycloak -d
 	@echo "$(YELLOW)Waiting for Keycloak to start (40s)...$(NC)"
 	@sleep 40
-	@echo "$(YELLOW)Disabling SSL requirement on master and cml-cloud-manager realms...$(NC)"
-	docker exec cml-cloud-manager-keycloak-1 /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user admin --password admin
-	docker exec cml-cloud-manager-keycloak-1 /opt/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE
-	docker exec cml-cloud-manager-keycloak-1 /opt/keycloak/bin/kcadm.sh update realms/cml-cloud-manager -s sslRequired=NONE
+	@echo "$(YELLOW)Disabling SSL requirement on master and lablet-cloud-manager realms...$(NC)"
+	docker exec lablet-cloud-manager-keycloak-1 /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user admin --password admin
+	docker exec lablet-cloud-manager-keycloak-1 /opt/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE
+	docker exec lablet-cloud-manager-keycloak-1 /opt/keycloak/bin/kcadm.sh update realms/lablet-cloud-manager -s sslRequired=NONE
 	@echo "$(GREEN)Keycloak database reset and SSL disabled for HTTP access!$(NC)"
 
 reset-etcd: ## Reset etcd data (clears leader election and state)
@@ -231,7 +249,7 @@ reset-etcd: ## Reset etcd data (clears leader election and state)
 	echo; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
 		$(COMPOSE) down etcd; \
-		docker volume rm cml-cloud-manager_etcd_data 2>/dev/null || true; \
+		docker volume rm lablet-cloud-manager_etcd_data 2>/dev/null || true; \
 		$(COMPOSE) up etcd -d; \
 		echo "$(GREEN)etcd reset!$(NC)"; \
 	else \
@@ -243,8 +261,9 @@ urls: ## Display application and service URLs
 	@echo "$(YELLOW)Microservices:$(NC)"
 	@echo "  Control Plane API:     $(APP_URL)"
 	@echo "  API Docs:              $(API_DOCS_URL)"
-	@echo "  Scheduler:             http://localhost:$(SCHEDULER_PORT)"
-	@echo "  Controller:            http://localhost:$(CONTROLLER_PORT)"
+	@echo "  Resource Scheduler:    http://localhost:$(RESOURCE_SCHEDULER_PORT)"
+	@echo "  Lablet Controller:     http://localhost:$(LABLET_CONTROLLER_PORT)"
+	@echo "  Worker Controller:     http://localhost:$(WORKER_CONTROLLER_PORT)"
 	@echo ""
 	@echo "$(YELLOW)Infrastructure:$(NC)"
 	@echo "  etcd:                  $(ETCD_URL)"
@@ -259,9 +278,126 @@ urls: ## Display application and service URLs
 	@echo ""
 	@echo "$(YELLOW)Debug Ports:$(NC)"
 	@echo "  Control Plane API:     5680"
-	@echo "  Scheduler:             5681"
-	@echo "  Controller:            5682"
-	@echo "  Worker:                5683"
+	@echo "  Resource Scheduler:    5681"
+	@echo "  Lablet Controller:     5682"
+	@echo "  Worker Controller:     5683"
+	@echo ""
+	@echo "  Documentation:         http://127.0.0.1:8000/lablet-cloud-manager/"
+
+# ==============================================================================
+# SHARED AIX NETWORK MODE
+# ==============================================================================
+# These targets run LCM services connecting to AIX's shared infrastructure
+# on the aix_aix-net network (Keycloak, MongoDB, Redis, OTEL, Events Player).
+
+##@ Shared AIX Network
+
+check-aix-net: ## Check if aix_aix-net network exists
+	@if ! docker network inspect aix_aix-net >/dev/null 2>&1; then \
+		echo "$(RED)Error: aix_aix-net network not found!$(NC)"; \
+		echo "$(YELLOW)Start AIX infrastructure first:$(NC)"; \
+		echo "  cd ../aix && make up"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)aix_aix-net network found$(NC)"
+
+up-shared: check-aix-net ## Start LCM services using shared AIX infrastructure (aix_aix-net)
+	@echo "$(BLUE)Starting LCM services on shared aix_aix-net...$(NC)"
+	$(SHARED_COMPOSE) up -d
+	@echo "$(GREEN)LCM services started on aix_aix-net!$(NC)"
+	@$(MAKE) urls-shared
+
+down-shared: ## Stop LCM services (shared mode)
+	@echo "$(BLUE)Stopping LCM services (shared mode)...$(NC)"
+	$(SHARED_COMPOSE) down
+	@echo "$(GREEN)LCM services stopped!$(NC)"
+
+logs-shared: ## Show logs from LCM services (shared mode)
+	$(SHARED_COMPOSE) logs -f
+
+logs-shared-api: ## Show logs from control-plane-api (shared mode)
+	$(SHARED_COMPOSE) logs -f control-plane-api
+
+logs-shared-scheduler: ## Show logs from resource-scheduler (shared mode)
+	$(SHARED_COMPOSE) logs -f resource-scheduler
+
+logs-shared-lablet: ## Show logs from lablet-controller (shared mode)
+	$(SHARED_COMPOSE) logs -f lablet-controller
+
+logs-shared-worker: ## Show logs from worker-controller (shared mode)
+	$(SHARED_COMPOSE) logs -f worker-controller
+
+ps-shared: ## Show running LCM containers (shared mode)
+	$(SHARED_COMPOSE) ps
+
+restart-shared: ## Restart LCM services (shared mode, with refreshed environment variables)
+	@echo "$(BLUE)Restarting LCM services (shared mode)...$(NC)"
+	$(SHARED_COMPOSE) up -d --force-recreate
+	@echo "$(GREEN)LCM services restarted with refreshed environment variables!$(NC)"
+
+restart-shared-service: ## Restart a single LCM service (shared mode, usage: make restart-shared-service SERVICE=service_name)
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "$(RED)Please specify SERVICE=<service_name>$(NC)"; \
+		echo "Available services:"; \
+		$(SHARED_COMPOSE) config --services; \
+		exit 1; \
+	fi
+	@echo "$(BLUE)Restarting service '$(SERVICE)' (shared mode)...$(NC)"
+	$(SHARED_COMPOSE) up -d --force-recreate $(SERVICE)
+	@echo "$(GREEN)Service '$(SERVICE)' restarted!$(NC)"
+
+rebuild-shared: ## Rebuild and restart LCM services (shared mode)
+	@echo "$(BLUE)Rebuilding LCM services (shared mode)...$(NC)"
+	$(SHARED_COMPOSE) build --no-cache
+	$(SHARED_COMPOSE) up -d --force-recreate
+	@echo "$(GREEN)LCM services rebuilt!$(NC)"
+	@$(MAKE) urls-shared
+
+dev-shared: check-aix-net ## Build and start LCM services with live logs (shared mode)
+	@echo "$(BLUE)Starting LCM development environment (shared mode)...$(NC)"
+	$(SHARED_COMPOSE) up --build
+
+urls-shared: ## Display URLs when running in shared mode
+	@echo ""
+	@echo "$(BLUE)=== LCM Running in Shared AIX Network Mode ===$(NC)"
+	@echo ""
+	@echo "$(YELLOW)LCM Microservices:$(NC)"
+	@echo "  Control Plane API:     http://localhost:$(APP_PORT)"
+	@echo "  API Docs:              http://localhost:$(APP_PORT)/api/docs"
+	@echo "  Resource Scheduler:    http://localhost:$(RESOURCE_SCHEDULER_PORT)"
+	@echo "  Lablet Controller:     http://localhost:$(LABLET_CONTROLLER_PORT)"
+	@echo "  Worker Controller:     http://localhost:$(WORKER_CONTROLLER_PORT)"
+	@echo ""
+	@echo "$(YELLOW)LCM-Specific Infrastructure:$(NC)"
+	@echo "  etcd:                  http://localhost:2379"
+	@echo "  MongoDB Express:       http://localhost:8023"
+	@echo ""
+	@echo "$(YELLOW)Shared AIX Infrastructure (aix_aix-net):$(NC)"
+	@echo "  Keycloak Admin:        http://localhost:8041 (admin/admin)"
+	@echo "  MongoDB:               mongodb://localhost:27017"
+	@echo "  Redis:                 redis://localhost:6379"
+	@echo "  OTEL Collector:        grpc://localhost:4317"
+	@echo "  Events Player:         http://localhost:8047"
+	@echo "  Mongo Express (AIX):   http://localhost:8081"
+	@echo ""
+	@echo "$(YELLOW)Debug Ports:$(NC)"
+	@echo "  Control Plane API:     5680"
+	@echo "  Resource Scheduler:    5681"
+	@echo "  Lablet Controller:     5682"
+	@echo "  Worker Controller:     5683"
+
+reset-etcd-shared: ## Reset LCM etcd data (shared mode)
+	@echo "$(RED)WARNING: This will delete all LCM etcd data!$(NC)"
+	@read -p "Are you sure? [y/N] " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		$(SHARED_COMPOSE) down lcm-etcd; \
+		docker volume rm lcm-etcd-data 2>/dev/null || true; \
+		$(SHARED_COMPOSE) up lcm-etcd -d; \
+		echo "$(GREEN)LCM etcd reset!$(NC)"; \
+	else \
+		echo "$(YELLOW)Reset cancelled.$(NC)"; \
+	fi
 
 # ==============================================================================
 # MICROSERVICE-SPECIFIC COMMANDS
@@ -301,56 +437,75 @@ api-format: ## Format control-plane-api code
 	@echo "$(BLUE)Formatting control-plane-api code...$(NC)"
 	cd $(CONTROL_PLANE_DIR) && poetry run black .
 
-##@ Scheduler Service
+##@ Resource Scheduler Service
 
-scheduler-install: ## Install scheduler dependencies
-	@echo "$(BLUE)Installing scheduler dependencies...$(NC)"
-	cd $(SCHEDULER_DIR) && poetry install
+resource-scheduler-install: ## Install resource-scheduler dependencies
+	@echo "$(BLUE)Installing resource-scheduler dependencies...$(NC)"
+	cd $(RESOURCE_SCHEDULER_DIR) && poetry install
 	@echo "$(GREEN)Dependencies installed!$(NC)"
 
-scheduler-run: ## Run scheduler locally
-	@echo "$(BLUE)Starting Scheduler...$(NC)"
-	cd $(SCHEDULER_DIR) && PYTHONPATH=. poetry run python main.py
+resource-scheduler-run: ## Run resource-scheduler locally
+	@echo "$(BLUE)Starting Resource Scheduler...$(NC)"
+	cd $(RESOURCE_SCHEDULER_DIR) && PYTHONPATH=. poetry run python main.py
 
-scheduler-test: ## Run scheduler tests
-	@echo "$(BLUE)Running scheduler tests...$(NC)"
-	cd $(SCHEDULER_DIR) && poetry run pytest
+resource-scheduler-test: ## Run resource-scheduler tests
+	@echo "$(BLUE)Running resource-scheduler tests...$(NC)"
+	cd $(RESOURCE_SCHEDULER_DIR) && poetry run pytest
 
-scheduler-lint: ## Run scheduler linting
-	@echo "$(BLUE)Running scheduler linting...$(NC)"
-	cd $(SCHEDULER_DIR) && poetry run ruff check .
+resource-scheduler-lint: ## Run resource-scheduler linting
+	@echo "$(BLUE)Running resource-scheduler linting...$(NC)"
+	cd $(RESOURCE_SCHEDULER_DIR) && poetry run ruff check .
 
-##@ Controller Service
+##@ Lablet Controller Service
 
-controller-install: ## Install controller dependencies
-	@echo "$(BLUE)Installing controller dependencies...$(NC)"
-	cd $(CONTROLLER_DIR) && poetry install
+lablet-controller-install: ## Install lablet-controller dependencies
+	@echo "$(BLUE)Installing lablet-controller dependencies...$(NC)"
+	cd $(LABLET_CONTROLLER_DIR) && poetry install
 	@echo "$(GREEN)Dependencies installed!$(NC)"
 
-controller-run: ## Run controller locally
-	@echo "$(BLUE)Starting Controller...$(NC)"
-	cd $(CONTROLLER_DIR) && PYTHONPATH=. poetry run python main.py
+lablet-controller-run: ## Run lablet-controller locally
+	@echo "$(BLUE)Starting Lablet Controller...$(NC)"
+	cd $(LABLET_CONTROLLER_DIR) && PYTHONPATH=. poetry run python main.py
 
-controller-test: ## Run controller tests
-	@echo "$(BLUE)Running controller tests...$(NC)"
-	cd $(CONTROLLER_DIR) && poetry run pytest
+lablet-controller-test: ## Run lablet-controller tests
+	@echo "$(BLUE)Running lablet-controller tests...$(NC)"
+	cd $(LABLET_CONTROLLER_DIR) && poetry run pytest
 
-controller-lint: ## Run controller linting
-	@echo "$(BLUE)Running controller linting...$(NC)"
-	cd $(CONTROLLER_DIR) && poetry run ruff check .
+lablet-controller-lint: ## Run lablet-controller linting
+	@echo "$(BLUE)Running lablet-controller linting...$(NC)"
+	cd $(LABLET_CONTROLLER_DIR) && poetry run ruff check .
+
+##@ Worker Controller Service
+
+worker-controller-install: ## Install worker-controller dependencies
+	@echo "$(BLUE)Installing worker-controller dependencies...$(NC)"
+	cd $(WORKER_CONTROLLER_DIR) && poetry install
+	@echo "$(GREEN)Dependencies installed!$(NC)"
+
+worker-controller-run: ## Run worker-controller locally
+	@echo "$(BLUE)Starting Worker Controller...$(NC)"
+	cd $(WORKER_CONTROLLER_DIR) && PYTHONPATH=. poetry run python main.py
+
+worker-controller-test: ## Run worker-controller tests
+	@echo "$(BLUE)Running worker-controller tests...$(NC)"
+	cd $(WORKER_CONTROLLER_DIR) && poetry run pytest
+
+worker-controller-lint: ## Run worker-controller linting
+	@echo "$(BLUE)Running worker-controller linting...$(NC)"
+	cd $(WORKER_CONTROLLER_DIR) && poetry run ruff check .
 
 ##@ All Services
 
-install-all: api-install scheduler-install controller-install ## Install dependencies for all services
+install-all: api-install resource-scheduler-install lablet-controller-install worker-controller-install ## Install dependencies for all services
 	@echo "$(GREEN)All dependencies installed!$(NC)"
 
-test-all: api-test scheduler-test controller-test ## Run tests for all services
+test-all: api-test resource-scheduler-test lablet-controller-test worker-controller-test ## Run tests for all services
 	@echo "$(GREEN)All tests complete!$(NC)"
 
-lint-all: api-lint scheduler-lint controller-lint ## Run linting for all services
+lint-all: api-lint resource-scheduler-lint lablet-controller-lint worker-controller-lint ## Run linting for all services
 	@echo "$(GREEN)All linting complete!$(NC)"
 
-##@ Testing & Quality (Legacy - use api-test, scheduler-test, controller-test)
+##@ Testing & Quality (Legacy - use api-test, resource-scheduler-test, lablet-controller-test)
 
 test: api-test ## Run control-plane-api tests (default)
 
@@ -453,7 +608,7 @@ docs-config: ## Show current documentation configuration
 
 ##@ Environment Setup
 
-setup: api-install api-install-ui api-build-ui install-hooks scheduler-install controller-install ## Complete setup for new developers
+setup: api-install api-install-ui api-build-ui install-hooks resource-scheduler-install lablet-controller-install worker-controller-install ## Complete setup for new developers
 	@echo "$(GREEN)✅ Setup complete!$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Quick Start:$(NC)"
@@ -482,18 +637,20 @@ status: ## Show current status
 	@$(MAKE) urls
 
 info: ## Show project information
-	@echo "$(BLUE)CML Cloud Manager - Multi-Service Architecture$(NC)"
+	@echo "$(BLUE)Lablet Cloud Manager - Multi-Service Architecture$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Microservices:$(NC)"
 	@echo "  📱 Control Plane API  - REST API + UI (MongoDB writer)"
 	@echo "  📅 Scheduler          - LabletInstance placement decisions"
-	@echo "  🎛️  Controller         - Reconciliation + Cloud Provider (AWS EC2)"
+	@echo "  🎛️  Lablet Controller  - LabletInstance reconciliation + auto-scaling"
+	@echo "  🔧 Worker Controller  - CML Worker observation + monitoring"
 	@echo ""
 	@echo "$(YELLOW)Docker URLs:$(NC)"
 	@echo "  Control Plane API: http://localhost:8020"
 	@echo "  API Docs:          http://localhost:8020/api/docs"
 	@echo "  Scheduler:         http://localhost:8081"
-	@echo "  Controller:        http://localhost:8082"
+	@echo "  Lablet Controller: http://localhost:8082"
+	@echo "  Worker Controller: http://localhost:8083"
 	@echo "  etcd:              http://localhost:2379"
 	@echo "  MongoDB Express:   http://localhost:8023"
 	@echo "  Keycloak Admin:    http://localhost:8021 (admin/admin)"

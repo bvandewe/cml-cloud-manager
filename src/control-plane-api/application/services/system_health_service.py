@@ -56,34 +56,6 @@ class SystemHealthService:
             }
             health_status["status"] = "degraded"
 
-        # Background scheduler
-        try:
-            from application.services import BackgroundTaskScheduler
-
-            scheduler: BackgroundTaskScheduler = service_provider.get_required_service(BackgroundTaskScheduler)
-            if scheduler and scheduler._scheduler and scheduler._scheduler.running:
-                health_status["components"]["background_scheduler"] = {
-                    "status": "healthy",
-                    "running": True,
-                    "job_count": len(scheduler._scheduler.get_jobs()),
-                    "latency_ms": 0,
-                }
-            else:
-                health_status["components"]["background_scheduler"] = {
-                    "status": "unhealthy",
-                    "running": False,
-                    "latency_ms": None,
-                }
-                health_status["status"] = "degraded"
-        except Exception as e:
-            log.error(f"Scheduler health check failed: {e}")
-            health_status["components"]["background_scheduler"] = {
-                "status": "error",
-                "error": str(e),
-                "latency_ms": None,
-            }
-            health_status["status"] = "degraded"
-
         # Session / Redis store
         try:
             auth_service: DualAuthService = service_provider.get_required_service(DualAuthService)  # type: ignore
@@ -131,7 +103,7 @@ class SystemHealthService:
                 async with httpx.AsyncClient(timeout=5) as client:
                     event_id = str(uuid.uuid4())
                     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-                    ce_source = app_settings.cloud_event_source or "https://cml-cloud-manager.io"
+                    ce_source = app_settings.cloud_event_source or "https://lablet-cloud-manager.io"
                     cloudevent_body = {
                         "specversion": "1.0",
                         "id": event_id,
@@ -186,11 +158,7 @@ class SystemHealthService:
                 resp = await client.get(openid_config)
                 latency_ms = (time.perf_counter() - t0) * 1000.0
             if resp.status_code == 200:
-                issuer = (
-                    resp.json().get("issuer")
-                    if resp.headers.get("content-type", "").startswith("application/json")
-                    else None
-                )
+                issuer = resp.json().get("issuer") if resp.headers.get("content-type", "").startswith("application/json") else None
                 health_status["components"]["keycloak"] = {
                     "status": "healthy",
                     "realm": realm,
@@ -248,5 +216,46 @@ class SystemHealthService:
                 "latency_ms": None,
             }
             health_status["status"] = "degraded"
+
+        # Controller microservices (server-side checks, no CORS issue)
+        controller_services = {
+            "worker_controller": app_settings.worker_controller_url,
+            "lablet_controller": app_settings.lablet_controller_url,
+            "resource_scheduler": app_settings.resource_scheduler_url,
+        }
+
+        async def check_controller(name: str, base_url: str) -> tuple[str, dict[str, Any]]:
+            try:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    t0 = time.perf_counter()
+                    resp = await client.get(f"{base_url}/api/health")
+                    latency_ms = (time.perf_counter() - t0) * 1000.0
+                    if resp.status_code == 200:
+                        return name, {
+                            "status": "healthy",
+                            "endpoint": f"{base_url}/api/health",
+                            "latency_ms": latency_ms,
+                        }
+                    else:
+                        return name, {
+                            "status": "unhealthy",
+                            "endpoint": f"{base_url}/api/health",
+                            "code": resp.status_code,
+                            "latency_ms": latency_ms,
+                        }
+            except Exception as e:
+                log.warning(f"{name} health check failed: {e}")
+                return name, {
+                    "status": "unavailable",
+                    "endpoint": f"{base_url}/api/health",
+                    "error": str(e),
+                    "latency_ms": None,
+                }
+
+        controller_results = await asyncio.gather(*[check_controller(name, url) for name, url in controller_services.items()])
+        for name, result in controller_results:
+            health_status["components"][name] = result
+            if result["status"] != "healthy":
+                health_status["status"] = "degraded"
 
         return health_status

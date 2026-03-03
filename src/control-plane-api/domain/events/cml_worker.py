@@ -6,7 +6,7 @@ from datetime import datetime
 from neuroglia.data.abstractions import DomainEvent
 from neuroglia.eventing.cloud_events.decorators import cloudevent
 
-from domain.enums import CMLServiceStatus, CMLWorkerStatus, LicenseStatus
+from domain.enums import CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 
 
 @cloudevent("cml_worker.created.v1")
@@ -24,9 +24,11 @@ class CMLWorkerCreatedDomainEvent(DomainEvent):
     ami_description: str | None
     ami_creation_date: str | None
     status: CMLWorkerStatus
+    desired_status: CMLWorkerStatus  # Spec: What the user wants (reconciliation target)
     cml_version: str | None
     created_at: datetime
     created_by: str | None
+    origin: WorkerOrigin  # Provenance: how this worker was created
 
     def __init__(
         self,
@@ -43,6 +45,8 @@ class CMLWorkerCreatedDomainEvent(DomainEvent):
         cml_version: str | None,
         created_at: datetime,
         created_by: str | None,
+        desired_status: CMLWorkerStatus | None = None,
+        origin: WorkerOrigin = WorkerOrigin.USER_CREATED,
     ) -> None:
         super().__init__(aggregate_id)
         self.aggregate_id = aggregate_id
@@ -55,9 +59,49 @@ class CMLWorkerCreatedDomainEvent(DomainEvent):
         self.ami_description = ami_description
         self.ami_creation_date = ami_creation_date
         self.status = status
+        # Default desired_status to RUNNING if not specified (new workers want to be running)
+        self.desired_status = desired_status if desired_status is not None else CMLWorkerStatus.RUNNING
         self.cml_version = cml_version
         self.created_at = created_at
         self.created_by = created_by
+        self.origin = origin
+
+
+@cloudevent("cml_worker.desired_status.updated.v1")
+@dataclass
+class CMLWorkerDesiredStatusUpdatedDomainEvent(DomainEvent):
+    """Event raised when user requests a desired state change (spec update).
+
+    This follows the Kubernetes-like reconciliation pattern:
+    - desired_status = spec (what user wants)
+    - status = state (actual EC2 state)
+
+    Worker-controller watches for this event and reconciles actual state.
+    """
+
+    aggregate_id: str
+    old_desired_status: CMLWorkerStatus
+    new_desired_status: CMLWorkerStatus
+    updated_at: datetime
+    requested_by: str | None  # User or system that requested the change
+    reason: str | None  # Optional reason for the change
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        old_desired_status: CMLWorkerStatus,
+        new_desired_status: CMLWorkerStatus,
+        updated_at: datetime,
+        requested_by: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.old_desired_status = old_desired_status
+        self.new_desired_status = new_desired_status
+        self.updated_at = updated_at
+        self.requested_by = requested_by
+        self.reason = reason
 
 
 @cloudevent("cml_worker.status.updated.v1")
@@ -231,7 +275,7 @@ class CMLWorkerImportedDomainEvent(DomainEvent):
     """Event raised when an existing EC2 instance is imported as a CML Worker.
 
     This event is used when registering pre-existing EC2 instances that were
-    created outside of the CML Cloud Manager system (e.g., via AWS Console,
+    created outside of the Lablet Cloud Manager system (e.g., via AWS Console,
     Terraform, CloudFormation, or other tools).
     """
 
@@ -249,6 +293,7 @@ class CMLWorkerImportedDomainEvent(DomainEvent):
     private_ip: str | None
     created_by: str | None
     created_at: datetime
+    origin: WorkerOrigin  # Provenance: how this worker was created
 
     def __init__(
         self,
@@ -266,6 +311,7 @@ class CMLWorkerImportedDomainEvent(DomainEvent):
         private_ip: str | None,
         created_by: str | None,
         created_at: datetime,
+        origin: WorkerOrigin = WorkerOrigin.EC2_DISCOVERY,
     ) -> None:
         super().__init__(aggregate_id)
         self.aggregate_id = aggregate_id
@@ -282,6 +328,7 @@ class CMLWorkerImportedDomainEvent(DomainEvent):
         self.private_ip = private_ip
         self.created_by = created_by
         self.created_at = created_at
+        self.origin = origin
 
 
 @cloudevent("cml_worker.terminated.v1")
@@ -327,6 +374,39 @@ class CMLWorkerTagsUpdatedDomainEvent(DomainEvent):
         self.aggregate_id = aggregate_id
         self.aws_tags = aws_tags
         self.updated_at = updated_at
+
+
+@cloudevent("cml_worker.license.registration.requested.v1")
+@dataclass
+class CMLWorkerLicenseRegistrationRequestedDomainEvent(DomainEvent):
+    """Event raised when license registration is requested (intent stored).
+
+    ADR-016: Control-plane-api stores intent, worker-controller reconciles.
+    """
+
+    aggregate_id: str
+    worker_id: str
+    license_token: str
+    reregister: bool
+    requested_at: str
+    initiated_by: str
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        worker_id: str,
+        license_token: str,
+        reregister: bool,
+        requested_at: str,
+        initiated_by: str,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.worker_id = worker_id
+        self.license_token = license_token
+        self.reregister = reregister
+        self.requested_at = requested_at
+        self.initiated_by = initiated_by
 
 
 @cloudevent("cml_worker.license.registration.started.v1")
@@ -408,6 +488,33 @@ class CMLWorkerLicenseRegistrationFailedDomainEvent(DomainEvent):
         self.error_message = error_message
         self.error_code = error_code
         self.failed_at = failed_at
+
+
+@cloudevent("cml_worker.license.deregistration.requested.v1")
+@dataclass
+class CMLWorkerLicenseDeregistrationRequestedDomainEvent(DomainEvent):
+    """Event raised when license deregistration is requested (intent stored).
+
+    ADR-016: Control-plane-api stores intent, worker-controller reconciles.
+    """
+
+    aggregate_id: str
+    worker_id: str
+    requested_at: str
+    initiated_by: str
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        worker_id: str,
+        requested_at: str,
+        initiated_by: str,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.worker_id = worker_id
+        self.requested_at = requested_at
+        self.initiated_by = initiated_by
 
 
 @cloudevent("cml_worker.license.deregistration.started.v1")
@@ -580,3 +687,175 @@ class WorkerDataRefreshCompletedDomainEvent(DomainEvent):
         self.worker_id = worker_id
         self.completed_at = completed_at
         self.refresh_type = refresh_type
+
+
+# =============================================================================
+# Capacity Management Events (Phase 1 - Lablet Integration)
+# =============================================================================
+
+
+@cloudevent("cml_worker.capacity.updated.v1")
+@dataclass
+class CMLWorkerCapacityUpdatedDomainEvent(DomainEvent):
+    """Event raised when worker capacity configuration is updated.
+
+    This occurs when:
+    - Worker is assigned a template with declared capacity
+    - Capacity is manually adjusted by an administrator
+    """
+
+    aggregate_id: str
+    template_name: str | None
+    declared_capacity_cpu_cores: int
+    declared_capacity_memory_gb: int
+    declared_capacity_storage_gb: int
+    declared_capacity_max_nodes: int | None
+    updated_at: datetime
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        template_name: str | None,
+        declared_capacity_cpu_cores: int,
+        declared_capacity_memory_gb: int,
+        declared_capacity_storage_gb: int,
+        declared_capacity_max_nodes: int | None,
+        updated_at: datetime,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.template_name = template_name
+        self.declared_capacity_cpu_cores = declared_capacity_cpu_cores
+        self.declared_capacity_memory_gb = declared_capacity_memory_gb
+        self.declared_capacity_storage_gb = declared_capacity_storage_gb
+        self.declared_capacity_max_nodes = declared_capacity_max_nodes
+        self.updated_at = updated_at
+
+
+@cloudevent("cml_worker.ports.allocated.v1")
+@dataclass
+class CMLWorkerPortsAllocatedDomainEvent(DomainEvent):
+    """Event raised when ports are allocated to a lablet session.
+
+    Ports are allocated from the worker's available port range for
+    external connectivity to lablet sessions.
+    """
+
+    aggregate_id: str
+    session_id: str
+    ports: dict[str, int]  # {"console": 2000, "api": 2001, ...}
+    allocated_at: datetime
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        session_id: str,
+        ports: dict[str, int],
+        allocated_at: datetime,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.session_id = session_id
+        self.ports = ports
+        self.allocated_at = allocated_at
+
+
+@cloudevent("cml_worker.ports.released.v1")
+@dataclass
+class CMLWorkerPortsReleasedDomainEvent(DomainEvent):
+    """Event raised when ports are released from a lablet session.
+
+    Ports are released when a lablet session terminates or is
+    removed from the worker.
+    """
+
+    aggregate_id: str
+    session_id: str
+    released_ports: list[int]
+    released_at: datetime
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        session_id: str,
+        released_ports: list[int],
+        released_at: datetime,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.session_id = session_id
+        self.released_ports = released_ports
+        self.released_at = released_at
+
+
+@cloudevent("cml_worker.session.assigned.lablet.v1")
+@dataclass
+class LabletSessionAssignedDomainEvent(DomainEvent):
+    """Event raised when a lablet session is assigned to this worker.
+
+    Tracks which lablet sessions are running on this worker and
+    updates allocated capacity.
+    """
+
+    aggregate_id: str
+    session_id: str
+    allocated_cpu_cores: int
+    allocated_memory_gb: int
+    allocated_storage_gb: int
+    allocated_nodes: int | None
+    assigned_at: datetime
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        session_id: str,
+        allocated_cpu_cores: int,
+        allocated_memory_gb: int,
+        allocated_storage_gb: int,
+        allocated_nodes: int | None,
+        assigned_at: datetime,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.session_id = session_id
+        self.allocated_cpu_cores = allocated_cpu_cores
+        self.allocated_memory_gb = allocated_memory_gb
+        self.allocated_storage_gb = allocated_storage_gb
+        self.allocated_nodes = allocated_nodes
+        self.assigned_at = assigned_at
+
+
+@cloudevent("cml_worker.session.removed.lablet.v1")
+@dataclass
+class LabletSessionRemovedDomainEvent(DomainEvent):
+    """Event raised when a lablet session is removed from this worker.
+
+    Updates allocated capacity when session terminates.
+    """
+
+    aggregate_id: str
+    session_id: str
+    released_cpu_cores: int
+    released_memory_gb: int
+    released_storage_gb: int
+    released_nodes: int | None
+    removed_at: datetime
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        session_id: str,
+        released_cpu_cores: int,
+        released_memory_gb: int,
+        released_storage_gb: int,
+        released_nodes: int | None,
+        removed_at: datetime,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.session_id = session_id
+        self.released_cpu_cores = released_cpu_cores
+        self.released_memory_gb = released_memory_gb
+        self.released_storage_gb = released_storage_gb
+        self.released_nodes = released_nodes
+        self.removed_at = removed_at

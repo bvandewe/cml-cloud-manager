@@ -6,17 +6,101 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ## [Unreleased]
 
+### Added — Instantiation Pipeline (ADR-031, Phases 1–5)
+
+- **Scheduler simplification** (resource-scheduler, Phase 4): Removed static port allocation from `_handle_assign()` — scheduler now passes `allocated_ports={}`. Port allocation is deferred to the lablet-controller pipeline (`ports_alloc` step). Placement engine port check is count-only (no change needed).
+- **InstantiationProgress value object** (lcm-core): DAG-based 9-step progress tracker with `to_dict()`/`from_dict()` serialization, step dependency resolution, and capability-aware skip logic
+- **CPA internal endpoints**: `update_instantiation_progress`, `allocate_lab_record_ports`, `sync_lab_tags`, `bind_lab_to_session`, `expire_session` — 5 new session lifecycle endpoints
+- **CQRS commands** (control-plane-api): `UpdateInstantiationProgressCommand`, `AllocateLabRecordPortsCommand`, `SyncLabTagsCommand`, `BindLabToSessionCommand`, `ExpireLabletSessionCommand` with handler logic
+- **CQRS query** (control-plane-api): `GetLabletSessionReadModelQuery` — enriched read model with `instantiation_progress`, `lab_record`, and `allocated_ports`
+- **ControlPlaneApiClient methods** (lcm-core): `update_instantiation_progress()`, `allocate_lab_record_ports()`, `sync_lab_tags()`, `bind_lab_to_session()`, `expire_session()` — HTTP client wrappers
+- **CML SPI** (lablet-controller): `patch_node_tags()` — PATCH `/api/v0/labs/{lab_id}/nodes/{node_id}` for tag sync after port allocation
+- **Pipeline executor** (lablet-controller): DAG-based `_handle_instantiating()` replacement with `_build_default_progress()`, `_next_executable_step()`, `_is_pipeline_complete()`, and 9 step methods (`content_sync` → `variables` → `lab_resolve` → `ports_alloc` → `tags_sync` → `lab_binding` → `lab_start` → `lds_provision` → `mark_ready`)
+- **Timeslot expiry** (lablet-controller): Early expiry detection in `reconcile()` before status routing, with `_handle_expired()` calling CPA `expire_session()`
+- **Lab discovery port registration** (lablet-controller, Phase 5): After discovering BOOTED/STARTED labs, `LabDiscoveryService` registers ports on LabRecord via CPA `allocate_lab_record_ports()` (idempotent, keyed by `lab_record_id`) and syncs CML node tags if missing via `patch_node_tags()`. Added `PortRegistrationResult`, stats counters, 21 new tests.
+- **Tests**: 53 new pipeline tests in `test_instantiation_pipeline.py` covering helpers, executor, all 9 steps, and expiry logic; 15 existing tests updated for pipeline flow
+
+### Added — Resource & Port Observation — "Learn from Live" (ADR-030)
+
+- **Resource observation value objects** (lcm-core): `ResourceObservation`, `NodeObservation`, `InterfaceObservation` frozen dataclasses with `to_dict()`/`from_dict()` serialization
+- **LabletSession observation fields**: `observed_resources`, `observed_ports`, `observation_count`, `observed_at`, `port_drift_detected` on aggregate state
+- **Domain events**: `ResourcesObserved`, `PortDriftDetected`, `ObserveResourcesRequested` (events 16–18) with `@cloudevent` + `@dispatch` handlers
+- **CQRS commands**: `RecordResourceObservationCommand` (internal, from lablet-controller), `RequestResourceObservationCommand` (admin, manual trigger via etcd)
+- **CQRS query**: `GetDefinitionResourceObservationsQuery` — aggregates observations across sessions (max/avg/latest CPU/memory/nodes/storage, drift count)
+- **CPA admin API**: `GET /api/lablet-definitions/{id}/resource-observations` endpoint with auth
+- **CPA internal API**: `POST /api/internal/lablet-sessions/{id}/resource-observations` endpoint for lablet-controller
+- **lablet-controller ResourceObserver**: CML runtime introspection (nodes, interfaces, simulation_stats, port extraction from tags)
+- **etcd reactive trigger**: Manual observation request projected to etcd, lablet-controller watches and reacts
+- **Frontend — SessionDetailPage**: Observation panel with port comparison table (allocated vs observed), drift badge, "Observe Now" button
+- **Frontend — LabletDefinitionCard**: Observation indicators (🔍/⚠️), aggregated resource comparison (configured vs max/avg/latest), "Apply Max"/"Apply Latest" buttons, session history
+- **Tests**: 52 new unit tests — lcm-core value objects (16), CPA domain aggregate (11), CPA command handlers (9), CPA query handler (8), LC observer (8)
+- **Configuration**: `RESOURCE_OBSERVATION_ENABLED` and `RESOURCE_OBSERVATION_TIMEOUT_SECONDS` settings
+
+### Added — Session Entity Model Migration (Phase 7)
+
+- **LabletSession aggregate**: New consolidated aggregate replacing LabletInstance, absorbing LabletLabBinding and LabletRecordRun runtime fields (ADR-020)
+- **UserSession child entity**: Tracks LDS session lifecycle (lds_session_id, lds_login_url) per ADR-021
+- **GradingSession child entity**: Tracks grading lifecycle (grading_pod_id, grading_status) per ADR-021
+- **ScoreReport child entity**: Stores assessment results (score, max_score, check_results) per ADR-021
+- **MongoDB collections**: 4 new collections (`lablet_sessions`, `user_sessions`, `grading_sessions`, `score_reports`) with Motor repositories
+- **LabletSessionsController**: BFF REST controller for session CRUD with cookie auth
+- **InternalSessionsController**: Internal API for cross-service session operations (schedule, transition, mark-ready)
+- **Session action buttons**: Manual session state transition buttons in frontend (AD-P7-06 — CloudEvent automation deferred)
+- **LabletSessionReadModel**: Shared read model in lcm-core for cross-service queries
+- **ControlPlaneApiClient session methods**: 5 instance→session methods + 3 child entity methods in lcm-core
+
+### Changed — Session Entity Model Migration (Phase 7)
+
+- **Entity rename**: `LabletInstance` → `LabletSession` across all 4 services (big-bang rename, AD-P7-02)
+- **Enum rename**: `LabletInstanceStatus` → `LabletSessionStatus` in lcm-core
+- **Domain events**: 4 CMLWorker domain event classes renamed (`LabletInstanceAssigned` → `LabletSessionAssigned`, etc.)
+- **CMLWorker entity**: `instance_ids` → `session_ids`, `assign_lablet_instance()` → `assign_lablet_session()`, `has_instance()` → `has_session()`
+- **CQRS commands/queries**: Migrated to `lablet_session/` directories; old `lablet_instance/` and `run/` dirs deleted
+- **Assessment events**: Removed redundant `instance_id` field — handler uses `aggregate_id` from CloudEvent envelope (AD-P7-08)
+- **Path parameters**: `session_id` → `lablet_session_id` to avoid FastAPI Cookie collision (AD-P7-07)
+- **Resource-scheduler**: PlacementEngine + reconciler updated to use session naming
+- **Lablet-controller**: Reconciler fully migrated to LabletSession model
+- **Frontend**: `lablet-sessions.js` API client, `LabletSessionCard`/`LabletSessionList`/`SessionDetailPage` components, SSE event types updated
+- **etcd keys**: `/lcm/instances/` → `/lcm/sessions/` (hard cutover, AD-P7-03)
+
+### Removed — Session Entity Model Migration (Phase 7)
+
+- **LabletInstance entity**: Replaced by LabletSession aggregate
+- **LabletLabBinding entity**: Absorbed into LabletSession state
+- **LabletRecordRun entity**: Runtime fields absorbed into LabletSession; LDS/grading fields moved to child entities
+- **Dead code** (~2,100 lines): Task entity + commands/queries, PendingLabImport, LabletControllerService, LabsRefreshService, CloudProvider enum, LabsController
+- **Old API endpoints**: `/api/lablet-instances/`, `/api/lablet-record-runs/` removed
+- **Old frontend files**: `lablet-instances.js`, `lablet-record-runs.js` API clients deleted
+- **lcm-core backward-compat alias**: `LabletInstanceReadModel` alias removed (0 consumers)
+- **MongoDB collections**: `lablet_instances`, `lablet_lab_bindings`, `lablet_record_runs`, `tasks` dropped
+
+### Added
+
+- **Lablet Instances**: Full lifecycle management with state machine (PENDING → SCHEDULED → INSTANTIATING → RUNNING → COLLECTING → GRADING → STOPPING → STOPPED → ARCHIVED → TERMINATED)
+- **Lablet Definitions**: Definition management with versioning, resource requirements, port definitions, and lifecycle configuration
+- **Grading System**: GradingScore value object with GradingCheckResult components for automated assessment
+- **Port Allocation**: Dynamic port pool management with allocation/release lifecycle per instance
+- **Timeslot Management**: Reservation-based scheduling with conflict detection and extension support
+- **State History**: Complete audit trail with StateHistoryEntry tracking all status transitions
+- **E2E Tests**: Comprehensive integration tests (39 tests) covering full lifecycle, scaling scenarios, and edge cases
+- **MongoDB Indexes**: Performance-optimized indexes for CMLWorker queries (status, region, license, availability compound)
+- **API Documentation**: Complete control-plane-api-guide.md with authentication, endpoints, examples, and SDK patterns
+- **Security Review**: Comprehensive security-review.md covering OWASP Top 10, authentication, authorization, and remediation priorities
+- **Production Checklist**: Deployment checklist with infrastructure, security, observability, and go-live verification steps
+
 ### Changed
 
 - **UI Build**: Changed Parcel output from root `/static` to service-specific `./src/control-plane-api/static/` to support independent UIs per microservice
 - **Docker**: Updated Keycloak to 26+ configuration format with new env vars (`KC_BOOTSTRAP_ADMIN_USERNAME`, `KC_HOSTNAME`, etc.)
 - **Docker**: Removed shared `./static:/app/static` volume mount in favor of service-local static directory
+- **Repository Pattern**: Enhanced MotorRepository with `_ensure_indexes()` pattern for lazy index creation
 
 ### Fixed
 
 - **UI**: Fixed `UIController` static_dir path calculation (3 parents instead of 4) to correctly resolve `/app/static` in Docker
 - **Observability**: Fixed MongoDB metrics scraping authorization errors by creating dedicated `otel_monitor` user with `clusterMonitor` role
 - **Observability**: Fixed Tempo "DoBatch: InstancesCount <= 0" warnings by commenting out orphaned `metrics_generator_processors` config
+- **Domain Events**: Fixed `_pending_events` attribute access (private attribute from AggregateRoot base class)
 
 ## [0.1.9] - 2026-01-12
 
@@ -536,7 +620,7 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ### Added (Helm & DevOps)
 
-- **Helm Chart**: Initial Kubernetes deployment chart (`charts/cml-cloud-manager/` & `deployment/helm/cml-cloud-manager/`) including app Deployment, Service, optional Ingress, Redis sidecar Deployment/Service, and MongoDB StatefulSet with PVC and secrets/config separation.
+- **Helm Chart**: Initial Kubernetes deployment chart (`charts/lablet-cloud-manager/` & `deployment/helm/lablet-cloud-manager/`) including app Deployment, Service, optional Ingress, Redis sidecar Deployment/Service, and MongoDB StatefulSet with PVC and secrets/config separation.
 - **Values Configuration**: Rich `values.yaml` defaults (intervals, auto-import, labs refresh, metrics poll, Redis/Mongo resources) with override examples in `NOTES.txt`.
 - **GitHub Actions CI**: Docker build & publish workflow (`.github/workflows/docker-publish.yml`) producing multi-tag images (commit SHA, semver tags) and running Trivy security scan.
 - **Environment Diagnostics**: Startup debug dump of environment variables (masked sensitive values) aiding operator visibility into interval & auto-import settings.

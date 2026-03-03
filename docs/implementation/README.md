@@ -1,141 +1,95 @@
-# Lablet Resource Manager - Implementation Plan
+# Implementation Guide
 
 | Attribute | Value |
 |-----------|-------|
-| **Document Version** | 0.1.0 |
-| **Status** | Draft |
+| **Document Version** | 2.0.0 |
+| **Status** | Current |
 | **Created** | 2026-01-16 |
-| **Last Updated** | 2026-01-16 |
-| **Author** | Architecture Team |
-| **Related** | [Requirements](../specs/lablet-resource-manager-requirements.md), [Architecture](../architecture/lablet-resource-manager-architecture.md) |
+| **Last Updated** | 2026-02-09 |
+| **Author** | LCM Architecture Team |
 
 ---
 
-## 1. Executive Summary
+## Overview
 
-This implementation plan transforms the CML Cloud Manager into a **Lablet Resource Manager** with Kubernetes-like declarative resource management, intelligent scheduling, and auto-scaling capabilities.
+This directory contains the implementation documentation for Lablet Cloud Manager (LCM), a microservices-based system for managing AWS EC2-based Cisco Modeling Lab (CML) workers with monitoring, metrics collection, and lab orchestration.
 
-**Timeline:** 20 weeks (5 phases of 4 weeks each)
+## Authoritative Documents
 
-**Key Deliverables:**
+| Document | Purpose |
+|----------|---------|
+| **[MVP Implementation Plan](./mvp-implementation-plan.md)** | **Single source of truth** for implementation phases, tasks, and acceptance criteria |
+| [Codebase Discovery Audit](./codebase-discovery-audit.md) | Analysis of current codebase state vs. requirements |
+| [Implementation Status](./IMPLEMENTATION_STATUS.md) | Tracking matrix for requirement implementation across all services |
+| [Testing Strategy](./testing-strategy.md) | Testing approach and coverage requirements |
+| [Risk Register](./risk-register.md) | Risk analysis and mitigation strategies |
 
-- Declarative LabletDefinition and LabletInstance lifecycle management
-- Intelligent scheduling with time-windowed reservations
-- Automatic Worker scaling (up/down) based on demand
-- CloudEvent-based integration for assessment/grading systems
+## Quick Links
 
----
+### Requirements
 
-## 2. Phase Overview
+- [Requirements Specification](../specs/lablet-resource-manager-requirements.md) - Functional and non-functional requirements
 
-| Phase | Name | Duration | Key Outcomes |
-|-------|------|----------|--------------|
-| [Phase 1](./phase-1-foundation.md) | Foundation | Weeks 1-4 | Domain models, basic CRUD APIs, port allocation |
-| [Phase 2](./phase-2-scheduling.md) | Scheduling | Weeks 5-8 | Scheduler service, timeslot management, instantiation |
-| [Phase 3](./phase-3-autoscaling.md) | Auto-Scaling | Weeks 9-12 | Resource Controller, scale up/down, DRAINING |
-| [Phase 4](./phase-4-assessment.md) | Assessment Integration | Weeks 13-16 | CloudEvents, grading integration, Pod generation |
-| [Phase 5](./phase-5-production.md) | Production Hardening | Weeks 17-20 | Observability, performance, documentation |
+### Architecture
 
----
+- [Architecture Overview](../architecture/lablet-resource-manager-architecture.md) - System design
+- [ADRs](../architecture/adr/README.md) - Architectural decision records
 
-## 3. Prerequisites
+### Services
 
-See [Prerequisites & Environment Setup](./prerequisites.md) for detailed setup instructions.
+| Service | Purpose |
+|---------|---------|
+| [control-plane-api](../../src/control-plane-api/) | Central API, domain aggregates, CQRS commands/queries, UI |
+| [resource-scheduler](../../src/resource-scheduler/) | Lablet placement decisions, capacity-aware scheduling |
+| [worker-controller](../../src/worker-controller/) | EC2 lifecycle, metrics, auto-scaling |
+| [lablet-controller](../../src/lablet-controller/) | CML lab lifecycle, LDS integration |
+| [lcm-core](../../src/core/) | Shared library (read models, SPI clients, domain types) |
 
-**Summary:**
+## Implementation Phases
 
-- etcd cluster (dev: single node, prod: 3-node)
-- Python etcd client library (`etcd3-py` or `aioetcd3`)
-- S3/MinIO for lab artifact storage
-- Updated Docker Compose for local development
+See [MVP Implementation Plan](./mvp-implementation-plan.md) for detailed phase breakdown.
 
----
+| Phase | Focus | Status | Bootstrap |
+|-------|-------|--------|-----------|
+| Phase 0 | Domain Prerequisites | ✅ Complete (2026-02-08) | [PHASE_0_BOOTSTRAP.md](./PHASE_0_BOOTSTRAP.md) |
+| Phase 1 | Worker Foundation | ✅ Complete (2026-02-09) | [PHASE_1_BOOTSTRAP.md](./PHASE_1_BOOTSTRAP.md) |
+| Phase 2 | Resource Scheduling | ✅ Complete (2026-02-10) | [PHASE_2_BOOTSTRAP.md](./PHASE_2_BOOTSTRAP.md) |
+| Phase 3 | Auto-Scaling | ✅ Complete (2026-02-08) | [PHASE_3_BOOTSTRAP.md](./PHASE_3_BOOTSTRAP.md) |
+| Phase 4 | LDS Integration | 🔄 ~90% Complete (2026-02-09) | [PHASE_4_BOOTSTRAP.md](./PHASE_4_BOOTSTRAP.md) |
+| Phase 5 | Grading Integration | ⬜ Not Started | — |
 
-## 4. Architecture Decisions
+### Test Counts by Phase
 
-All architectural decisions are documented in [/docs/architecture/adr/](../architecture/adr/README.md):
+| Phase | Tests Added | Cumulative |
+|-------|-------------|------------|
+| Phase 0 | 21 (domain) | 210 |
+| Phase 1 | 26 (capacity) | 387 |
+| Phase 2 | 41 (scheduling) | 77 RS |
+| Phase 3 | 44 (scaling) | 14 CPA + 17 RS + 13 WC |
+| Phase 4 | 57 (LDS) | 44 LC + 5 CPA + 8 CPA |
 
-| ADR | Title | Impact on Implementation |
-|-----|-------|--------------------------|
-| ADR-001 | API-Centric State Management | Control Plane API is single writer to MongoDB |
-| ADR-002 | Separate Scheduler Service | Scheduler as independent service with leader election |
-| ADR-003 | CloudEvents for Integration | External integration via CloudEvents bus |
-| ADR-004 | Port Allocation per Worker | Port allocation service in Phase 1 |
-| ADR-005 | Dual State Store (etcd + MongoDB) | etcd for state/watches, MongoDB for specs |
-| ADR-006 | Scheduler HA via Leader Election | Leader election using etcd leases |
-| ADR-007 | Worker Template Seeding | Templates seeded from config files |
-| ADR-008 | Worker Draining State | DRAINING state for graceful scale-down |
+## Getting Started
 
----
+1. Read the [MVP Implementation Plan](./mvp-implementation-plan.md)
+2. Review the [Codebase Discovery Audit](./codebase-discovery-audit.md) for current state
+3. Check [Requirements Specification](../specs/lablet-resource-manager-requirements.md) for context
+4. Follow phase tasks in order (dependencies are documented)
+5. Use the relevant [Bootstrap Document](./PHASE_4_BOOTSTRAP.md) when starting a new phase
 
-## 5. Risk Register
+## Key Architectural Decisions (MVP)
 
-See [Risk Register](./risk-register.md) for detailed risk analysis and mitigation strategies.
+| Decision | Phase | Summary |
+|----------|-------|---------|
+| AD-P4-01 | 4 | Atomic mark-ready command (INSTANTIATING→READY with all LDS fields) |
+| AD-P4-02 | 4 | Device mapping via static helper for testability |
+| AD-P4-03 | 4 | Multi-instance session matching for session.started events |
+| AD-21 | 3 | Discovery state sync bugfix (full EC2 state sync in bulk import) |
 
-**Top Risks:**
-
-1. **etcd Operational Complexity** - Mitigate with managed etcd or thorough runbooks
-2. **Worker Startup Time (15-20 min)** - Mitigate with predictive scaling, warm capacity
-3. **CML API Reliability** - Mitigate with retry logic, circuit breakers
-4. **State Synchronization** - Mitigate with clear ownership (etcd vs MongoDB)
-
----
-
-## 6. Migration Strategy
-
-See [Migration Strategy](./migration-strategy.md) for backward compatibility approach.
-
-**Principles:**
-
-- Existing CMLWorker functionality preserved
-- New LabletInstance features additive
-- Feature flags for gradual rollout
-- No breaking changes to existing APIs
-
----
-
-## 7. Definition of Done
-
-### Per-Task DoD
-
-- [ ] Code implemented following Neuroglia patterns
-- [ ] Unit tests with ≥80% coverage
-- [ ] Integration tests for external dependencies
-- [ ] Documentation updated (docstrings, README)
-- [ ] Code review approved
-- [ ] No regressions in existing functionality
-
-### Per-Phase DoD
-
-- [ ] All phase tasks completed
-- [ ] Phase-specific acceptance criteria met
-- [ ] Performance benchmarks validated
-- [ ] Security review completed
-- [ ] Deployment documentation updated
-
----
-
-## 8. Document Index
-
-### Phase Documents
-
-- [Prerequisites & Environment Setup](./prerequisites.md)
-- [Phase 1: Foundation](./phase-1-foundation.md)
-- [Phase 2: Scheduling](./phase-2-scheduling.md)
-- [Phase 3: Auto-Scaling](./phase-3-autoscaling.md)
-- [Phase 4: Assessment Integration](./phase-4-assessment.md)
-- [Phase 5: Production Hardening](./phase-5-production.md)
-
-### Supporting Documents
-
-- [Risk Register](./risk-register.md)
-- [Migration Strategy](./migration-strategy.md)
-- [Testing Strategy](./testing-strategy.md)
-
----
-
-## 9. Revision History
+## Revision History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 2.0.0 | 2026-02-09 | LCM Architecture Team | Major rewrite: updated phase statuses (P0-P3 complete, P4 ~90%), added bootstrap links, test counts, architectural decisions, service descriptions. Removed stale "Not Started" statuses. |
+| 1.0.0 | 2026-02-08 | LCM Architecture Team | Complete rewrite; single authoritative plan structure |
+| 0.3.0 | 2026-02-08 | Architecture Team | Added rebuild warning |
 | 0.1.0 | 2026-01-16 | Architecture Team | Initial draft |

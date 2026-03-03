@@ -1,6 +1,6 @@
 # Background Task Scheduling
 
-The CML Cloud Manager implements a distributed background task scheduling system using APScheduler, integrated with the Neuroglia framework's dependency injection and service provider patterns.
+The Lablet Cloud Manager implements a distributed background task scheduling system using APScheduler, integrated with the Neuroglia framework's dependency injection and service provider patterns.
 
 ## Overview
 
@@ -140,7 +140,7 @@ class Settings(ApplicationSettings):
 
         # Alternative: MongoDB configuration
         # "mongo_uri": "mongodb://root:pass@mongodb:27017/?authSource=admin",  # pragma: allowlist secret
-        # "mongo_db": "cml_cloud_manager",
+        # "mongo_db": "lablet_cloud_manager",
         # "mongo_collection": "background_jobs",
     }
 ```

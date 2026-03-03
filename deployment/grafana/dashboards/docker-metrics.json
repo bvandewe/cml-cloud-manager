@@ -106,7 +106,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "rate(cml_cloud_manager_container_cpu_usage_nanoseconds_total[1m]) / 1000000000",
+                    "expr": "rate(lablet_cloud_manager_container_cpu_usage_nanoseconds_total[1m]) / 1000000000",
                     "legendFormat": "{{container_name}}",
                     "range": true,
                     "refId": "A"
@@ -199,7 +199,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "cml_cloud_manager_container_memory_usage_total_bytes",
+                    "expr": "lablet_cloud_manager_container_memory_usage_total_bytes",
                     "legendFormat": "{{container_name}}",
                     "range": true,
                     "refId": "A"

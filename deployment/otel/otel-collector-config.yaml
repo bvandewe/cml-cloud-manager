@@ -75,7 +75,7 @@ processors:
     resource:
         attributes:
             - key: service.name
-              value: 'cml-cloud-manager-host'
+              value: 'lablet-cloud-manager-host'
               action: insert
     # Filter out system metrics from application to avoid conflicts with hostmetrics
     filter/drop_system_metrics:
@@ -91,7 +91,7 @@ exporters:
         loglevel: info
     prometheus:
         endpoint: '0.0.0.0:8889'
-        namespace: cml_cloud_manager
+        namespace: lablet_cloud_manager
         const_labels:
             environment: production
     otlp/tempo:

@@ -49,10 +49,7 @@ class IdleDetectionToggledDomainEventHandler(DomainEventHandler[IdleDetectionTog
             source="domain.worker_activity",
         )
 
-        log.info(
-            f"Broadcasted idle detection toggle for worker {notification.aggregate_id}: "
-            f"{'enabled' if notification.is_enabled else 'disabled'}"
-        )
+        log.info(f"Broadcasted idle detection toggle for worker {notification.aggregate_id}: " f"{'enabled' if notification.is_enabled else 'disabled'}")
         return None
 
 
@@ -103,10 +100,7 @@ class WorkerPausedDomainEventHandler(DomainEventHandler[WorkerPausedDomainEvent]
             source="domain.worker_activity",
         )
 
-        log.info(
-            f"Broadcasted worker paused event for {notification.aggregate_id}: "
-            f"reason={notification.pause_reason}, by={notification.paused_by}"
-        )
+        log.info(f"Broadcasted worker paused event for {notification.aggregate_id}: " f"reason={notification.pause_reason}, by={notification.paused_by}")
         return None
 
 
@@ -132,8 +126,5 @@ class WorkerResumedDomainEventHandler(DomainEventHandler[WorkerResumedDomainEven
             source="domain.worker_activity",
         )
 
-        log.info(
-            f"Broadcasted worker resumed event for {notification.aggregate_id}: "
-            f"reason={notification.resume_reason}, by={notification.resumed_by}"
-        )
+        log.info(f"Broadcasted worker resumed event for {notification.aggregate_id}: " f"reason={notification.resume_reason}, by={notification.resumed_by}")
         return None

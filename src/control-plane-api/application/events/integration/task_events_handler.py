@@ -2,21 +2,17 @@ import logging
 
 from multipledispatch import dispatch
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import \
-    CloudEventPublishingOptions
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
 from neuroglia.mapping.mapper import Mapper
 from neuroglia.mediation.mediator import IntegrationEventHandler, Mediator
 
 from application.commands import CommandHandlerBase, CreateTaskCommand
-from application.events.integration.task_events import \
-    TaskCreationRequestedIntegrationEventV1
+from application.events.integration.task_events import TaskCreationRequestedIntegrationEventV1
 
 log = logging.getLogger(__name__)
 
 
-class TaskCreationRequestedIntegrationEventV1Handler(
-    CommandHandlerBase, IntegrationEventHandler[TaskCreationRequestedIntegrationEventV1]
-):
+class TaskCreationRequestedIntegrationEventV1Handler(CommandHandlerBase, IntegrationEventHandler[TaskCreationRequestedIntegrationEventV1]):
 
     mediator: Mediator
     """ Gets the service used to mediate calls """

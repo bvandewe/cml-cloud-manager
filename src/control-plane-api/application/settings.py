@@ -1,7 +1,5 @@
 """Application settings configuration."""
 
-import logging
-import sys
 from typing import Any
 
 from neuroglia.hosting.abstractions import ApplicationSettings
@@ -18,6 +16,7 @@ class Settings(ApplicationSettings):
     # ============================================================================
     app_name: str = "Cml Cloud Manager"
     app_version: str = "1.0.0"
+    image_tag: str = "v0.1.0"
     environment: str = "production"  # Default to production for safety
     debug: bool = False
     log_level: str = "INFO"
@@ -26,6 +25,11 @@ class Settings(ApplicationSettings):
     app_host: str = "127.0.0.1"  # Default to localhost for security (use 0.0.0.0 in Docker)
     app_port: int = 8080
     app_url: str = "http://localhost:8020"  # External URL for callbacks
+
+    # Controller Service URLs (internal, for server-side health checks)
+    worker_controller_url: str = "http://localhost:8083"
+    lablet_controller_url: str = "http://localhost:8082"
+    resource_scheduler_url: str = "http://localhost:8081"
 
     # ============================================================================
     # Security & Authentication
@@ -36,26 +40,41 @@ class Settings(ApplicationSettings):
     cors_origins: list[str] = ["http://localhost:8020", "http://localhost:3000"]
 
     # Keycloak OAuth2/OIDC
-    keycloak_url: str = "http://localhost:8031"  # External URL (browser/Swagger accessible)
+    keycloak_url: str = "http://localhost:8041"  # External URL (browser/Swagger accessible)
     keycloak_url_internal: str | None = None  # Internal Docker network URL (auto-populated if not set)
-    keycloak_realm: str = "cml-cloud-manager"
+    keycloak_realm: str = "aix"
 
     # Clients
-    keycloak_client_id: str = "cml-cloud-manager-backend"  # Confidential client for backend
-    keycloak_client_secret: str = "change-me-in-production"
-    keycloak_public_client_id: str = "cml-cloud-manager-public"  # Public client for Swagger/Frontend
+    keycloak_client_id: str = "lcm-backend"  # Confidential client for backend
+    keycloak_client_secret: str = "lcm-backend-secret-change-in-production"
+    keycloak_public_client_id: str = "lcm-public"  # Public client for Swagger/Frontend
 
     # Token Validation
     verify_issuer: bool = True
-    expected_issuer: str = ""  # e.g. "http://localhost:8031/realms/cml-cloud-manager"
+    expected_issuer: str = ""  # e.g. "http://localhost:8041/realms/aix"
     verify_audience: bool = True
-    expected_audience: list[str] = ["cml-cloud-manager"]
-    refresh_auto_leeway_seconds: int = 60
+    expected_audience: list[str] = ["lcm"]
+
+    # Token Lifespans (aligned with Keycloak realm settings)
+    # These should match the realm's accessTokenLifespan, ssoSessionIdleTimeout, ssoSessionMaxLifespan
+    access_token_lifespan_seconds: int = 1500  # 25 minutes (Keycloak default)
+    sso_session_idle_timeout_minutes: int = 30  # Keycloak ssoSessionIdleTimeout
+    sso_session_max_lifespan_minutes: int = 600  # 10 hours (Keycloak ssoSessionMaxLifespan)
+
+    # Auto-refresh: refresh tokens this many seconds before access token expires
+    # Should be < access_token_lifespan_seconds to allow time for refresh
+    refresh_auto_leeway_seconds: int = 300  # 5 minutes before expiry
+
+    # Service-to-Service API Key
+    # Used by controllers (resource-scheduler, lablet-controller, worker-controller)
+    # to authenticate with internal endpoints (X-API-Key header)
+    internal_api_key: str = "lcm-internal-api-key-change-in-production"
 
     # Session Management
+    # session_max_duration_minutes should align with sso_session_max_lifespan_minutes
     session_secret_key: str = "change-me-in-production-use-secrets-token-urlsafe"
-    session_max_duration_minutes: int = 120
-    session_expiration_warning_minutes: int = 10
+    session_max_duration_minutes: int = 600  # 10 hours (aligned with Keycloak ssoSessionMaxLifespan)
+    session_expiration_warning_minutes: int = 10  # Warn user this many minutes before session expires
 
     # ============================================================================
     # Database & Persistence
@@ -76,8 +95,21 @@ class Settings(ApplicationSettings):
         "redis_db": 1,
     }
 
+    # etcd (State Coordination)
+    etcd_host: str = "localhost"
+    etcd_port: int = 2379
+    etcd_timeout: int = 5  # Connection timeout in seconds
+    etcd_retry_attempts: int = 3
+    etcd_retry_delay: float = 1.0  # Delay between retries in seconds
+    etcd_key_prefix: str = "/lcm"  # Base prefix for all keys
+    etcd_lease_ttl: int = 30  # Default lease TTL in seconds
+
+    # Port Allocation (for lablet instances)
+    port_allocation_min: int = 2000  # Minimum port in allocation range
+    port_allocation_max: int = 9999  # Maximum port in allocation range
+
     # Consumer Group
-    consumer_group: str | None = "cml-cloud-manager-consumer-group"
+    consumer_group: str | None = "lablet-cloud-manager-consumer-group"
 
     # ============================================================================
     # AWS & CML Worker Configuration
@@ -86,6 +118,11 @@ class Settings(ApplicationSettings):
     # AWS Credentials
     aws_access_key_id: str = "YOUR_ACCESS_KEY_ID"
     aws_secret_access_key: str = "YOUR_SECRET_ACCESS_KEY"
+
+    # Data Seeding Configuration
+    # Base path for seed data (e.g., /app/data in container, ./config locally)
+    # Seed data is loaded from {data_seed_base_path}/seeds/{entity_type}/ folders
+    data_seed_base_path: str = "/app/data"
 
     # Worker Provisioning
     cml_worker_ami_name_default: str = "my-cml2.7.0-lablet-v0.1.0"
@@ -111,6 +148,14 @@ class Settings(ApplicationSettings):
         "Name": "cml-worker-{worker_id}",
     }
     use_private_ip_for_monitoring: bool = False
+
+    # ============================================================================
+    # Scaling Constraints (Phase 3 - Auto-Scaling)
+    # ============================================================================
+    max_workers_per_region: int = 10  # Maximum concurrent workers per AWS region
+    min_workers: int = 0  # Minimum workers to keep running (0 = scale to zero allowed)
+    scale_up_cooldown_seconds: int = 300  # Cooldown between scale-up operations (5 min)
+    scale_down_cooldown_seconds: int = 600  # Cooldown between scale-down operations (10 min)
 
     # CML API Credentials
     cml_worker_api_username: str = "admin"
@@ -164,11 +209,26 @@ class Settings(ApplicationSettings):
     auto_import_workers_ami_name: str = ""
 
     # ============================================================================
+    # Feature Flags (Phase 7 — LabRecord Architecture)
+    # ============================================================================
+    lab_discovery_v2_enabled: bool = False  # Use Phase 7 typed LabRecordStatus-based discovery
+
+    # ============================================================================
+    # LDS (Lab Delivery System) Integration (Phase 12)
+    # ============================================================================
+    lds_base_url: str = ""  # LDS Reservations API base URL (empty = disabled)
+    lds_username: str = ""  # HTTP Basic Auth username for LDS API
+    lds_password: str = ""  # HTTP Basic Auth password for LDS API  # pragma: allowlist secret
+    lds_verify_ssl: bool = False  # Whether to verify SSL certificates for LDS API
+    lds_timeout: float = 30.0  # HTTP request timeout in seconds for LDS API calls
+    lds_direct_mode: bool = False  # If True, CPA calls LDS directly; if False, delegates to lablet-controller
+
+    # ============================================================================
     # Observability (OpenTelemetry)
     # ============================================================================
 
     # General
-    service_name: str = "cml-cloud-manager"
+    service_name: str = "lablet-cloud-manager"
     service_version: str = app_version
     deployment_environment: str = "development"
     observability_enabled: bool = True
@@ -184,6 +244,11 @@ class Settings(ApplicationSettings):
     observability_metrics_path: str = "/metrics"
     observability_ready_path: str = "/ready"
     observability_health_checks: list[str] = []
+
+    # External Observability URLs (for UI)
+    grafana_url: str = "http://localhost:3000"  # Grafana URL for embedded panels
+    minio_console_url: str = "http://localhost:9001"  # MinIO Console URL for content storage
+    prometheus_enabled: bool = True  # Whether Prometheus/Grafana panels are shown in UI
 
     # OpenTelemetry Collector
     otel_enabled: bool = True
@@ -209,7 +274,7 @@ class Settings(ApplicationSettings):
     # ============================================================================
     cloud_event_sink: str | None = None
     cloud_event_source: str | None = None
-    cloud_event_type_prefix: str = "io.system.cml-cloud-manager"
+    cloud_event_type_prefix: str = "io.system.lablet-cloud-manager"
     cloud_event_retry_attempts: int = 5
     cloud_event_retry_delay: float = 1.0
 
@@ -230,71 +295,3 @@ class Settings(ApplicationSettings):
 
 # Instantiate application settings
 app_settings = Settings()
-
-
-def configure_logging(log_level: str = "INFO") -> None:
-    """Configure application-wide logging with support for console and file output.
-
-    This function configures the root logger and sets appropriate levels for
-    third-party libraries to reduce noise. It's designed to be portable and
-    work across different deployment environments (local, Docker, Kubernetes).
-
-    Args:
-        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    """
-    import os
-
-    # Ensure log_level is uppercase for consistency
-    log_level = log_level.upper()
-
-    # Get root logger and clear any existing handlers to prevent duplicates
-    root_logger = logging.getLogger()
-    if root_logger.handlers:
-        root_logger.handlers.clear()
-
-    # Set the root logger level
-    root_logger.setLevel(log_level)
-
-    # Define log format
-    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    formatter = logging.Formatter(log_format)
-
-    # Console handler (always enabled for cloud-native environments)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_level)
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
-
-    # File handler (optional, for local development)
-    # Only enable if LOG_FILE environment variable is set or logs/ directory exists
-    log_file = os.getenv("LOG_FILE", "logs/debug.log")
-    if os.path.exists("logs") or os.getenv("LOG_FILE"):
-        try:
-            os.makedirs(os.path.dirname(log_file), exist_ok=True)
-            file_handler = logging.FileHandler(log_file)
-            file_handler.setLevel(log_level)
-            file_handler.setFormatter(formatter)
-            root_logger.addHandler(file_handler)
-        except (OSError, PermissionError):
-            # Silently fail if we can't create log file (e.g., read-only filesystem in containers)
-            pass
-
-    # Set third-party loggers to WARNING to reduce noise
-    third_party_loggers = [
-        "uvicorn",
-        "uvicorn.access",
-        "uvicorn.error",
-        "fastapi",
-        "httpx",
-        "httpcore",
-        "httpcore.http11",
-        "httpcore.connection",
-        "pymongo",
-        "pymongo.topology",
-        "pymongo.connection",
-        "pymongo.serverSelection",
-        "asyncio",
-    ]
-
-    for logger_name in third_party_loggers:
-        logging.getLogger(logger_name).setLevel(logging.WARNING)

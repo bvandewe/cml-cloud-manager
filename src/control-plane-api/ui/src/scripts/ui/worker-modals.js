@@ -2,6 +2,7 @@
 // Extracted modal setup & license/delete functionality
 
 import * as workersApi from '../api/workers.js';
+import * as workerTemplatesApi from '../api/worker-templates.js';
 import { showToast } from './notifications.js';
 import { isAdmin } from '../utils/roles.js';
 import { renderLicenseRegistration, renderLicenseAuthorization, renderLicenseFeatures, renderLicenseTransport } from '../components/workerLicensePanel.js';
@@ -232,23 +233,81 @@ export function setupLicenseModal() {
 
 export function setupCreateWorkerModal() {
     const submitBtn = document.getElementById('submit-create-worker-btn');
+    const templateSelect = document.getElementById('worker-template');
+    const templateHint = document.getElementById('worker-template-hint');
+    const modal = document.getElementById('createWorkerModal');
+
     if (!submitBtn) return;
+
+    // Cache for loaded templates
+    let templatesCache = null;
+
+    // Load templates when modal is shown
+    modal?.addEventListener('show.bs.modal', async () => {
+        if (templateSelect) {
+            templateSelect.innerHTML = '<option value="">Loading templates...</option>';
+            templateSelect.disabled = true;
+
+            try {
+                // Use cache if available, otherwise fetch from API
+                const templates = templatesCache || (await workerTemplatesApi.listWorkerTemplates(true));
+                templatesCache = templates;
+
+                if (templates && templates.length > 0) {
+                    templateSelect.innerHTML =
+                        '<option value="">Select Template</option>' +
+                        templates.map(t => `<option value="${t.id}" data-instance-type="${t.instance_type}" data-ami="${t.ami_id || ''}" data-region="${t.aws_region || ''}">${t.name} (${t.instance_type})</option>`).join('');
+                } else {
+                    templateSelect.innerHTML = '<option value="">No templates available</option>';
+                }
+            } catch (error) {
+                console.error('[worker-modals] Failed to load templates:', error);
+                templateSelect.innerHTML = '<option value="">Failed to load templates</option>';
+                showToast('Failed to load worker templates', 'error');
+            } finally {
+                templateSelect.disabled = false;
+            }
+        }
+    });
+
+    // Show template details when selected
+    templateSelect?.addEventListener('change', e => {
+        const option = e.target.selectedOptions[0];
+        if (option && option.value && templateHint) {
+            const instanceType = option.dataset.instanceType || '';
+            const ami = option.dataset.ami || 'default';
+            templateHint.textContent = `Instance: ${instanceType}, AMI: ${ami}`;
+        } else if (templateHint) {
+            templateHint.textContent = '';
+        }
+    });
+
     submitBtn.addEventListener('click', async () => {
         const name = document.getElementById('worker-name')?.value;
         const region = document.getElementById('worker-region')?.value;
-        const instanceType = document.getElementById('worker-instance-type')?.value;
-        const ami = document.getElementById('worker-ami')?.value;
-        const cmlVersion = document.getElementById('worker-cml-version')?.value;
-        if (!name || !region || !instanceType) {
+        const templateSelect = document.getElementById('worker-template');
+        const templateId = templateSelect?.value;
+
+        if (!name || !region || !templateId) {
             showToast('Please fill in all required fields', 'error');
             return;
         }
+
+        // Resolve instance_type and ami_id from the selected template option
+        const selectedOption = templateSelect.selectedOptions[0];
+        const instanceType = selectedOption?.dataset.instanceType;
+        const amiId = selectedOption?.dataset.ami || null;
+
+        if (!instanceType) {
+            showToast('Selected template is missing instance type information', 'error');
+            return;
+        }
+
         try {
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
             const data = { name, instance_type: instanceType };
-            if (ami) data.ami_id = ami;
-            if (cmlVersion) data.cml_version = cmlVersion;
+            if (amiId) data.ami_id = amiId;
             await workersApi.createWorker(region, data);
             showToast('Worker creation initiated', 'success');
             bootstrap.Modal.getInstance(document.getElementById('createWorkerModal'))?.hide();
@@ -356,4 +415,73 @@ export function setupImportWorkerModal() {
             updateImportModeUI(); // reset visibility after form reset
         }
     });
+}
+
+/**
+ * Setup Create Worker Template modal
+ * Note: Worker Templates API endpoints are not yet implemented.
+ * This is a placeholder that shows a "coming soon" message.
+ */
+export function setupCreateWorkerTemplateModal() {
+    const modal = document.getElementById('createWorkerTemplateModal');
+    if (!modal) return;
+
+    const submitBtn = document.getElementById('submitCreateWorkerTemplate');
+    if (!submitBtn) return;
+
+    submitBtn.addEventListener('click', async () => {
+        // Gather form data
+        const name = document.getElementById('templateName')?.value?.trim();
+        const instanceType = document.getElementById('templateInstanceType')?.value;
+        const description = document.getElementById('templateDescription')?.value?.trim();
+
+        // Capacity
+        const cpuCores = parseInt(document.getElementById('templateCpuCores')?.value) || 4;
+        const memoryGb = parseInt(document.getElementById('templateMemoryGb')?.value) || 8;
+        const storageGb = parseInt(document.getElementById('templateStorageGb')?.value) || 100;
+        const maxNodes = parseInt(document.getElementById('templateMaxNodes')?.value) || 50;
+        const maxLabs = parseInt(document.getElementById('templateMaxLabs')?.value) || 5;
+
+        // Configuration
+        const amiPattern = document.getElementById('templateAmiPattern')?.value?.trim() || 'CML-*';
+        const costPerHour = parseFloat(document.getElementById('templateCostPerHour')?.value) || 0.0;
+        const enabled = document.getElementById('templateEnabled')?.checked ?? true;
+
+        // Validation
+        if (!name || !instanceType || !description) {
+            showToast('Please fill in all required fields (Name, Instance Type, Description)', 'error');
+            return;
+        }
+
+        // TODO: Implement API call when worker templates controller is available
+        // For now, show a "coming soon" message
+        showToast('Worker Template API is not yet implemented. Template data collected but not saved.', 'warning');
+
+        console.log('[worker-modals] Template data collected:', {
+            name,
+            instance_type: instanceType,
+            description,
+            capacity: {
+                cpu_cores: cpuCores,
+                memory_gb: memoryGb,
+                storage_gb: storageGb,
+                max_nodes: maxNodes,
+                max_labs: maxLabs,
+            },
+            ami_name_pattern: amiPattern,
+            cost_per_hour_usd: costPerHour,
+            enabled,
+        });
+
+        // Close modal
+        bootstrap.Modal.getInstance(modal)?.hide();
+        document.getElementById('createWorkerTemplateForm')?.reset();
+    });
+
+    // Reset form when modal is hidden
+    modal.addEventListener('hidden.bs.modal', () => {
+        document.getElementById('createWorkerTemplateForm')?.reset();
+    });
+
+    console.log('[worker-modals] Create Worker Template modal setup complete');
 }

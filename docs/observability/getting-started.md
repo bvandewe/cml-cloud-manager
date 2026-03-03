@@ -103,13 +103,13 @@ curl -X PUT http://localhost:8000/api/tasks/{task_id} \
 
 4. **Search for Traces**:
    - **Search** tab: Search by service name
-     - Service Name: `cml-cloud-manager`
+     - Service Name: `lablet-cloud-manager`
      - Click **Run Query**
 
    - **TraceQL** tab: Use TraceQL queries
 
      ```traceql
-     { service.name="cml-cloud-manager" && http.status_code=200 }
+     { service.name="lablet-cloud-manager" && http.status_code=200 }
      ```
 
 5. **View Trace Details**:
@@ -122,7 +122,7 @@ curl -X PUT http://localhost:8000/api/tasks/{task_id} \
 When you create a task, you'll see a trace like this:
 
 ```
-cml-cloud-manager: POST /api/tasks (200ms)
+lablet-cloud-manager: POST /api/tasks (200ms)
 ├─ create_task_entity (15ms)
 │  ├─ span: validate input (3ms)
 │  └─ span: create domain object (12ms)
@@ -158,16 +158,16 @@ cml-cloud-manager: POST /api/tasks (200ms)
 
 ```promql
 # Task creation rate (per second)
-rate(cml_cloud_manager_tasks_created_total[5m])
+rate(lablet_cloud_manager_tasks_created_total[5m])
 
 # Total tasks created
-cml_cloud_manager_tasks_created_total
+lablet_cloud_manager_tasks_created_total
 
 # Task processing time (95th percentile)
-histogram_quantile(0.95, rate(cml_cloud_manager_task_processing_time_bucket[5m]))
+histogram_quantile(0.95, rate(lablet_cloud_manager_task_processing_time_bucket[5m]))
 
 # Tasks by priority
-sum by (priority) (cml_cloud_manager_tasks_created_total)
+sum by (priority) (lablet_cloud_manager_tasks_created_total)
 ```
 
 ### In Grafana
@@ -197,7 +197,7 @@ sum by (priority) (cml_cloud_manager_tasks_created_total)
 1. **Identify slow traces** in Grafana/Tempo:
 
    ```traceql
-   { service.name="cml-cloud-manager" && duration > 500ms }
+   { service.name="lablet-cloud-manager" && duration > 500ms }
    ```
 
 2. **Analyze the trace**:
@@ -226,7 +226,7 @@ sum by (priority) (cml_cloud_manager_tasks_created_total)
 1. **Query task creation rate**:
 
    ```promql
-   rate(cml_cloud_manager_tasks_created_total[5m])
+   rate(lablet_cloud_manager_tasks_created_total[5m])
    ```
 
 2. **Visualize in Grafana**:
@@ -234,7 +234,7 @@ sum by (priority) (cml_cloud_manager_tasks_created_total)
    - Group by priority:
 
      ```promql
-     sum by (priority) (rate(cml_cloud_manager_tasks_created_total[5m]))
+     sum by (priority) (rate(lablet_cloud_manager_tasks_created_total[5m]))
      ```
 
 3. **Set up alerts**:
@@ -270,7 +270,7 @@ sum by (priority) (cml_cloud_manager_tasks_created_total)
 
    ```promql
    # Error rate spike?
-   rate(cml_cloud_manager_tasks_failed_total[5m])
+   rate(lablet_cloud_manager_tasks_failed_total[5m])
    ```
 
 5. **Check context**:
@@ -287,7 +287,7 @@ sum by (priority) (cml_cloud_manager_tasks_created_total)
 1. **Baseline metrics**:
 
    ```promql
-   histogram_quantile(0.95, rate(cml_cloud_manager_task_processing_time_bucket[5m]))
+   histogram_quantile(0.95, rate(lablet_cloud_manager_task_processing_time_bucket[5m]))
    ```
 
 2. **Generate test load**:
@@ -315,7 +315,7 @@ sum by (priority) (cml_cloud_manager_tasks_created_total)
 
    ```promql
    # Before vs after
-   histogram_quantile(0.95, rate(cml_cloud_manager_task_processing_time_bucket[5m]))
+   histogram_quantile(0.95, rate(lablet_cloud_manager_task_processing_time_bucket[5m]))
    ```
 
 ## Next Steps

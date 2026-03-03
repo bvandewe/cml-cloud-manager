@@ -6,8 +6,8 @@ set -e
 # Configuration
 KEYCLOAK_URL="http://localhost:8031"
 API_URL="http://localhost:8030"
-REALM="cml-cloud-manager"
-CLIENT_ID="cml-cloud-manager-public"
+REALM="lablet-cloud-manager"
+CLIENT_ID="lablet-cloud-manager-public"
 USERNAME="${1:-admin}"
 PASSWORD="${2:-admin}"
 AWS_REGION="${3:-us-east-1}"

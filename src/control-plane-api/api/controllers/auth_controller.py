@@ -122,7 +122,7 @@ class AuthController(ControllerBase):
                         not in [
                             "offline_access",
                             "uma_authorization",
-                            "default-roles-cml-cloud-manager",
+                            "default-roles-lablet-cloud-manager",
                         ]
                     ]
                     user_info["roles"] = user_roles
@@ -131,11 +131,13 @@ class AuthController(ControllerBase):
                 # Log error but continue - roles are optional for basic authentication
                 print(f"Warning: Could not extract roles from access token: {e}")
 
+            # Extract dynamic expiry from tokens if available
+            refresh_expires_in = tokens.get("refresh_expires_in")
+            session_timeout_seconds = int(refresh_expires_in) if refresh_expires_in is not None else app_settings.session_max_duration_minutes * 60
+
             # Create server-side session
-            session_id = self.session_store.create_session(tokens, user_info)
-            aggregate_id = str(
-                user_info.get("sub") or user_info.get("user_id") or user_info.get("preferred_username") or session_id
-            )
+            session_id = self.session_store.create_session(tokens, user_info, session_timeout_seconds)
+            aggregate_id = str(user_info.get("sub") or user_info.get("user_id") or user_info.get("preferred_username") or session_id)
             if self.mediator:
                 await self.mediator.publish_async(
                     UserLoggedInDomainEvent(
@@ -154,7 +156,7 @@ class AuthController(ControllerBase):
                 httponly=True,
                 secure=app_settings.environment == "production",
                 samesite="lax",
-                max_age=app_settings.session_max_duration_minutes * 60,  # Convert minutes to seconds
+                max_age=session_timeout_seconds,
                 path="/",
             )
 
@@ -201,7 +203,7 @@ class AuthController(ControllerBase):
                 "authenticated": True,
                 "expires_at": expires_at.isoformat(),
                 "expires_in_seconds": max(0, expires_in_seconds),
-                "session_max_duration_minutes": app_settings.session_max_duration_minutes,
+                "session_max_duration_minutes": session.get("session_timeout_seconds", app_settings.session_max_duration_minutes * 60) // 60,
                 "session_expiration_warning_minutes": app_settings.session_expiration_warning_minutes,
             }
 
@@ -246,7 +248,11 @@ class AuthController(ControllerBase):
             new_tokens["refresh_token"] = refresh_token
         if "id_token" not in new_tokens and session_tokens.get("id_token"):
             new_tokens["id_token"] = session_tokens.get("id_token")
-        self.session_store.refresh_session(session_id, new_tokens)
+
+        refresh_expires_in = new_tokens.get("refresh_expires_in")
+        session_timeout_seconds = int(refresh_expires_in) if refresh_expires_in is not None else None
+
+        self.session_store.refresh_session(session_id, new_tokens, session_timeout_seconds)
         return {
             "access_token": new_tokens.get("access_token"),
             "id_token": new_tokens.get("id_token"),
@@ -285,10 +291,7 @@ class AuthController(ControllerBase):
             params["refresh_token"] = refresh_token
 
         # Build Keycloak logout URL with encoded parameters
-        logout_url = (
-            f"{app_settings.keycloak_url}/realms/{app_settings.keycloak_realm}"
-            f"/protocol/openid-connect/logout?{urlencode(params)}"
-        )
+        logout_url = f"{app_settings.keycloak_url}/realms/{app_settings.keycloak_realm}/protocol/openid-connect/logout?{urlencode(params)}"
 
         # Create redirect and clear cookie
         redirect = RedirectResponse(url=logout_url, status_code=status.HTTP_303_SEE_OTHER)

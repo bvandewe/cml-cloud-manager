@@ -54,9 +54,9 @@ Currently, `CreateCMLWorkerCommand` **always creates a NEW EC2 instance**. There
 - Created manually through AWS Console
 - Provisioned by CloudFormation/Terraform
 - Created by another system
-- Running before CML Cloud Manager was deployed
+- Running before Lablet Cloud Manager was deployed
 
-**Need:** Import these instances into CML Cloud Manager to manage them through the application.
+**Need:** Import these instances into Lablet Cloud Manager to manage them through the application.
 
 ---
 
@@ -310,7 +310,7 @@ async def import_existing_cml_worker(
     """Import an existing EC2 instance as a CML Worker.
 
     This endpoint allows you to register EC2 instances that were created
-    outside of CML Cloud Manager (e.g., via AWS Console, Terraform, etc.)
+    outside of Lablet Cloud Manager (e.g., via AWS Console, Terraform, etc.)
 
     You can specify either:
     - aws_instance_id: Direct lookup by instance ID
@@ -515,7 +515,7 @@ curl -X POST \
 ## Benefits
 
 ✅ **Reuse existing infrastructure** - Import manually-created instances
-✅ **Migration path** - Gradually adopt CML Cloud Manager
+✅ **Migration path** - Gradually adopt Lablet Cloud Manager
 ✅ **No redundant resources** - Avoid creating duplicates
 ✅ **Consistent management** - Manage all workers through one interface
 ✅ **Audit trail** - Track who imported what and when

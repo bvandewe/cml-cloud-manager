@@ -1,5 +1,5 @@
 image:
-    repository: cml-cloud-manager
+    repository: lablet-cloud-manager
     tag: latest
     pullPolicy: IfNotPresent
 
@@ -81,10 +81,10 @@ env:
 
     # Redis integration
     REDIS_ENABLED: 'true'
-    REDIS_URL: redis://cml-cloud-manager-redis:6379/0
+    REDIS_URL: redis://lablet-cloud-manager-redis:6379/0
 
     # Mongo connection (pydantic nested key mapping)
-    CONNECTION_STRINGS__MONGO: mongodb://root:pass@cml-cloud-manager-mongodb:27017/?authSource=admin  # pragma: allowlist secret (example credentials; override via --set or external Secret)
+    CONNECTION_STRINGS__MONGO: mongodb://root:pass@lablet-cloud-manager-mongodb:27017/?authSource=admin  # pragma: allowlist secret (example credentials; override via --set or external Secret)
 
     # Disable OTEL by default in minimal chart (can enable if collector available)
     OTEL_ENABLED: 'false'

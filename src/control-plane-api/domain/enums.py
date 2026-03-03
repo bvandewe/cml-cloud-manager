@@ -1,46 +1,29 @@
-from enum import Enum
+"""Domain enumerations for Control Plane API.
 
+Shared enums (CMLWorkerStatus, LabletSessionStatus, etc.) are defined in
+lcm_core and re-exported here for local convenience. All CPA code should
+import enums from this module:
+    from domain.enums import LabletSessionStatus
 
-class TaskStatus(str, Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
+Phase 7C: LabletInstanceStatus/LABLET_INSTANCE_VALID_TRANSITIONS kept as
+local aliases for application layer backward compatibility until Phase 7D.
+"""
 
+# Re-export shared enums from lcm_core (canonical definitions)
+from lcm_core.domain.enums import (  # noqa: F401
+    CML_WORKER_VALID_TRANSITIONS,
+    LABLET_SESSION_VALID_TRANSITIONS,
+    AwsRegion,
+    CMLServiceStatus,
+    CMLWorkerStatus,
+    GradingSessionStatus,
+    LabletDefinitionStatus,
+    LabletSessionStatus,
+    LicenseStatus,
+    LicenseType,
+    UserSessionStatus,
+    WorkerOrigin,
+)
 
-class TaskPriority(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
-class CMLWorkerStatus(str, Enum):
-    """AWS EC2 instance states for CML Worker."""
-
-    PENDING = "pending"  # Instance is being launched
-    STARTING = "starting"  # Instance is starting < TBC if needed!
-    RUNNING = "running"  # Instance is running
-    STOPPING = "stopping"  # Instance is being stopped
-    STOPPED = "stopped"  # Instance is stopped
-    SHUTTING_DOWN = "shutting-down"  # Instance is being terminated
-    TERMINATED = "terminated"  # Instance is terminated
-    FAILED = "failed"  # Instance provisioning failed
-    UNKNOWN = "unknown"  # Status cannot be determined
-
-
-class CMLServiceStatus(str, Enum):
-    """CML HTTPS service availability status."""
-
-    UNAVAILABLE = "unavailable"  # Service not accessible
-    STARTING = "starting"  # Service is starting up
-    AVAILABLE = "available"  # Service is accessible via HTTPS
-    ERROR = "error"  # Service encountered an error
-
-
-class LicenseStatus(str, Enum):
-    """CML license registration status."""
-
-    UNREGISTERED = "unregistered"
-    REGISTERED = "registered"
-    EVALUATION = "evaluation"
-    EXPIRED = "expired"
-    INVALID = "invalid"
+# Phase 7D: Backward-compatible aliases removed. All code now uses
+# LabletSessionStatus and LABLET_SESSION_VALID_TRANSITIONS directly.

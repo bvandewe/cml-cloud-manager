@@ -184,16 +184,12 @@ class AwsEc2Client:
 
             # Search for AMIs by name pattern
             # https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/ec2/client/describe_images.html
-            response = ec2_client.describe_images(
-                Filters=[{"Name": "name", "Values": [f"*{ami_name}*"]}]  # Wildcard search
-            )
+            response = ec2_client.describe_images(Filters=[{"Name": "name", "Values": [f"*{ami_name}*"]}])  # Wildcard search
 
             ami_ids = [image["ImageId"] for image in response.get("Images", [])]
 
             if ami_ids:
-                log.info(
-                    f"Found {len(ami_ids)} AMI(s) matching name pattern '{ami_name}' in {aws_region.value}: {ami_ids}"
-                )
+                log.info(f"Found {len(ami_ids)} AMI(s) matching name pattern '{ami_name}' in {aws_region.value}: {ami_ids}")
             else:
                 log.warning(f"No AMIs found matching name pattern '{ami_name}' in {aws_region.value}")
 
@@ -252,10 +248,7 @@ class AwsEc2Client:
                 ami_creation_date=image.get("CreationDate"),
             )
 
-            log.debug(
-                f"Retrieved AMI details for {ami_id}: name={ami_details.ami_name}, "
-                f"created={ami_details.ami_creation_date}"
-            )
+            log.debug(f"Retrieved AMI details for {ami_id}: name={ami_details.ami_name}, " f"created={ami_details.ami_creation_date}")
 
             return ami_details
 
@@ -332,9 +325,7 @@ class AwsEc2Client:
                 Monitoring={"Enabled": True},  # Enable detailed CloudWatch monitoring
             )
             instance = instances[0]
-            log.info(
-                f"New CML Worker EC2 instance created in region {aws_region.value}: id={instance.id}, instance_type={instance.instance_type}"
-            )
+            log.info(f"New CML Worker EC2 instance created in region {aws_region.value}: id={instance.id}, instance_type={instance.instance_type}")
 
             # Extract tags from the instance
             tags = {}
@@ -568,9 +559,7 @@ class AwsEc2Client:
                 }
 
             # If no status returned, instance might not exist or be in a transitional state
-            log.warning(
-                f"No status information available for CML Worker instance {instance_id} in region {aws_region.value}"
-            )
+            log.warning(f"No status information available for CML Worker instance {instance_id} in region {aws_region.value}")
             return {
                 "instance_status_check": "unknown",
                 "ec2_system_status_check": "unknown",
@@ -582,9 +571,7 @@ class AwsEc2Client:
             log.error(f"Error getting status checks - invalid parameters: {e}")
             raise EC2InvalidParameterException(f"Invalid instance ID provided: {e}")
         except ClientError as e:
-            log.error(
-                f"Error getting status checks for CML Worker instance {instance_id} in region {aws_region.value}: {e}"
-            )
+            log.error(f"Error getting status checks for CML Worker instance {instance_id} in region {aws_region.value}: {e}")
             raise self._parse_aws_error(e, f"Get status checks for instance {instance_id}")
         except ValueError as e:
             log.error(f"Error getting status checks - invalid value: {e}")
@@ -679,9 +666,7 @@ class AwsEc2Client:
             tag_list = [{"Key": k, "Value": v} for k, v in tags.items()]
             ec2_client.create_tags(Resources=[instance_id], Tags=tag_list)
 
-            log.info(
-                f"Added/updated {len(tags)} tags on CML Worker instance {instance_id} in region {aws_region.value}"
-            )
+            log.info(f"Added/updated {len(tags)} tags on CML Worker instance {instance_id} in region {aws_region.value}")
             return True
 
         except ParamValidationError as e:
@@ -733,9 +718,7 @@ class AwsEc2Client:
             tag_list = [{"Key": key} for key in tag_keys]
             ec2_client.delete_tags(Resources=[instance_id], Tags=tag_list)
 
-            log.info(
-                f"Removed {len(tag_keys)} tags from CML Worker instance {instance_id} in region {aws_region.value}"
-            )
+            log.info(f"Removed {len(tag_keys)} tags from CML Worker instance {instance_id} in region {aws_region.value}")
             return True
 
         except ParamValidationError as e:
@@ -809,9 +792,7 @@ class AwsEc2Client:
 
         except (ValueError, ParamValidationError, ClientError) as e:
             log.error(f"Error while getting details of instance {instance_id} in Region {aws_region}: {e}")
-            raise IntegrationException(
-                f"{type(e)} Error while getting details of instance {instance_id} in Region {aws_region}: {e}"
-            )
+            raise IntegrationException(f"{type(e)} Error while getting details of instance {instance_id} in Region {aws_region}: {e}")
 
     async def get_instance_details(self, aws_region: AwsRegion, instance_id: str) -> Ec2InstanceDescriptor | None:
         """Gets the given EC2 instance details from the given AWS Region.
@@ -881,19 +862,13 @@ class AwsEc2Client:
                             log.warning(f"Instance in Reservation {reservation['ReservationId']} has no InstanceId.")
                             continue
                         if "InstanceType" not in instance:
-                            log.warning(
-                                f"Instance {instance['InstanceId']} in Reservation {reservation['ReservationId']} has no InstanceType."
-                            )
+                            log.warning(f"Instance {instance['InstanceId']} in Reservation {reservation['ReservationId']} has no InstanceType.")
                             continue
                         if "ImageId" not in instance:
-                            log.warning(
-                                f"Instance {instance['InstanceId']} in Reservation {reservation['ReservationId']} has no ImageId."
-                            )
+                            log.warning(f"Instance {instance['InstanceId']} in Reservation {reservation['ReservationId']} has no ImageId.")
                             continue
 
-                        log.debug(
-                            f"Instance ID: {instance['InstanceId']}, Instance Type: {instance['InstanceType']}, Image ID: {instance['ImageId']}, LaunchTime: {instance['LaunchTime']}"
-                        )
+                        log.debug(f"Instance ID: {instance['InstanceId']}, Instance Type: {instance['InstanceType']}, Image ID: {instance['ImageId']}, LaunchTime: {instance['LaunchTime']}")
 
                         # Extract instance name from tags
                         ec2_vm_name = f"{instance['InstanceType']}.{instance['ImageId']}.{instance['InstanceId']}"
@@ -1021,12 +996,8 @@ class AwsEc2Client:
             )
 
         except Exception as e:
-            log.error(
-                f"Error while pulling resources utilization for CML Worker instance {instance_id} in Region {aws_region}: {e}"
-            )
-            raise IntegrationException(
-                f"Error while pulling resources utilization for CML Worker instance {instance_id} in Region {aws_region}: {e}"
-            )
+            log.error(f"Error while pulling resources utilization for CML Worker instance {instance_id} in Region {aws_region}: {e}")
+            raise IntegrationException(f"Error while pulling resources utilization for CML Worker instance {instance_id} in Region {aws_region}: {e}")
 
     async def get_instance_resources_utilization(
         self,

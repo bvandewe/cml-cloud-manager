@@ -1,11 +1,11 @@
-# Cml Cloud Manager - Neuroglia WebApplication
+# Lablet Cloud Manager
 
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Poetry](https://img.shields.io/endpoint?url=https://python-poetry.org/badge/v0.json)](https://python-poetry.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com)
 [![Neuroglia](https://img.shields.io/badge/Neuroglia-0.6.6-purple.svg)](https://github.com/neuroglia-io/python-framework)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Documentation](https://img.shields.io/badge/docs-mkdocs-blue.svg)](https://bvandewe.github.io/cml-cloud-manager/)
+[![Documentation](https://img.shields.io/badge/docs-mkdocs-blue.svg)](https://bvandewe.github.io/lablet-cloud-manager/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Tests](https://img.shields.io/badge/tests-pytest-orange.svg)](https://docs.pytest.org/)
@@ -27,22 +27,47 @@ An opinionated Neuroglia FastAPI template showcasing multi-subapp architecture (
 - 📊 **Worker Monitoring**: Automated health and metrics collection for CML Workers
 - 🔄 **Real-Time Updates (SSE)**: Live worker status, metrics & labs pushed to UI
 
-![Cml Cloud Manager demo](./docs/assets/cml-cloud-manager_v0.1.0.gif)
+![Cml Cloud Manager demo](./docs/assets/lablet-cloud-manager_v0.1.0.gif)
 
 ## 🏗️ Architecture
 
-This application follows the **Simple UI** sample pattern from Neuroglia, implementing:
+The **Lablet Cloud Manager (LCM)** is a distributed system of specialized microservices designed to manage **Cisco Modeling Lab (CML)** infrastructure on AWS. It uses the **Kubernetes Controller Pattern** for declarative resource management built on the **Neuroglia** framework.
 
-- **API SubApp** (`/api`): RESTful JSON endpoints with JWT authentication
-- **UI SubApp** (`/`): Bootstrap 5 SPA with Parcel bundler
-- **Domain Layer**: Task entities with repository pattern
-- **Application Layer**: CQRS commands/queries with RBAC handlers
-- **Integration Layer**: In-memory and MongoDB (motor) repositories (ready for PostgreSQL/Redis/...)
+### Top Entities
+
+- **LabletDefinition**: Immutable, versioned template for a lab environment (requirements, topologies).
+- **LabletSession**: A runtime session of a definition on a Worker (combines CML lab, LDS LabSession, and child state like `UserSession`, `GradingSession`, `ScoreReport`).
+- **Worker**: AWS EC2 instance running a CML instance.
+
+### Microservices & Roles
+
+The system uses a **Control Plane + Controllers** pattern. All mutations to state are handled via the Control Plane API.
+
+1. **Control Plane API ("The Gateway")**:
+   - Handles user interaction via REST API and UI.
+   - The **ONLY** service with direct access to the MongoDB state store, utilizing CQRS.
+   - Projects aggregate state changes to `etcd` to trigger controllers.
+2. **Resource Scheduler ("The Scheduler")**:
+   - Makes placement decisions and manages the scheduling queue.
+   - Evaluates license affinity, resource limits, and triggers AWS scale-ups.
+3. **Worker Controller ("The Infrastructure")**:
+   - Manages CML Worker lifecycle (EC2 instance start/stop/terminate).
+   - Monitors infrastructure metrics via AWS CloudWatch and CML System APIs.
+4. **Lablet Controller ("The Workload")**:
+   - Manages the lab lifecycle within CML (import/start/stop).
+   - Integrates with external systems (LDS and Grading Engine) using abstract SPIs and handles inbound CloudEvents.
+
+### Top-Level Data Flow (Event-Driven State-Based Persistence)
+
+- **User Actions**: Users communicate with the Control Plane API, which processes requests and persists state locally in MongoDB.
+- **State Projection**: The Control Plane API publishes domain events as projected state keys to `etcd`.
+- **Reactive Reconciliation**: Controllers watch `etcd` keys. When state changes (e.g., a session goes `PENDING`), the relevant controller wakes up, queries the Control Plane for details, and acts (e.g., Resource Scheduler places the session and updates state to `SCHEDULED`).
+- **External Integration**: Systems like LDS or GradingEngine emit CloudEvents which are received by the Lablet Controller. The controller interprets these events to drive the session lifecycle (e.g., from `RUNNING` to `COLLECTING`).
 
 ### Project Structure
 
 ```
-cml-cloud-manager/
+lablet-cloud-manager/
 ├── src/
 │   ├── main.py                      # FastAPI app factory entry point
 │   ├── api/                         # API sub-app (mounted at /api)
@@ -247,7 +272,7 @@ The application includes test users with different roles:
 | manager | test | manager | Start/stop, tag updates, view metrics & labs |
 | user | test | user | Read-only workers, metrics, labs |
 
-See [deployment/keycloak/cml-cloud-manager-realm-export.json](./deployment/keycloak/cml-cloud-manager-realm-export.json)
+See [deployment/keycloak/lablet-cloud-manager-realm-export.json](./deployment/keycloak/lablet-cloud-manager-realm-export.json)
 
 ## 🔐 Authentication & RBAC
 
@@ -329,7 +354,7 @@ KEYCLOAK_URL=http://localhost:8021
 # In Docker: use internal Docker network URL (http://keycloak:8080)
 # In Kubernetes: may be same as KEYCLOAK_URL or intra-cluster URL depending on setup
 KEYCLOAK_URL_INTERNAL=http://keycloak:8080
-KEYCLOAK_REALM=cml-cloud-manager
+KEYCLOAK_REALM=lablet-cloud-manager
 KEYCLOAK_CLIENT_ID=portal-web-app
 
 # Redis Session Storage (for production horizontal scaling)
@@ -391,18 +416,18 @@ Once running, visit http://localhost:8020/api/docs for interactive API documenta
 
 Comprehensive documentation is available in the `docs/` directory and online:
 
-- **Online**: https://bvandewe.github.io/cml-cloud-manager
+- **Online**: https://bvandewe.github.io/lablet-cloud-manager
 - **Local**: Run `make docs-serve` and visit http://127.0.0.1:8000
 
 #### Documentation Topics
 
-- [**Getting Started**](https://bvandewe.github.io/cml-cloud-manager/getting-started/installation/) - How to install and run the application.
-- [**Architecture**](https://bvandewe.github.io/cml-cloud-manager/architecture/overview/) - CQRS pattern, dependency injection, design patterns
-- [**Security**](https://bvandewe.github.io/cml-cloud-manager/security/authentication-flows/) - Dual auth system (session + JWT), OAuth2/OIDC, RBAC
-- [**Development**](https://bvandewe.github.io/cml-cloud-manager/development/makefile-reference/) - Makefile reference, workflow, testing
-- [**AI Agent Guide**](https://bvandewe.github.io/cml-cloud-manager/development/ai-agent-guide/) - Comprehensive guide for AI coding agents (and humans!)
-- [**Deployment**](https://bvandewe.github.io/cml-cloud-manager/deployment/docker-environment/) - Docker environment, deployment, configuration
-- [**Troubleshooting**](https://bvandewe.github.io/cml-cloud-manager/troubleshooting/common-issues/) - Common issues, known bugs, solutions
+- [**Getting Started**](https://bvandewe.github.io/lablet-cloud-manager/getting-started/installation/) - How to install and run the application.
+- [**Architecture**](https://bvandewe.github.io/lablet-cloud-manager/architecture/overview/) - CQRS pattern, dependency injection, design patterns
+- [**Security**](https://bvandewe.github.io/lablet-cloud-manager/security/authentication-flows/) - Dual auth system (session + JWT), OAuth2/OIDC, RBAC
+- [**Development**](https://bvandewe.github.io/lablet-cloud-manager/development/makefile-reference/) - Makefile reference, workflow, testing
+- [**AI Agent Guide**](https://bvandewe.github.io/lablet-cloud-manager/development/ai-agent-guide/) - Comprehensive guide for AI coding agents (and humans!)
+- [**Deployment**](https://bvandewe.github.io/lablet-cloud-manager/deployment/docker-environment/) - Docker environment, deployment, configuration
+- [**Troubleshooting**](https://bvandewe.github.io/lablet-cloud-manager/troubleshooting/common-issues/) - Common issues, known bugs, solutions
 
 #### Documentation Commands
 
@@ -557,7 +582,7 @@ Use `git commit -s` to auto-add this line.
 ## 🔁 Rebranding / Forking as a New Project
 
 You can turn this repository into a new project quickly without manually hunting for every
-`cml-cloud-manager` occurrence.
+`lablet-cloud-manager` occurrence.
 
 ### Option 1: Built-in Rename Script (Recommended)
 
@@ -575,10 +600,10 @@ python scripts/rename_project.py --new-name "Acme Tasks"
 
 This will replace variants:
 
-- `cml-cloud-manager` (slug)
-- `cml_cloud_manager` (snake)
+- `lablet-cloud-manager` (slug)
+- `lablet_cloud_manager` (snake)
 - `Cml Cloud Manager` (title)
-- `CmlCloudManager` (Pascal)
+- `LabletCloudManager` (Pascal)
 - `CML_CLOUD_MANAGER` (UPPER_SNAKE)
 - `Cml Cloud Manager API`
 
@@ -614,7 +639,7 @@ Using GitHub's built‑in Template feature lets you create a clean copy of the r
 3. In your new repo clone, run the rename script (Option 1) to apply your branding and identifiers.
 4. Update any secrets / realms (Keycloak) and run tests.
 
-Why combine both? The template feature handles repository creation & initial history isolation; the rename script performs systematic text/style replacements so you don't miss lingering `cml-cloud-manager` variants. If you skip the script, manual edits are error‑prone (especially mixed case variants and service identifiers).
+Why combine both? The template feature handles repository creation & initial history isolation; the rename script performs systematic text/style replacements so you don't miss lingering `lablet-cloud-manager` variants. If you skip the script, manual edits are error‑prone (especially mixed case variants and service identifiers).
 
 ### Option 3: Cookiecutter (Future)
 
@@ -651,8 +676,8 @@ poetry run pytest --cov=. --cov-report=html
 ### Docker Production Build
 
 ```bash
-docker build -t cml-cloud-manager:latest .
-docker run -p 8000:8000 cml-cloud-manager:latest
+docker build -t lablet-cloud-manager:latest .
+docker run -p 8000:8000 lablet-cloud-manager:latest
 ```
 
 ## 🤝 Contributing

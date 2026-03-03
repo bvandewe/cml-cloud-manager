@@ -184,7 +184,7 @@ async def main():
         "mongo",
         "mongodb://root:pass@mongodb:27017/?authSource=admin",  # pragma: allowlist secret
     )
-    db_name = "cml_cloud_manager"
+    db_name = "lablet_cloud_manager"
 
     log.info(f"🔗 Connecting to MongoDB: {db_name}")
 

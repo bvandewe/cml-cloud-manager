@@ -34,9 +34,7 @@ def test_settings_registered_as_singleton_not_lambda() -> None:
     is_bare_callable = callable(impl_type) and not isinstance(impl_type, type)
 
     assert not is_bare_callable, (
-        f"Settings implementation_type should not be a lambda/function. "
-        f"Got: {impl_type} (type: {type(impl_type).__name__}). "
-        f"This suggests the Neuroglia bug is not fixed."
+        f"Settings implementation_type should not be a lambda/function. " f"Got: {impl_type} (type: {type(impl_type).__name__}). " f"This suggests the Neuroglia bug is not fixed."
     )
 
 
@@ -73,8 +71,5 @@ def test_settings_resolves_without_attribute_error() -> None:
         assert isinstance(resolved, Settings)
     except AttributeError as e:
         if "'function' object has no attribute '__origin__'" in str(e):
-            pytest.fail(
-                "The Neuroglia v0.6.6 lambda bug still exists! "
-                "Settings is registered as lambda instead of singleton instance."
-            )
+            pytest.fail("The Neuroglia v0.6.6 lambda bug still exists! " "Settings is registered as lambda instead of singleton instance.")
         raise

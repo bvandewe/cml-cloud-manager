@@ -54,29 +54,30 @@ class RegisterLicenseRequest(BaseModel):
 
 
 class DeleteCMLWorkerRequest(BaseModel):
-    """Request model for deleting a CML Worker from the database.
+    """Request model for deleting a CML Worker (soft delete).
 
-    By default, only removes the worker record from the local database.
-    Set 'terminate_instance' to true to also terminate the EC2 instance.
+    ADR-015: Uses soft delete pattern for consistency with GC behavior.
 
-    Warning: This operation cannot be undone. The worker record will be
-    permanently removed from the database.
+    By default, marks the worker for termination (sets desired_status=TERMINATED).
+    The worker-controller will handle EC2 termination via etcd watch.
+    The record is retained for audit and purged by a cleanup job after retention period.
+
+    Set 'force_hard_delete' to true to immediately remove the record (admin escape hatch).
     """
 
-    terminate_instance: bool = Field(
+    force_hard_delete: bool = Field(
         False,
-        description="If true, terminates the EC2 instance before deleting the worker record. "
-        "If false, only removes the worker from the database (instance remains running).",
+        description="If true, immediately removes the worker record from the database (admin escape hatch). If false (default), uses soft delete: marks for termination, retains record for audit.",
     )
 
     class Config:
         json_schema_extra = {
             "examples": [
                 {
-                    "terminate_instance": False,
+                    "force_hard_delete": False,
                 },
                 {
-                    "terminate_instance": True,
+                    "force_hard_delete": True,
                 },
             ]
         }
@@ -101,30 +102,25 @@ class ImportCMLWorkerRequest(BaseModel):
 
     aws_instance_id: str | None = Field(
         None,
-        description="AWS EC2 instance ID (e.g., 'i-1234567890abcdef0'). "
-        "If provided, directly import this instance. Ignored if import_all=true.",
+        description="AWS EC2 instance ID (e.g., 'i-1234567890abcdef0'). If provided, directly import this instance. Ignored if import_all=true.",
         examples=["i-0abcdef1234567890"],
     )
 
     ami_id: str | None = Field(
         None,
-        description="AMI ID to search for (e.g., 'ami-0c55b159cbfafe1f0'). "
-        "Will import the first instance (or all if import_all=true) found with this AMI.",
+        description="AMI ID to search for (e.g., 'ami-0c55b159cbfafe1f0'). Will import the first instance (or all if import_all=true) found with this AMI.",
         examples=["ami-0c55b159cbfafe1f0"],
     )
 
     ami_name: str | None = Field(
         None,
-        description="AMI name pattern to search for. "
-        "Will import the first instance (or all if import_all=true) found with matching AMI name.",
+        description="AMI name pattern to search for. Will import the first instance (or all if import_all=true) found with matching AMI name.",
         examples=[app_settings.cml_worker_ami_name_default],
     )
 
     name: str | None = Field(
         None,
-        description="Optional friendly name for the worker. "
-        "If not provided, uses the AWS instance's name automatically. "
-        "Ignored if import_all=true.",
+        description="Optional friendly name for the worker. If not provided, uses the AWS instance's name automatically. Ignored if import_all=true.",
         examples=["cml-worker-imported-01"],
     )
 
@@ -143,9 +139,7 @@ class ImportCMLWorkerRequest(BaseModel):
 
         # Bulk import requires ami_id or ami_name (not instance_id)
         if self.import_all and self.aws_instance_id:
-            raise ValueError(
-                "Cannot use 'import_all' with 'aws_instance_id'. " "Use 'ami_id' or 'ami_name' for bulk import."
-            )
+            raise ValueError("Cannot use 'import_all' with 'aws_instance_id'. Use 'ami_id' or 'ami_name' for bulk import.")
 
         return self
 

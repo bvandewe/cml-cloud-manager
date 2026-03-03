@@ -45,7 +45,7 @@ query_frontend:
 #   registry:
 #     external_labels:
 #       source: tempo
-#       cluster: cml-cloud-manager
+#       cluster: lablet-cloud-manager
 #   storage:
 #     path: /tmp/tempo/generator/wal
 #     remote_write:

@@ -106,7 +106,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "rate(cml_cloud_manager_redis_commands_processed_total[1m])",
+                    "expr": "rate(lablet_cloud_manager_redis_commands_processed_total[1m])",
                     "legendFormat": "Commands/sec",
                     "range": true,
                     "refId": "A"
@@ -199,7 +199,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "cml_cloud_manager_redis_memory_used_bytes",
+                    "expr": "lablet_cloud_manager_redis_memory_used_bytes",
                     "legendFormat": "Memory Used",
                     "range": true,
                     "refId": "A"
@@ -292,7 +292,7 @@
                         "uid": "prometheus"
                     },
                     "editorMode": "code",
-                    "expr": "cml_cloud_manager_redis_clients_connected",
+                    "expr": "lablet_cloud_manager_redis_clients_connected",
                     "legendFormat": "Clients",
                     "range": true,
                     "refId": "A"

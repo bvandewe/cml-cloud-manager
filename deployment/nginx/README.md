@@ -1,10 +1,10 @@
 # Nginx Reverse Proxy
 
-The Nginx service acts as the single entry point for the CML Cloud Manager production stack. It handles routing, SSL termination (optional), caching, and security headers.
+The Nginx service acts as the single entry point for the Lablet Cloud Manager production stack. It handles routing, SSL termination (optional), caching, and security headers.
 
 ## Configuration
 
-The main configuration file is located at `deployment/nginx/conf.d/cml-cloud-manager.conf`.
+The main configuration file is located at `deployment/nginx/conf.d/lablet-cloud-manager.conf`.
 
 ### Routing
 

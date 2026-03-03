@@ -1,6 +1,6 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container-fluid">
-        <a class="navbar-brand" href="/">CML Cloud Manager</a>
+        <a class="navbar-brand" href="/">Lablet Cloud Manager</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
             aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
             <span class="navbar-toggler-icon"></span>
@@ -15,6 +15,16 @@
                 <li class="nav-item">
                     <a class="nav-link" href="#" id="nav-workers">
                         <i class="bi bi-server"></i> CML Workers
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" id="nav-lablet-instances">
+                        <i class="bi bi-collection"></i> Lablet Instances
+                    </a>
+                </li>
+                <li class="nav-item admin-only-nav">
+                    <a class="nav-link" href="#" id="nav-lablet-definitions">
+                        <i class="bi bi-file-earmark-code"></i> Definitions
                     </a>
                 </li>
                 <li class="nav-item admin-only-nav">
@@ -33,6 +43,8 @@
                         <i class="bi bi-grid-3x3-gap"></i> Services
                     </a>
                     <ul class="dropdown-menu" aria-labelledby="servicesDropdown">
+                        <li><a class="dropdown-item" id="minio-console-link-legacy" href="http://localhost:9001/login" target="_blank"><i class="bi bi-bucket"></i>
+                                Content Storage</a></li>
                         <li><a class="dropdown-item" href="/grafana/" target="_blank"><i class="bi bi-graph-up"></i>
                                 Grafana</a></li>
                         <li><a class="dropdown-item" href="/events/" target="_blank"><i class="bi bi-broadcast"></i>

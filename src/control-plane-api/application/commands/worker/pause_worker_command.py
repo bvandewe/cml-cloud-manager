@@ -63,10 +63,7 @@ class PauseWorkerCommandHandler(CommandHandler[PauseWorkerCommand, OperationResu
             span.set_attribute("worker_id", command.worker_id)
             span.set_attribute("is_auto_pause", command.is_auto_pause)
 
-            log.info(
-                f"PauseWorkerCommand delegating to StopCMLWorkerCommand: "
-                f"worker_id={command.worker_id}, is_auto_pause={command.is_auto_pause}"
-            )
+            log.info(f"PauseWorkerCommand delegating to StopCMLWorkerCommand: " f"worker_id={command.worker_id}, is_auto_pause={command.is_auto_pause}")
 
             # Delegate to unified StopCMLWorkerCommand
             stop_command = StopCMLWorkerCommand(

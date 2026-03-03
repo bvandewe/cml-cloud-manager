@@ -39,7 +39,7 @@ Internet/Clients
 
 ### Site Configurations (conf.d/)
 
-- **`cml-cloud-manager.conf`**: Main application (localhost)
+- **`lablet-cloud-manager.conf`**: Main application (localhost)
   - Routes `/` to API service
   - Routes `/api/` with rate limiting
   - Routes `/auth/` to Keycloak
@@ -67,7 +67,7 @@ curl http://localhost/api/workers
 curl http://localhost/health
 
 # Keycloak (via /auth path)
-curl http://localhost/auth/realms/cml-cloud-manager
+curl http://localhost/auth/realms/lablet-cloud-manager
 ```
 
 ### 2. Subdomain Routing (*.localhost)
@@ -310,13 +310,13 @@ View nginx access logs:
 docker-compose -f deployment/docker-compose/docker-compose.prod.yml logs -f nginx
 
 # Via volume
-docker exec cml-cloud-manager-nginx tail -f /var/log/nginx/access.log
+docker exec lablet-cloud-manager-nginx tail -f /var/log/nginx/access.log
 ```
 
 ### Error Logs
 
 ```bash
-docker exec cml-cloud-manager-nginx tail -f /var/log/nginx/error.log
+docker exec lablet-cloud-manager-nginx tail -f /var/log/nginx/error.log
 ```
 
 ### Log Format
@@ -342,10 +342,10 @@ Nginx can export metrics for Prometheus:
 
 ```bash
 # Test configuration syntax
-docker exec cml-cloud-manager-nginx nginx -t
+docker exec lablet-cloud-manager-nginx nginx -t
 
 # Reload configuration without downtime
-docker exec cml-cloud-manager-nginx nginx -s reload
+docker exec lablet-cloud-manager-nginx nginx -s reload
 ```
 
 ### Debug Proxy Issues

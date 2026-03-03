@@ -26,8 +26,8 @@ See the architecture overview of this feature: [Real-Time Updates](../architectu
 1. **Clone the repository**:
 
     ```bash
-    git clone https://github.com/bvandewe/cml-cloud-manager.git
-    cd cml-cloud-manager
+    git clone https://github.com/bvandewe/lablet-cloud-manager.git
+    cd lablet-cloud-manager
     ```
 
 2. **Install Python dependencies**:

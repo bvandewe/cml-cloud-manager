@@ -49,6 +49,21 @@ class IdleDetectionSettings:
     timeout_minutes: int = 60
 
 
+@dataclass
+class DiscoverySettings:
+    """Settings related to worker discovery (ADR-012).
+
+    These settings control how worker-controller discovers EC2 instances
+    matching CML worker AMI patterns. Can be configured at runtime via
+    the admin UI.
+    """
+
+    enabled: bool = True
+    regions: list[str] = field(default_factory=lambda: ["us-east-1"])
+    ami_name_pattern: str = "cisco-cml2.9*"
+    scan_interval_seconds: int = 300
+
+
 class SystemSettingsState(AggregateState[str]):
     """Encapsulates the persisted state for the SystemSettings aggregate."""
 
@@ -56,6 +71,7 @@ class SystemSettingsState(AggregateState[str]):
     worker_provisioning: WorkerProvisioningSettings
     monitoring: MonitoringSettings
     idle_detection: IdleDetectionSettings
+    discovery: DiscoverySettings
     updated_at: datetime
     updated_by: str | None
 
@@ -65,6 +81,7 @@ class SystemSettingsState(AggregateState[str]):
         self.worker_provisioning = WorkerProvisioningSettings()
         self.monitoring = MonitoringSettings()
         self.idle_detection = IdleDetectionSettings()
+        self.discovery = DiscoverySettings()
         self.updated_at = datetime.now()
         self.updated_by = "system"
 
@@ -85,6 +102,7 @@ class SystemSettings(AggregateRoot[SystemSettingsState, str]):
         worker_provisioning: WorkerProvisioningSettings | None = None,
         monitoring: MonitoringSettings | None = None,
         idle_detection: IdleDetectionSettings | None = None,
+        discovery: DiscoverySettings | None = None,
         updated_by: str | None = None,
     ) -> None:
         """Update the system settings."""
@@ -94,6 +112,8 @@ class SystemSettings(AggregateRoot[SystemSettingsState, str]):
             self.state.monitoring = monitoring
         if idle_detection:
             self.state.idle_detection = idle_detection
+        if discovery:
+            self.state.discovery = discovery
 
         self.state.updated_at = datetime.now()
         self.state.updated_by = updated_by

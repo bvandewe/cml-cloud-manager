@@ -1,47 +1,100 @@
 # Multi-Service Architecture Refactoring
 
 **Date:** 2025-01-20
-**Status:** COMPLETED
+**Status:** IN PROGRESS (Updated 2026-01-16)
 
 ## Overview
 
-The CML Cloud Manager has been refactored from a monolithic application into a multi-service architecture with three independent microservices. This enables better separation of concerns, independent scaling, and prepares the codebase for the Lablet Resource Manager implementation.
+The Lablet Cloud Manager has been refactored from a monolithic application into a multi-service architecture with four independent microservices. This enables better separation of concerns, independent scaling, and prepares the codebase for the Lablet Resource Manager implementation.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        CML Cloud Manager                             │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌─────────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-│  │  Control Plane API  │  │    Scheduler    │  │   Controller    │  │
-│  │    (Port 8020)      │  │   (Port 8081)   │  │   (Port 8082)   │  │
-│  │                     │  │                 │  │                 │  │
-│  │  • REST API         │  │  • Leader       │  │  • Leader       │  │
-│  │  • Bootstrap 5 UI   │  │    Election     │  │    Election     │  │
-│  │  • MongoDB Writer   │  │  • Placement    │  │  • Reconcile    │  │
-│  │  • Auth (Keycloak)  │  │    Algorithm    │  │  • Auto-Scale   │  │
-│  │  • SSE Events       │  │  • Queue Watch  │  │  • Cloud SPI    │  │
-│  └─────────┬───────────┘  └────────┬────────┘  └────────┬────────┘  │
-│            │                       │                     │           │
-│            └───────────────────────┼─────────────────────┘           │
-│                                    │                                 │
-│                        ┌───────────┴───────────┐                     │
-│                        │        etcd           │                     │
-│                        │    (Port 2379)        │                     │
-│                        │  • State Store        │                     │
-│                        │  • Leader Election    │                     │
-│                        │  • Watch Triggers     │                     │
-│                        └───────────────────────┘                     │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Lablet Cloud Manager                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────┐  ┌─────────────────┐  ┌───────────────────────────┐│
+│  │  Control Plane API  │  │Resource Scheduler│  │    Lablet Controller      ││
+│  │    (Port 8020)      │  │   (Port 8081)   │  │      (Port 8082)          ││
+│  │                     │  │                 │  │                           ││
+│  │  • REST API         │  │  • Leader       │  │  • Leader Election        ││
+│  │  • Bootstrap 5 UI   │  │    Election     │  │  • LabletInstance         ││
+│  │  • MongoDB Writer   │  │  • Placement    │  │    Reconciliation         ││
+│  │  • Auth (Keycloak)  │  │    Algorithm    │  │  • CML Labs SPI           ││
+│  │  • SSE Events       │  │  • Queue Watch  │  │    (Labs/Nodes/Interfaces)││
+│  └─────────┬───────────┘  └────────┬────────┘  └─────────────┬─────────────┘│
+│            │                       │                         │              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐│
+│  │                       Worker Controller                                  ││
+│  │                         (Port 8083)                                      ││
+│  │                                                                          ││
+│  │  • Leader Election                                                       ││
+│  │  • CML Worker Reconciliation (SPEC → OBSERVE → ACT)                      ││
+│  │  • Cloud Provider SPI (EC2, CloudWatch, CML System API)                  ││
+│  │  • Scale-up execution (launch EC2 instances)                             ││
+│  │  • Scale-down execution (stop/terminate EC2 instances)                   ││
+│  │  • License registration/deregistration                                   ││
+│  │  • Auto-import workers from AWS tags                                     ││
+│  └──────────────────────────────────┬──────────────────────────────────────┘│
+│                                     │                                        │
+│            └────────────────────────┼────────────────────────┘              │
+│                                     │                                        │
+│                        ┌────────────┴────────────┐                          │
+│                        │        etcd             │                          │
+│                        │    (Port 2379)          │                          │
+│                        │  • State Store          │                          │
+│                        │  • Leader Election      │                          │
+│                        │  • Watch Triggers       │                          │
+│                        └─────────────────────────┘                          │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Controller Domain Separation
+
+Both controllers follow the same **reconciliation pattern** (SPEC → OBSERVE → ACT), but operate at different abstraction layers:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      CONTROLLER DOMAIN SEPARATION                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                    APPLICATION LAYER (Workloads)                       │  │
+│  │                                                                        │  │
+│  │  ┌─────────────────────┐              ┌─────────────────────────────┐ │  │
+│  │  │  LABLET CONTROLLER  │──────────────│      CML LABS SPI           │ │  │
+│  │  │                     │              │                             │ │  │
+│  │  │  Reconciles:        │              │  • /api/v0/labs             │ │  │
+│  │  │  • LabletInstances  │              │  • /api/v0/labs/{id}/nodes  │ │  │
+│  │  │  • Lab lifecycle    │              │  • /api/v0/labs/{id}/links  │ │  │
+│  │  │  • Port allocations │              │  • /api/v0/labs/{id}/       │ │  │
+│  │  │                     │              │    interfaces               │ │  │
+│  │  └─────────────────────┘              └─────────────────────────────┘ │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                   INFRASTRUCTURE LAYER (Compute)                       │  │
+│  │                                                                        │  │
+│  │  ┌─────────────────────┐              ┌─────────────────────────────┐ │  │
+│  │  │  WORKER CONTROLLER  │──────────────│    CLOUD PROVIDER SPI       │ │  │
+│  │  │                     │              │                             │ │  │
+│  │  │  Reconciles:        │              │  • AWS EC2 API              │ │  │
+│  │  │  • CML Workers      │              │  • AWS CloudWatch           │ │  │
+│  │  │  • EC2 lifecycle    │              │  • CML System API           │ │  │
+│  │  │  • License state    │              │    (/system_stats, license) │ │  │
+│  │  │                     │              │                             │ │  │
+│  │  └─────────────────────┘              └─────────────────────────────┘ │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Directory Structure
 
 ```
-cml-cloud-manager/
+lablet-cloud-manager/
 ├── src/
 │   ├── control-plane-api/     # Main API + UI service
 │   │   ├── api/               # REST controllers
@@ -58,7 +111,7 @@ cml-cloud-manager/
 │   │   ├── pyproject.toml     # Poetry dependencies
 │   │   └── pytest.ini         # Test configuration
 │   │
-│   ├── scheduler/             # LabletInstance placement service
+│   ├── resource-scheduler/   # LabletInstance placement service
 │   │   ├── application/       # Settings, scheduler service
 │   │   ├── domain/            # (Future: scheduling domain logic)
 │   │   ├── integration/       # etcd client, API client
@@ -69,11 +122,23 @@ cml-cloud-manager/
 │   │   ├── pyproject.toml
 │   │   └── pytest.ini
 │   │
-│   └── controller/            # Resource reconciliation service
-│       ├── application/       # Settings, controller service
-│       ├── domain/            # (Future: controller domain logic)
-│       ├── integration/       # Cloud provider SPI, etcd client
-│       │   └── providers/     # AWS EC2 implementation
+│   ├── lablet-controller/     # LabletInstance lifecycle service
+│   │   ├── application/       # Settings, lablet controller service
+│   │   ├── domain/            # (Future: controller domain logic)
+│   │   ├── integration/       # CML Labs SPI client, etcd client
+│   │   │   └── providers/     # CML Labs API implementation
+│   │   ├── tests/             # pytest test suite
+│   │   ├── main.py            # Service entry point
+│   │   ├── Dockerfile
+│   │   ├── Makefile
+│   │   ├── pyproject.toml
+│   │   └── pytest.ini
+│   │
+│   └── worker-controller/     # CML Worker reconciliation service
+│       ├── application/       # Settings, jobs, worker controller service
+│       ├── domain/            # (Future: worker controller domain logic)
+│       ├── integration/       # Cloud Provider SPI clients
+│       │   └── providers/     # AWS EC2, CloudWatch, CML System API
 │       ├── tests/             # pytest test suite
 │       ├── main.py            # Service entry point
 │       ├── Dockerfile
@@ -97,11 +162,11 @@ cml-cloud-manager/
 - Bootstrap 5 SPA with Server-Side Events (SSE)
 - Keycloak OAuth2/OIDC authentication
 - MongoDB as source of truth
-- Background worker for existing functionality
+- Internal API endpoints for other services
 
 **Port:** 8020 (HTTP), 5680 (Debug)
 
-### Scheduler (`src/scheduler/`)
+### Resource Scheduler (`src/resource-scheduler/`)
 
 **Purpose:** LabletInstance placement decisions
 
@@ -118,23 +183,54 @@ cml-cloud-manager/
 - `EtcdClient`: etcd state store wrapper
 - `ControlPlaneClient`: HTTP client for API calls
 
-### Controller (`src/controller/`)
+### Lablet Controller (`src/lablet-controller/`)
 
-**Purpose:** Resource reconciliation and auto-scaling
+**Purpose:** LabletInstance reconciliation via CML Labs SPI
+
+**Domain:** Application layer (workload management)
 
 - Leader election via etcd
-- Reconciliation loop (actual vs. desired state)
-- Cloud Provider SPI (Service Provider Interface)
-- AWS EC2 implementation for worker provisioning
-- Scale-up/scale-down decisions
+- Reconciliation loop (actual lab state vs. desired instance state)
+- CML Labs SPI integration:
+  - Labs API (`/api/v0/labs`) - lab lifecycle
+  - Nodes API (`/api/v0/labs/{id}/nodes`) - node state
+  - Interfaces API (`/api/v0/labs/{id}/interfaces`) - port mapping
+  - Links API (`/api/v0/labs/{id}/links`) - topology
+- Updates instance state via Control Plane API
 
 **Port:** 8082 (Health), 5682 (Debug)
 
 **Key Components:**
 
-- `ControllerService`: Main reconciliation loop
-- `CloudProviderInterface`: Abstract cloud provider interface
-- `AwsEc2Provider`: AWS EC2 implementation
+- `LabletControllerService`: Main reconciliation loop
+- `CMLLabsSpiClient`: CML Labs API client
+- `InstanceReconciler`: Compares spec vs actual lab state
+
+### Worker Controller (`src/worker-controller/`)
+
+**Purpose:** CML Worker reconciliation via Cloud Provider SPI
+
+**Domain:** Infrastructure layer (compute management)
+
+- Leader election via etcd
+- Reconciliation loop (actual EC2/CML state vs. desired worker state)
+- Cloud Provider SPI integration:
+  - AWS EC2 API - instance lifecycle (start/stop/terminate/create)
+  - AWS CloudWatch - infrastructure metrics
+  - CML System API (`/system_information`, `/system_stats`, license)
+- Scale-up execution (launch EC2 instances)
+- Scale-down execution (stop/terminate EC2 instances)
+- License registration/deregistration
+- Auto-import workers from AWS tags
+
+**Port:** 8083 (Health), 5683 (Debug)
+
+**Key Components:**
+
+- `WorkerControllerService`: Main reconciliation loop
+- `CloudProviderSpiClient`: AWS EC2/CloudWatch client
+- `CMLSystemApiClient`: CML system-level API client
+- `WorkerReconciler`: Compares spec vs actual EC2/CML state
 
 ## Development Commands
 
@@ -142,14 +238,15 @@ cml-cloud-manager/
 
 ```bash
 # Docker operations
-make up              # Start all services
-make down            # Stop all services
-make dev             # Build and run with logs
-make logs            # All service logs
-make logs-api        # Control plane API logs
-make logs-scheduler  # Scheduler logs
-make logs-controller # Controller logs
-make urls            # Show all service URLs
+make up                    # Start all services
+make down                  # Stop all services
+make dev                   # Build and run with logs
+make logs                  # All service logs
+make logs-api              # Control plane API logs
+make logs-resource-scheduler # Resource scheduler logs
+make logs-lablet-controller # Lablet controller logs
+make logs-worker-controller # Worker controller logs
+make urls                  # Show all service URLs
 
 # All services
 make install-all     # Install deps for all services
@@ -169,24 +266,30 @@ make api-run         # Run locally
 make api-test        # Run tests
 make api-lint        # Run linting
 
-# Scheduler
-make scheduler-install
-make scheduler-run
-make scheduler-test
-make scheduler-lint
+# Resource Scheduler
+make resource-scheduler-install
+make resource-scheduler-run
+make resource-scheduler-test
+make resource-scheduler-lint
 
-# Controller
-make controller-install
-make controller-run
-make controller-test
-make controller-lint
+# Lablet Controller
+make lablet-controller-install
+make lablet-controller-run
+make lablet-controller-test
+make lablet-controller-lint
+
+# Worker Controller (TODO - not yet implemented)
+# make worker-controller-install
+# make worker-controller-run
+# make worker-controller-test
+# make worker-controller-lint
 ```
 
 ## VS Code Workspace
 
 The workspace file (`ccm.code-workspace`) includes:
 
-- 📂 Folders for all three microservices
+- 📂 Folders for all four microservices
 - 🚀 Launch configurations for running/debugging each service
 - ⚙️ Tasks for common operations
 - 🔌 Extension recommendations
@@ -194,9 +297,9 @@ The workspace file (`ccm.code-workspace`) includes:
 ### Launch Configurations
 
 - `control-plane-api: Run` - Run API locally
-- `scheduler: Run` - Run scheduler locally
-- `controller: Run` - Run controller locally
-- `All Services (Local)` - Run all three locally
+- `resource-scheduler: Run` - Run resource scheduler locally
+- `lablet-controller: Run` - Run lablet controller locally
+- `All Services (Local)` - Run all services locally
 - `All Services (Attach Docker)` - Attach debugger to Docker containers
 
 ## Docker Compose Services
@@ -204,9 +307,9 @@ The workspace file (`ccm.code-workspace`) includes:
 | Service | Port(s) | Description |
 |---------|---------|-------------|
 | `control-plane-api` | 8020, 5680 | Main API + UI |
-| `scheduler` | 8081, 5681 | Placement service |
-| `controller` | 8082, 5682 | Reconciliation service |
-| `worker` | 5683 | Legacy background worker |
+| `resource-scheduler` | 8081, 5681 | Placement service |
+| `lablet-controller` | 8082, 5682 | LabletInstance reconciliation service |
+| `worker-controller` | 8083, 5683 | CML Worker observation service |
 | `etcd` | 2379, 2380 | State store |
 | `mongodb` | 8022 | Primary database |
 | `keycloak` | 8021 | Auth server |
@@ -229,19 +332,25 @@ Each microservice has its own:
 
 ### AD-2: Leader Election Pattern
 
-Both scheduler and controller implement leader election via etcd.
+Both resource-scheduler and lablet-controller implement leader election via etcd.
 
 **Rationale:** Ensures only one instance performs critical operations, preventing conflicts.
 
-### AD-3: Cloud Provider SPI
+### AD-3: Cloud Provider SPI (Worker Controller)
 
-Controller uses an abstract `CloudProviderInterface` with AWS EC2 implementation.
+Worker Controller uses an abstract `CloudProviderInterface` with AWS implementation.
 
-**Rationale:** Enables future support for other cloud providers (GCP, Azure) without changing controller logic.
+**Rationale:** Worker Controller manages infrastructure lifecycle; enables future support for other cloud providers (GCP, Azure).
 
-### AD-4: Control Plane as Single Writer
+### AD-4: CML Labs SPI (Lablet Controller)
 
-Only the Control Plane API writes to MongoDB. Scheduler and Controller communicate via API.
+Lablet Controller uses the CML Labs API exclusively for workload management.
+
+**Rationale:** Clear separation between infrastructure (Worker Controller) and application (Lablet Controller) concerns.
+
+### AD-5: Control Plane as Single Writer
+
+Only the Control Plane API writes to MongoDB. Resource Scheduler and Controller communicate via API.
 
 **Rationale:** Prevents data conflicts, simplifies consistency, enables audit logging at single point.
 
@@ -251,10 +360,11 @@ Only the Control Plane API writes to MongoDB. Scheduler and Controller communica
 
 1. All `src/` code moved to `src/control-plane-api/`
 2. `tests/` and `pytest.ini` moved to `src/control-plane-api/`
-3. New `src/scheduler/` and `src/controller/` services created
-4. Root `docker-compose.yml` updated with all services
-5. Root `Makefile` updated with orchestration commands
-6. `ccm.code-workspace` updated with new folders
+3. New `src/resource-scheduler/` and `src/lablet-controller/` services created
+4. `src/worker-controller/` to be created (will extract from control-plane-api)
+5. Root `docker-compose.yml` updated with all services
+6. Root `Makefile` updated with orchestration commands
+7. `ccm.code-workspace` updated with new folders
 
 ### What Didn't Change
 
@@ -266,11 +376,12 @@ Only the Control Plane API writes to MongoDB. Scheduler and Controller communica
 ## Next Steps
 
 1. **Implement real etcd client** - Replace mock with `etcd3-py`
-2. **Add placement algorithm** - Bin-packing in scheduler
-3. **Add reconciliation logic** - Actual vs desired state in controller
-4. **Add health endpoints** - HTTP health checks for scheduler/controller
-5. **Add integration tests** - Cross-service communication tests
-6. **Update documentation** - MkDocs architecture diagrams
+2. **Add placement algorithm** - Bin-packing in resource-scheduler
+3. **Add Worker Controller reconciliation logic** - EC2/CloudWatch/CML System API integration
+4. **Add Lablet Controller reconciliation logic** - CML Labs API integration
+5. **Add health endpoints** - HTTP health checks for all services
+6. **Add integration tests** - Cross-service communication tests
+7. **Update documentation** - MkDocs architecture diagrams
 
 ## References
 

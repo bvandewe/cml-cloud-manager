@@ -11,8 +11,8 @@
   kubectl get svc {{ include "cml.name" . }}-mongodb -n {{ .Release.Namespace }}
 
 5. Override sensitive values when installing:
-  helm install my-cml charts/cml-cloud-manager \
-    --set image.repository=ghcr.io/your-org/cml-cloud-manager,image.tag=1.0.0 \
+  helm install my-cml charts/lablet-cloud-manager \
+    --set image.repository=ghcr.io/your-org/lablet-cloud-manager,image.tag=1.0.0 \
     --set secretEnv.SESSION_SECRET_KEY=$(openssl rand -hex 32) \
     --set secretEnv.AWS_ACCESS_KEY_ID=YOUR_KEY \
     --set secretEnv.AWS_SECRET_ACCESS_KEY=YOUR_SECRET \

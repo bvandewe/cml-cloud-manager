@@ -1,10 +1,10 @@
 # AWS IAM Setup for CML Worker Management
 
-This document describes how to provision AWS credentials with the appropriate IAM permissions for the CML Cloud Manager to manage CML Worker EC2 instances.
+This document describes how to provision AWS credentials with the appropriate IAM permissions for the Lablet Cloud Manager to manage CML Worker EC2 instances.
 
 ## Overview
 
-The CML Cloud Manager uses AWS SDK (boto3) to interact with AWS services for managing CML Worker instances. The application requires programmatic access credentials (Access Key ID and Secret Access Key) with specific IAM permissions.
+The Lablet Cloud Manager uses AWS SDK (boto3) to interact with AWS services for managing CML Worker instances. The application requires programmatic access credentials (Access Key ID and Secret Access Key) with specific IAM permissions.
 
 ---
 
@@ -23,7 +23,7 @@ The application interacts with the following AWS services:
 
 1. Sign in to the [AWS IAM Console](https://console.aws.amazon.com/iam/)
 2. Navigate to **Users** → **Add users**
-3. Enter a username (e.g., `cml-cloud-manager-service`)
+3. Enter a username (e.g., `lablet-cloud-manager-service`)
 4. Select **Access key - Programmatic access** (not console access)
 5. Click **Next: Permissions**
 
@@ -90,7 +90,7 @@ Create a custom policy with the minimum required permissions for CML Worker mana
 1. After creating the user, navigate to the **Security credentials** tab
 2. Click **Create access key**
 3. Select **Application running outside AWS**
-4. Optionally add a description tag (e.g., "CML Cloud Manager Production")
+4. Optionally add a description tag (e.g., "Lablet Cloud Manager Production")
 5. **Download the credentials** - you'll only see the secret key once!
 
 ---
@@ -173,7 +173,7 @@ Require all CML Worker instances to have a specific tag:
   "Resource": "arn:aws:ec2:*:*:instance/*",
   "Condition": {
     "StringEquals": {
-      "ec2:ResourceTag/ManagedBy": "cml-cloud-manager"
+      "ec2:ResourceTag/ManagedBy": "lablet-cloud-manager"
     }
   }
 }
@@ -223,7 +223,7 @@ AWS_SECRET_ACCESS_KEY=4mQiit....
 kubectl create secret generic aws-credentials \
   --from-literal=AWS_ACCESS_KEY_ID='AKIA...' \
   --from-literal=AWS_SECRET_ACCESS_KEY='...' \
-  --namespace=cml-cloud-manager
+  --namespace=lablet-cloud-manager
 ```
 
 ### Environment Variables (Direct)
@@ -301,7 +301,7 @@ curl -X GET http://localhost:8030/health
 Check the application logs for AWS connectivity:
 
 ```bash
-docker logs cml-cloud-manager-app-1 | grep "AWS EC2"
+docker logs lablet-cloud-manager-app-1 | grep "AWS EC2"
 ```
 
 Expected output:

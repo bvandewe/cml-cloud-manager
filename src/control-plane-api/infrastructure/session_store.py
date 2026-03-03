@@ -19,12 +19,13 @@ class SessionStore(ABC):
     """Abstract base class for session storage."""
 
     @abstractmethod
-    def create_session(self, tokens: dict, user_info: dict) -> str:
+    def create_session(self, tokens: dict, user_info: dict, session_timeout_seconds: int | None = None) -> str:
         """Create a new session and return session ID.
 
         Args:
             tokens: Dict containing access_token, refresh_token, id_token, etc.
             user_info: Dict containing user information from OIDC userinfo endpoint
+            session_timeout_seconds: Optional custom duration for this session, overriding the store default.
 
         Returns:
             Session ID string
@@ -53,12 +54,13 @@ class SessionStore(ABC):
         pass
 
     @abstractmethod
-    def refresh_session(self, session_id: str, new_tokens: dict) -> None:
+    def refresh_session(self, session_id: str, new_tokens: dict, session_timeout_seconds: int | None = None) -> None:
         """Update session with new tokens after refresh.
 
         Args:
             session_id: The session identifier
             new_tokens: Updated token dict
+            session_timeout_seconds: Optional custom duration for this session, overriding the store default.
         """
         pass
 
@@ -79,16 +81,19 @@ class InMemorySessionStore(SessionStore):
         self._sessions: dict[str, dict] = {}
         self._session_timeout = timedelta(minutes=session_max_duration_minutes)
 
-    def create_session(self, tokens: dict, user_info: dict) -> str:
+    def create_session(self, tokens: dict, user_info: dict, session_timeout_seconds: int | None = None) -> str:
         """Create a new session and return session ID."""
         session_id = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc)
+
+        timeout = timedelta(seconds=session_timeout_seconds) if session_timeout_seconds is not None else self._session_timeout
 
         self._sessions[session_id] = {
             "tokens": tokens,
             "user_info": user_info,
             "created_at": now,
-            "expires_at": now + self._session_timeout,
+            "expires_at": now + timeout,
+            "session_timeout_seconds": session_timeout_seconds or int(self._session_timeout.total_seconds()),
         }
 
         return session_id
@@ -112,7 +117,7 @@ class InMemorySessionStore(SessionStore):
         """Delete a session."""
         self._sessions.pop(session_id, None)
 
-    def refresh_session(self, session_id: str, new_tokens: dict) -> None:
+    def refresh_session(self, session_id: str, new_tokens: dict, session_timeout_seconds: int | None = None) -> None:
         """Update session with new tokens after refresh."""
         session = self._sessions.get(session_id)
 
@@ -121,8 +126,11 @@ class InMemorySessionStore(SessionStore):
             merged_tokens = dict(existing_tokens)
             merged_tokens.update(new_tokens)
             session["tokens"] = merged_tokens
+            if session_timeout_seconds is not None:
+                session["session_timeout_seconds"] = session_timeout_seconds
+            timeout = timedelta(seconds=session.get("session_timeout_seconds", int(self._session_timeout.total_seconds())))
             # Extend expiration time
-            session["expires_at"] = datetime.now(timezone.utc) + self._session_timeout
+            session["expires_at"] = datetime.now(timezone.utc) + timeout
 
     def cleanup_expired_sessions(self) -> int:
         """Remove all expired sessions (optional maintenance method).
@@ -164,7 +172,7 @@ class RedisSessionStore(SessionStore):
             RuntimeError: If redis package is not installed
         """
         if not REDIS_AVAILABLE:
-            raise RuntimeError("redis package is required for RedisSessionStore. " "Install with: pip install redis")
+            raise RuntimeError("redis package is required for RedisSessionStore. Install with: pip install redis")
 
         self._client = redis.from_url(redis_url, decode_responses=True)  # type: ignore[union-attr]
         self._session_timeout_seconds = int(timedelta(minutes=session_max_duration_minutes).total_seconds())
@@ -174,21 +182,24 @@ class RedisSessionStore(SessionStore):
         """Create Redis key from session ID."""
         return f"{self._key_prefix}{session_id}"
 
-    def create_session(self, tokens: dict, user_info: dict) -> str:
+    def create_session(self, tokens: dict, user_info: dict, session_timeout_seconds: int | None = None) -> str:
         """Create a new session and return session ID."""
         session_id = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc)
+
+        timeout_seconds = session_timeout_seconds if session_timeout_seconds is not None else self._session_timeout_seconds
 
         session_data = {
             "tokens": tokens,
             "user_info": user_info,
             "created_at": now.isoformat(),
-            "expires_at": (now + timedelta(seconds=self._session_timeout_seconds)).isoformat(),
+            "expires_at": (now + timedelta(seconds=timeout_seconds)).isoformat(),
+            "session_timeout_seconds": timeout_seconds,
         }
 
         # Store session in Redis with automatic expiration
         key = self._make_key(session_id)
-        self._client.setex(key, self._session_timeout_seconds, json.dumps(session_data))
+        self._client.setex(key, timeout_seconds, json.dumps(session_data))
 
         return session_id
 
@@ -213,7 +224,7 @@ class RedisSessionStore(SessionStore):
         key = self._make_key(session_id)
         self._client.delete(key)
 
-    def refresh_session(self, session_id: str, new_tokens: dict) -> None:
+    def refresh_session(self, session_id: str, new_tokens: dict, session_timeout_seconds: int | None = None) -> None:
         """Update session with new tokens after refresh."""
         # Get existing session
         session = self.get_session(session_id)
@@ -226,9 +237,14 @@ class RedisSessionStore(SessionStore):
         merged_tokens.update(new_tokens)
         session["tokens"] = merged_tokens
 
+        if session_timeout_seconds is not None:
+            session["session_timeout_seconds"] = session_timeout_seconds
+
+        timeout_seconds = session.get("session_timeout_seconds", self._session_timeout_seconds)
+
         # Extend expiration time
         now = datetime.now(timezone.utc)
-        session["expires_at"] = now + timedelta(seconds=self._session_timeout_seconds)
+        session["expires_at"] = now + timedelta(seconds=timeout_seconds)
 
         # Convert datetime objects to ISO format for JSON serialization
         session_data = {
@@ -236,11 +252,12 @@ class RedisSessionStore(SessionStore):
             "user_info": session["user_info"],
             "created_at": session["created_at"].isoformat(),
             "expires_at": session["expires_at"].isoformat(),
+            "session_timeout_seconds": timeout_seconds,
         }
 
         # Store updated session with renewed TTL
         key = self._make_key(session_id)
-        self._client.setex(key, self._session_timeout_seconds, json.dumps(session_data))
+        self._client.setex(key, timeout_seconds, json.dumps(session_data))
 
     def ping(self) -> bool:
         """Check if Redis connection is healthy.

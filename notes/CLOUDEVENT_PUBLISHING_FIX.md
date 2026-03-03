@@ -77,7 +77,7 @@ services.add_scoped(TaskRepository, implementation_factory=get_task_repository)
 
 ### Verification
 
-✅ TaskCreatedDomainEvent now publishes as CloudEvent `io.cml-cloud-manager.task.created.v1`
+✅ TaskCreatedDomainEvent now publishes as CloudEvent `io.lablet-cloud-manager.task.created.v1`
 ✅ All task update events (title, priority, status, etc.) publish properly
 ✅ Events go through full mediation pipeline with all behaviors
 ✅ CloudEvents successfully published to event-player service
@@ -93,7 +93,7 @@ services.add_scoped(TaskRepository, implementation_factory=get_task_repository)
 **Current Workaround** (what we need now):
 
 ```python
-MotorRepository.configure(builder, Task, str, "cml_cloud_manager", "tasks")
+MotorRepository.configure(builder, Task, str, "lablet_cloud_manager", "tasks")
 
 def get_task_repository(sp) -> TaskRepository:
     return sp.get_required_service(MotorRepository[Task, str])
@@ -109,7 +109,7 @@ MotorRepository.configure(
     builder,
     entity_type=Task,
     key_type=str,
-    database_name="cml_cloud_manager",
+    database_name="lablet_cloud_manager",
     collection_name="tasks",
     domain_repository_type=TaskRepository,  # NEW: Domain layer interface
 )
@@ -163,13 +163,13 @@ if domain_repository_type is not None:
 Both CloudEvent types now successfully publish:
 
 ```
-✅ io.cml-cloud-manager.user.loggedin.v1
-✅ io.cml-cloud-manager.task.created.v1
-✅ io.cml-cloud-manager.task.title.updated.v1
-✅ io.cml-cloud-manager.task.status.updated.v1
-✅ io.cml-cloud-manager.task.priority.updated.v1
-✅ io.cml-cloud-manager.task.assignee.updated.v1
-✅ io.cml-cloud-manager.task.department.updated.v1
+✅ io.lablet-cloud-manager.user.loggedin.v1
+✅ io.lablet-cloud-manager.task.created.v1
+✅ io.lablet-cloud-manager.task.title.updated.v1
+✅ io.lablet-cloud-manager.task.status.updated.v1
+✅ io.lablet-cloud-manager.task.priority.updated.v1
+✅ io.lablet-cloud-manager.task.assignee.updated.v1
+✅ io.lablet-cloud-manager.task.department.updated.v1
 ```
 
 All events properly flow through:

@@ -1,6 +1,7 @@
 """CML Worker Data Transfer Object."""
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -13,9 +14,11 @@ class CMLWorkerDto:
     aws_region: str
     aws_instance_id: str | None
     instance_type: str
+    state_version: int
 
     # Status
     status: str
+    desired_status: str
     service_status: str
 
     # AMI information
@@ -23,6 +26,9 @@ class CMLWorkerDto:
     ami_name: str | None
     ami_description: str | None
     ami_creation_date: str | None
+
+    # Template
+    template_name: str | None
 
     # Network
     https_endpoint: str | None
@@ -92,3 +98,13 @@ class CMLWorkerDto:
     last_resumed_at: str | None
     paused_by: str | None
     pause_reason: str | None
+
+    # Capacity Management (for scheduling)
+    declared_capacity: dict[str, Any] | None  # Total hardware capacity {cpu_cores, memory_gb, storage_gb, max_nodes}
+    allocated_capacity: dict[str, Any] | None  # Capacity consumed by sessions {cpu_cores, memory_gb, storage_gb, max_nodes}
+    session_ids: list[str] | None  # IDs of lablet sessions assigned to this worker
+
+    # Port Usage (ADR-031 Phase 6)
+    allocated_port_count: int  # Number of ports currently allocated on this worker
+    available_port_count: int  # Number of ports available for allocation
+    port_utilization_pct: float  # Percentage of port range in use (0.0–100.0)

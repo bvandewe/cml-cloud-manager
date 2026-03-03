@@ -1,6 +1,6 @@
 # Control Plane API
 
-The Control Plane API is the central gateway for the CML Cloud Manager system. It provides:
+The Control Plane API is the central gateway for the Lablet Cloud Manager system. It provides:
 
 - REST API endpoints for LabletDefinition, LabletInstance, and Worker management
 - Bootstrap 5 SPA with Server-Side Events (SSE) for real-time updates

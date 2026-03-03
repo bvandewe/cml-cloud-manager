@@ -77,3 +77,24 @@ class LabRecordRepository(ABC):
     @abstractmethod
     async def remove_by_worker_async(self, worker_id: str) -> None:
         """Remove all lab records for a worker."""
+
+    @abstractmethod
+    async def get_with_pending_actions_async(self) -> list[LabRecord]:
+        """Get all lab records with pending actions.
+
+        ADR-017: Used by lablet-controller to find labs needing reconciliation.
+
+        Returns:
+            List of LabRecord entities with pending_action != None.
+        """
+
+    @abstractmethod
+    async def get_with_pending_actions_by_worker_async(self, worker_id: str) -> list[LabRecord]:
+        """Get lab records with pending actions for a specific worker.
+
+        Args:
+            worker_id: Worker ID to filter by.
+
+        Returns:
+            List of LabRecord entities with pending_action != None.
+        """

@@ -68,8 +68,53 @@ class MongoCMLWorkerRepository(TracedRepositoryMixin, MotorRepository[CMLWorker,
         # Flag to avoid recreating indexes repeatedly
         self._indexes_initialized: bool = False
 
+    async def _ensure_indexes(self) -> None:
+        """Ensure required indexes exist for the collection.
+
+        Creates indexes for common query patterns:
+        - status: Primary lifecycle queries
+        - aws_instance_id: Unique identifier for EC2 instances (sparse)
+        - aws_region: Regional queries
+        - last_activity_at: Idle worker detection
+        - license status: Worker selection based on license
+        """
+        if self._indexes_initialized:
+            return
+
+        try:
+            # Status index - primary query path
+            await self.collection.create_index("status", name="idx_status")
+
+            # Unique index on AWS instance ID (sparse to allow None)
+            await self.collection.create_index("aws_instance_id", unique=True, sparse=True, name="idx_aws_instance_id_unique")
+
+            # Region queries - worker distribution
+            await self.collection.create_index("aws_region", name="idx_aws_region")
+
+            # Idle worker detection - combining status and last activity
+            await self.collection.create_index(
+                [("status", 1), ("last_activity_at", 1)],
+                name="idx_status_last_activity",
+            )
+
+            # License status for worker selection
+            await self.collection.create_index("license_status", name="idx_license_status")
+
+            # Compound index for available worker queries
+            await self.collection.create_index(
+                [("status", 1), ("license_status", 1), ("aws_region", 1)],
+                name="idx_worker_availability",
+            )
+
+            log.debug("CMLWorker indexes created successfully")
+        except Exception:
+            log.warning("Failed to create CMLWorker indexes", exc_info=True)
+        finally:
+            self._indexes_initialized = True
+
     async def get_all_async(self) -> list[CMLWorker]:
         """Retrieve all CML workers."""
+        await self._ensure_indexes()
         cursor = self.collection.find({})
         workers = []
         async for document in cursor:
@@ -83,6 +128,7 @@ class MongoCMLWorkerRepository(TracedRepositoryMixin, MotorRepository[CMLWorker,
 
     async def get_by_aws_instance_id_async(self, aws_instance_id: str) -> CMLWorker | None:
         """Retrieve a CML worker by AWS EC2 instance ID."""
+        await self._ensure_indexes()
         document = await self.collection.find_one({"aws_instance_id": aws_instance_id})
         if document:
             return self._deserialize_entity(document)
@@ -90,6 +136,7 @@ class MongoCMLWorkerRepository(TracedRepositoryMixin, MotorRepository[CMLWorker,
 
     async def get_by_status_async(self, status: CMLWorkerStatus) -> list[CMLWorker]:
         """Retrieve CML workers by status."""
+        await self._ensure_indexes()
         cursor = self.collection.find({"status": status.value})
         workers = []
         async for document in cursor:
@@ -99,6 +146,7 @@ class MongoCMLWorkerRepository(TracedRepositoryMixin, MotorRepository[CMLWorker,
 
     async def get_active_workers_async(self) -> list[CMLWorker]:
         """Retrieve all active (non-terminated) CML workers."""
+        await self._ensure_indexes()
         cursor = self.collection.find({"status": {"$ne": CMLWorkerStatus.TERMINATED.value}})
         workers = []
         async for document in cursor:
@@ -115,6 +163,7 @@ class MongoCMLWorkerRepository(TracedRepositoryMixin, MotorRepository[CMLWorker,
         Returns:
             List of idle workers (running but inactive)
         """
+        await self._ensure_indexes()
         threshold_time = datetime.now(timezone.utc) - timedelta(minutes=idle_threshold_minutes)
         cursor = self.collection.find(
             {
@@ -137,6 +186,7 @@ class MongoCMLWorkerRepository(TracedRepositoryMixin, MotorRepository[CMLWorker,
         Returns:
             List of workers in the specified region
         """
+        await self._ensure_indexes()
         cursor = self.collection.find({"aws_region": aws_region})
         workers = []
         async for document in cursor:
@@ -153,15 +203,8 @@ class MongoCMLWorkerRepository(TracedRepositoryMixin, MotorRepository[CMLWorker,
         Returns:
             The added worker with updated state
         """
-        # Ensure unique index on aws_instance_id (sparse to allow None values)
-        if not self._indexes_initialized:
-            try:
-                await self.collection.create_index("aws_instance_id", unique=True, sparse=True)
-            except Exception:
-                # Index creation failures should not block normal operation
-                log.warning("Failed to create index on aws_instance_id", exc_info=True)
-            finally:
-                self._indexes_initialized = True
+        # Ensure all indexes are created (includes unique index on aws_instance_id)
+        await self._ensure_indexes()
 
         instance_id = entity.state.aws_instance_id
         if instance_id:

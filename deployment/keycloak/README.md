@@ -1,24 +1,24 @@
 # Keycloak Identity Provider
 
-Keycloak provides Identity and Access Management (IAM) for the CML Cloud Manager. It handles user authentication, role management, and single sign-on (SSO) for Grafana.
+Keycloak provides Identity and Access Management (IAM) for the Lablet Cloud Manager. It handles user authentication, role management, and single sign-on (SSO) for Grafana.
 
 ## Configuration
 
-- **Realm**: `cml-cloud-manager`
+- **Realm**: `lablet-cloud-manager`
 - **Clients**:
-  - `cml-cloud-manager-public`: Public client for the main UI (SPA).
+  - `lablet-cloud-manager-public`: Public client for the main UI (SPA).
   - `grafana`: Confidential client for Grafana SSO.
-  - `cml-cloud-manager-api`: Bearer-only client for API protection.
+  - `lablet-cloud-manager-api`: Bearer-only client for API protection.
 
 ## Realm Export
 
-The realm configuration is stored in `deployment/keycloak/cml-cloud-manager-realm-export.json`. This file is automatically imported on startup.
+The realm configuration is stored in `deployment/keycloak/lablet-cloud-manager-realm-export.json`. This file is automatically imported on startup.
 
 ### Updating the Realm
 
 1. Make changes in the Keycloak Admin Console (`/auth/`).
 2. Export the realm configuration.
-3. Save the export to `deployment/keycloak/cml-cloud-manager-realm-export.json`.
+3. Save the export to `deployment/keycloak/lablet-cloud-manager-realm-export.json`.
 4. Commit the changes to git.
 
 ## Admin Access

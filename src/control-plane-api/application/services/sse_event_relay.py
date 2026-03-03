@@ -18,6 +18,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Batching configuration (ADR-013)
+BATCH_INTERVAL_SECONDS = 1.0  # Time window for collecting events
+MAX_BATCH_SIZE = 50  # Maximum events per batch
+BATCHABLE_EVENT_TYPES = {"worker.metrics.updated"}  # Event types eligible for batching
+
+
 @dataclass
 class SSEClientSubscription:
     """Subscription details for an SSE client with filtering support."""
@@ -57,12 +63,12 @@ class SSEEventRelay:
     broadcasts worker-related events to subscribed clients with optional filtering.
     It uses Redis Pub/Sub to synchronize events across multiple instances (API/Worker).
 
-    Filters:
-    - worker_ids: Only send events for specific workers
-    - event_types: Only send specific event types
+    Features (ADR-013):
+    - Server-side filtering by worker_ids and event_types
+    - Event batching for high-frequency events (metrics)
     """
 
-    REDIS_CHANNEL = "cml-cloud-manager:events"
+    REDIS_CHANNEL = "lablet-cloud-manager:events"
 
     def __init__(self, serializer: JsonSerializer):
         self._clients: dict[str, SSEClientSubscription] = {}
@@ -71,6 +77,11 @@ class SSEEventRelay:
         self._redis_pubsub = None
         self._listen_task = None
         self._serializer = serializer
+
+        # Batching support (ADR-013)
+        self._batch_buffer: dict[str, list[dict]] = {}
+        self._batch_task: asyncio.Task | None = None
+        self._batching_enabled = True
 
     async def start_redis_listener(self):
         """Start listening to Redis Pub/Sub channel."""
@@ -162,12 +173,103 @@ class SSEEventRelay:
                 del self._clients[client_id]
                 logger.info(f"SSE client unregistered: {client_id} (remaining: {len(self._clients)})")
 
-    async def broadcast_event(self, event_type: str, data: dict, source: str = "cml-cloud-manager") -> None:
+    async def start_batch_timer(self) -> None:
+        """Start the batch flush timer (ADR-013)."""
+        if self._batch_task and not self._batch_task.done():
+            return
+
+        async def batch_loop():
+            while self._batching_enabled:
+                try:
+                    await asyncio.sleep(BATCH_INTERVAL_SECONDS)
+                    await self._flush_all_batches()
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    logger.error(f"Error in batch flush loop: {e}")
+
+        self._batch_task = asyncio.create_task(batch_loop())
+        logger.debug("Batch timer started")
+
+    async def stop_batch_timer(self) -> None:
+        """Stop the batch flush timer."""
+        self._batching_enabled = False
+        if self._batch_task:
+            self._batch_task.cancel()
+            try:
+                await self._batch_task
+            except asyncio.CancelledError:
+                pass
+        # Flush any remaining batches
+        await self._flush_all_batches()
+
+    async def _flush_all_batches(self) -> None:
+        """Flush all accumulated batch buffers (ADR-013)."""
+        for event_type in list(self._batch_buffer.keys()):
+            await self._flush_batch(event_type)
+
+    async def _flush_batch(self, event_type: str) -> None:
+        """Flush accumulated events as a batch (ADR-013).
+
+        Args:
+            event_type: The event type to flush
+        """
+        events = self._batch_buffer.get(event_type, [])
+        if not events:
+            return
+
+        batch_event = {
+            "batch_id": str(uuid4()),
+            "count": len(events),
+            "events": events,
+        }
+        # Clear buffer before broadcasting to avoid duplicates
+        self._batch_buffer[event_type] = []
+
+        # Broadcast as batch event (add .batch suffix)
+        await self._broadcast_immediate(f"{event_type}.batch", batch_event, source="sse-batch")
+
+    async def _add_to_batch(self, event_type: str, data: dict) -> None:
+        """Add event to batch buffer (ADR-013).
+
+        Args:
+            event_type: Type of event
+            data: Event data
+        """
+        if event_type not in self._batch_buffer:
+            self._batch_buffer[event_type] = []
+
+        self._batch_buffer[event_type].append(data)
+
+        # Flush if max batch size reached
+        if len(self._batch_buffer[event_type]) >= MAX_BATCH_SIZE:
+            await self._flush_batch(event_type)
+
+    async def broadcast_event(self, event_type: str, data: dict, source: str = "lablet-cloud-manager") -> None:
         """Broadcast event to all matching clients via Redis Pub/Sub.
+
+        High-frequency events (defined in BATCHABLE_EVENT_TYPES) are batched
+        and sent periodically to reduce network overhead (ADR-013).
 
         Args:
             event_type: Type of event (e.g., "worker.metrics.updated")
             data: Event data dictionary (must include worker_id if filtering by worker)
+            source: Event source identifier
+        """
+        # Check if event should be batched (ADR-013)
+        if self._batching_enabled and event_type in BATCHABLE_EVENT_TYPES:
+            await self._add_to_batch(event_type, data)
+            return
+
+        # Immediate broadcast for non-batchable events
+        await self._broadcast_immediate(event_type, data, source)
+
+    async def _broadcast_immediate(self, event_type: str, data: dict, source: str = "lablet-cloud-manager") -> None:
+        """Immediately broadcast event without batching.
+
+        Args:
+            event_type: Type of event
+            data: Event data dictionary
             source: Event source identifier
         """
         event_message = {
@@ -200,9 +302,7 @@ class SSEEventRelay:
         data = event_message["data"]
 
         async with self._lock:
-            matching_clients = [
-                subscription for subscription in self._clients.values() if subscription.matches_event(event_type, data)
-            ]
+            matching_clients = [subscription for subscription in self._clients.values() if subscription.matches_event(event_type, data)]
 
         broadcast_count = 0
         for subscription in matching_clients:
@@ -237,12 +337,17 @@ class SSEEventRelayHostedService(HostedService):
             return
         logger.info("Starting SSEEventRelayHostedService")
         await self._relay.start_redis_listener()
+        await self._relay.start_batch_timer()  # ADR-013: Start batch timer
         self._started = True
 
     async def stop_async(self):
         if not self._started:
             return
         logger.info("Stopping SSEEventRelayHostedService")
+
+        # ADR-013: Stop batch timer (flushes remaining batches)
+        await self._relay.stop_batch_timer()
+
         try:
             await self._relay.broadcast_event(
                 event_type="system.sse.shutdown",
@@ -271,9 +376,7 @@ class SSEEventRelayHostedService(HostedService):
         # Register SSEEventRelayHostedService with factory (depends on relay)
         builder.services.add_singleton(
             SSEEventRelayHostedService,
-            implementation_factory=lambda provider: SSEEventRelayHostedService(
-                provider.get_required_service(SSEEventRelay)
-            ),
+            implementation_factory=lambda provider: SSEEventRelayHostedService(provider.get_required_service(SSEEventRelay)),
         )
 
         # Attempt to also register as generic HostedService if available

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Extended the CML Cloud Manager frontend to expose background services and system internals through a comprehensive monitoring dashboard. This enables administrators and managers to observe the internal workings of the application including schedulers, monitoring services, health checks, and metrics collectors.
+Extended the Lablet Cloud Manager frontend to expose background services and system internals through a comprehensive monitoring dashboard. This enables administrators and managers to observe the internal workings of the application including schedulers, monitoring services, health checks, and metrics collectors.
 
 ## Backend API Endpoints
 

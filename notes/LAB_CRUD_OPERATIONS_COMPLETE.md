@@ -2,7 +2,7 @@
 
 ## Overview
 
-Complete implementation of lab CRUD (Create, Read, Update, Delete) operations in the CML Cloud Manager, providing users with comprehensive lab management capabilities through an intuitive UI.
+Complete implementation of lab CRUD (Create, Read, Update, Delete) operations in the Lablet Cloud Manager, providing users with comprehensive lab management capabilities through an intuitive UI.
 
 ## Features Implemented ✅
 

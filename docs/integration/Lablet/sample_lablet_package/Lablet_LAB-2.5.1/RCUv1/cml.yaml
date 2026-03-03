@@ -1,0 +1,267 @@
+annotations:
+    - border_color: '#00000000'
+      border_style: ''
+      color: '#808080FF'
+      rotation: 0
+      text_bold: false
+      text_content: 192.168.10.0/24
+      text_font: monospace
+      text_italic: false
+      text_size: 12
+      text_unit: pt
+      thickness: 1
+      type: text
+      x1: -80.0
+      y1: -120.0
+      z_index: 2
+    - border_color: '#00000000'
+      border_style: ''
+      color: '#808080FF'
+      rotation: 0
+      text_bold: false
+      text_content: '.1'
+      text_font: monospace
+      text_italic: false
+      text_size: 12
+      text_unit: pt
+      thickness: 1
+      type: text
+      x1: 200.0
+      y1: -120.0
+      z_index: 3
+    - border_color: '#00000000'
+      border_style: ''
+      color: '#808080FF'
+      rotation: 0
+      text_bold: false
+      text_content: '.111'
+      text_font: monospace
+      text_italic: false
+      text_size: 12
+      text_unit: pt
+      thickness: 1
+      type: text
+      x1: -240.0
+      y1: -120.0
+      z_index: 3
+smart_annotations:
+    - tag: serial:5041
+      is_on: true
+      padding: 35
+      label: serial:5041
+      tag_offset_x: 0
+      tag_offset_y: 0
+      tag_size: 14
+      group_distance: 400
+      thickness: 1
+      border_style: ''
+      fill_color: '#FFD10080'
+      border_color: '#00000080'
+      z_index: 21
+    - tag: serial:5042
+      is_on: true
+      padding: 35
+      label: serial:5042
+      tag_offset_x: 0
+      tag_offset_y: 0
+      tag_size: 14
+      group_distance: 400
+      thickness: 1
+      border_style: ''
+      fill_color: '#A7A8AA80'
+      border_color: '#00000080'
+      z_index: 22
+    - tag: vnc:5044
+      is_on: true
+      padding: 35
+      label: vnc:5044
+      tag_offset_x: 0
+      tag_offset_y: 0
+      tag_size: 14
+      group_distance: 400
+      thickness: 1
+      border_style: ''
+      fill_color: '#005C9980'
+      border_color: '#00000080'
+      z_index: 23
+nodes:
+    - boot_disk_size: null
+      configuration:
+          - name: node.cfg
+            content: |-
+                # this is a shell script which will be sourced at boot
+
+                ## System Config
+                sudo hostname vmanage-mock
+
+                sudo tee /etc/network/interfaces > /dev/null <<EOF
+                auto lo
+                iface lo inet loopback
+
+                auto eth0
+                iface eth0 inet static
+                    address 192.168.10.1/24
+                    gateway 192.168.10.254
+                    dns-nameservers 192.168.255.1
+                EOF
+
+                # restart network to apply the config!
+                sudo rc-service networking restart
+
+                # configurable user account
+                USERNAME=cisco
+                PASSWORD=cisco
+
+                ## Mock & Roll Config (Included on disk, i.e. defined by Image!)
+                # Autostart (/etc/local.d/virl2-10-mockandroll.start)
+      cpu_limit: null
+      cpus: null
+      data_volume: null
+      hide_links: false
+      id: n0
+      image_definition: mock-api-vmanage-20251028
+      label: vmanage-mock
+      node_definition: mock-server
+      parameters: {}
+      ram: null
+      tags:
+          - serial:5041
+      x: 240
+      y: -160
+      interfaces:
+          - id: i0
+            label: eth0
+            mac_address: null
+            type: physical
+            slot: 0
+    - boot_disk_size: null
+      configuration:
+          - name: user-data
+            content: |-
+                #cloud-config
+
+                # Network configuration
+                manage_etc_hosts: True
+
+                # Hostname
+                hostname: ubuntu-desktop
+
+                # System-wide SSH configuration
+                ssh_pwauth: True
+
+                # Define the cisco user with all properties
+                users:
+                  - name: cisco
+                    sudo: ALL=(ALL) NOPASSWD:ALL
+                    shell: /bin/bash
+                    plain_text_passwd: cisco
+                    lock_passwd: false
+
+                # Disable the default ubuntu user (optional - only if you want ONLY cisco user)
+                # - name: ubuntu
+                #   lock_passwd: true
+                #   inactive: true
+
+                # Write custom scripts and files
+                write_files:
+                  - path: /usr/local/bin/lab-setup.sh
+                    permissions: "0755"
+                    content: |
+                      #!/bin/bash
+                      set -e
+
+                      # Wait for desktop
+                      sleep 15
+
+                      # Add bookmarks
+                      su - cisco -c '/home/cisco/add_bookmark.sh -y "SDWAN Manager" "http://192.168.10.1:8000/docs" || true'
+
+                      # Log completion
+                      echo "Lab setup completed at $(date)" >> /var/log/lab-setup.log
+
+                # Commands to run on first boot
+                runcmd:
+                  # Ensure proper ownership
+                  - chown -R cisco:cisco /home/cisco/Desktop/tasks
+
+                  # Run lab setup
+                  - /usr/local/bin/lab-setup.sh >> /var/log/lab-setup.log 2>&1
+
+                  # Final message
+                  - echo "Desktop provisioning complete" >> /var/log/cloud-init-custom.log
+
+                # Commands to run on every boot
+                bootcmd:
+                  - echo "System booted at $(date)" >> /var/log/boot-times.log
+          - name: network-config
+            content: |-
+                network:
+                  version: 2
+                  ethernets:
+                    ens3:
+                      dhcp4: false
+                      addresses:
+                        - 192.168.10.111/24
+                      routes:
+                        - to: default
+                          via: 192.168.0.1
+                      nameservers:
+                        addresses:
+                          - 8.8.8.8
+                          - 8.8.4.4
+                    ens4:
+                      dhcp4: true
+      cpu_limit: null
+      cpus: null
+      data_volume: null
+      hide_links: false
+      id: n1
+      image_definition: lablet-desktop-v0.1.1
+      label: ubuntu-desktop
+      node_definition: ubuntu-desktop-24-04-v2
+      parameters: {}
+      ram: null
+      tags:
+          - serial:5042
+          - vnc:5044
+      x: -240
+      y: -160
+      interfaces:
+          - id: i0
+            label: ens3
+            mac_address: null
+            type: physical
+            slot: 0
+          - id: i1
+            label: ens4
+            mac_address: null
+            type: physical
+            slot: 1
+          - id: i2
+            label: ens5
+            mac_address: null
+            type: physical
+            slot: 2
+          - id: i3
+            label: ens6
+            mac_address: null
+            type: physical
+            slot: 3
+links:
+    - id: l0
+      n1: n1
+      n2: n0
+      i1: i0
+      i2: i0
+      conditioning: {}
+      label: ubuntu-desktop-ens3<->vmanage-mock-eth0
+lab:
+    description: |-
+        - Query vManage API mock-server with dynamic authentication key
+        - Client(Postman) sends 3 requests using env variables and store response to local text file
+        - Read response.txt, correlate with mock-server logs
+    notes: '
+
+        '
+    title: DEVASC_200-901_LAB-2.5.1
+    version: 0.3.0

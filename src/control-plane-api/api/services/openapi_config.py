@@ -129,6 +129,9 @@ class OpenAPIConfigService:
                 },
             }
 
+            # Note: API Key security scheme (APIKeyHeader) is automatically added by FastAPI
+            # from the APIKeyHeader dependency in internal_controller.py
+
             # Tracking the missing security metadata back to FastAPI’s dependency tree:
             # the bearer scheme lives inside the nested dependant that get_current_user
             # pulls in, so the APIRoute itself exposed none.
@@ -148,9 +151,7 @@ class OpenAPIConfigService:
                     if identifier in visited:
                         continue
                     visited.add(identifier)
-                    current_requirements: Iterable[SecurityRequirement] = (
-                        getattr(current, "security_requirements", []) or []
-                    )
+                    current_requirements: Iterable[SecurityRequirement] = getattr(current, "security_requirements", []) or []
                     collected.extend(current_requirements)
                     stack.extend(getattr(current, "dependencies", []) or [])
                 return collected
@@ -220,9 +221,7 @@ class OpenAPIConfigService:
             # Set client_id in Swagger UI
             if "swagger-ui-parameters" not in openapi_schema:
                 openapi_schema["swagger-ui-parameters"] = {}
-            swagger_client_id = getattr(settings, "keycloak_public_client_id", "") or getattr(
-                settings, "keycloak_client_id", ""
-            )
+            swagger_client_id = getattr(settings, "keycloak_public_client_id", "") or getattr(settings, "keycloak_client_id", "")
             if swagger_client_id:
                 openapi_schema["swagger-ui-parameters"]["client_id"] = swagger_client_id
 

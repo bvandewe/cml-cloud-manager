@@ -3,7 +3,7 @@ extends: default
 ignore: |
     mkdocs.yml
     deployment/helm/*
-    charts/cml-cloud-manager/*
+    charts/lablet-cloud-manager/*
 rules:
     document-start: disable
     indentation:

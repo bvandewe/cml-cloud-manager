@@ -9,8 +9,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 from unittest.mock import AsyncMock
 
-from domain.entities import Task
-
 T = TypeVar("T")
 
 
@@ -56,26 +54,6 @@ class AsyncTestMixin:
 
 class AssertionMixin:
     """Mixin providing custom assertion helpers."""
-
-    @staticmethod
-    def assert_task_equals(actual: Task, expected: Task, check_id: bool = True) -> None:
-        """Assert two tasks are equal, with optional ID check."""
-        if check_id:
-            assert actual.state.id == expected.state.id, "Task IDs don't match"
-        assert actual.state.title == expected.state.title, "Task titles don't match"
-        assert actual.state.description == expected.state.description, "Task descriptions don't match"
-        assert actual.state.status == expected.state.status, "Task statuses don't match"
-        assert actual.state.priority == expected.state.priority, "Task priorities don't match"
-        assert actual.state.assignee_id == expected.state.assignee_id, "Task assignees don't match"
-        assert actual.state.department == expected.state.department, "Task departments don't match"
-
-    @staticmethod
-    def assert_contains_task(tasks: list[Task], expected_task: Task) -> None:
-        """Assert a task is in a list of tasks."""
-        for task in tasks:
-            if task.state.id == expected_task.state.id:
-                return
-        raise AssertionError(f"Task with ID {expected_task.state.id} not found in task list")
 
     @staticmethod
     def assert_dict_contains(actual: dict[str, Any], expected: dict[str, Any]) -> None:

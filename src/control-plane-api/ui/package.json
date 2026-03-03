@@ -1,25 +1,34 @@
 {
-    "name": "cml-cloud-manager-ui",
+    "name": "lablet-cloud-manager-ui",
     "version": "1.0.0",
     "description": "Frontend UI for Cml Cloud Manager application",
     "scripts": {
         "prebuild": "node build-template.js",
-        "build": "npm run prebuild && parcel build src/tmp_build/index.html --dist-dir ../static --public-url /static",
+        "build": "npm run prebuild && parcel build src/tmp_build/index.html --dist-dir ../static --public-url /static --no-cache",
         "predev": "node build-template.js",
         "dev": "npm run predev && parcel src/tmp_build/index.html",
         "watch": "node build-template.js && parcel watch src/tmp_build/index.html --dist-dir ../static --public-url /static",
-        "render": "node build-template.js"
+        "render": "node build-template.js",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage"
     },
     "devDependencies": {
         "@parcel/transformer-sass": "^2.12.0",
+        "@vitest/coverage-v8": "^4.0.18",
+        "jsdom": "^28.0.0",
         "nunjucks": "^3.2.4",
         "parcel": "^2.12.0",
         "parcel-reporter-static-files-copy": "^1.5.3",
-        "sass": "^1.69.0"
+        "sass": "^1.69.0",
+        "vitest": "^4.0.18"
     },
     "dependencies": {
+        "@neuroglia/ui-core": "file:../../core/lcm_ui",
+        "@popperjs/core": "^2.11.8",
         "bootstrap": "^5.3.2",
         "bootstrap-icons": "^1.11.1",
+        "highlight.js": "^11.11.1",
         "marked": "^17.0.0",
         "moment": "^2.30.1"
     }

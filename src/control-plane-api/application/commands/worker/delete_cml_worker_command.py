@@ -1,4 +1,13 @@
-"""Delete CML Worker command with handler."""
+"""Delete CML Worker command with handler.
+
+ADR-015: This command is DB-only. It marks the worker for termination (soft delete).
+The worker-controller watches etcd for state changes and handles actual EC2 instance
+termination. A background cleanup job removes TERMINATED records after a retention period.
+
+Soft Delete Pattern:
+- User delete or GC detection → Sets status=TERMINATED, keeps record
+- TerminatedWorkerCleanupJob → Removes records older than retention period (default: 30 days)
+"""
 
 import logging
 from dataclasses import dataclass
@@ -13,14 +22,6 @@ from opentelemetry import trace
 
 from domain.enums import CMLWorkerStatus
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from integration.enums import AwsRegion
-from integration.exceptions import (
-    EC2AuthenticationException,
-    EC2InstanceNotFoundException,
-    EC2InstanceOperationException,
-    IntegrationException,
-)
-from integration.services.aws_ec2_api_client import AwsEc2Client
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -29,31 +30,40 @@ tracer = trace.get_tracer(__name__)
 
 
 @dataclass
-class DeleteCMLWorkerCommand(Command[OperationResult[bool]]):
-    """Command to delete a CML Worker from the local database.
+class DeleteCMLWorkerCommand(Command[OperationResult[dict]]):
+    """Command to delete a CML Worker (soft delete).
 
-    This command:
-    1. Retrieves the worker from repository
-    2. Optionally terminates the EC2 instance if terminate_instance=True
-    3. Marks worker aggregate as terminated (if not already)
-    4. Deletes the worker record from the database
+    ADR-015: This command is DB-only. It does NOT make EC2 API calls.
+
+    Soft Delete Pattern (consistent with GC behavior):
+    1. Sets desired_status to TERMINATED
+    2. If worker has EC2 instance: Worker-controller terminates it via etcd watch
+    3. Worker-controller updates status to TERMINATED
+    4. Record remains in DB with terminated_at timestamp
+    5. TerminatedWorkerCleanupJob purges old records after retention period
 
     Args:
         worker_id: ID of the worker to delete
-        terminate_instance: If True, terminate the EC2 instance before deletion
+        force_hard_delete: If True, immediately removes from DB (admin only, use with caution).
+                          Default False - uses soft delete for consistency.
         deleted_by: Optional user ID who initiated the deletion
     """
 
     worker_id: str
-    terminate_instance: bool = False
+    force_hard_delete: bool = False  # Renamed from terminate_instance for clarity
     deleted_by: str | None = None
 
 
 class DeleteCMLWorkerCommandHandler(
     CommandHandlerBase,
-    CommandHandler[DeleteCMLWorkerCommand, OperationResult[bool]],
+    CommandHandler[DeleteCMLWorkerCommand, OperationResult[dict]],
 ):
-    """Handle deleting a CML Worker from the local database with optional EC2 termination."""
+    """Handle deleting a CML Worker (soft delete, DB-only per ADR-015).
+
+    Uses soft delete pattern for consistency with GC behavior.
+    Does NOT make EC2 API calls. Worker-controller handles actual
+    EC2 termination by watching etcd for desired_status changes.
+    """
 
     def __init__(
         self,
@@ -62,7 +72,6 @@ class DeleteCMLWorkerCommandHandler(
         cloud_event_bus: CloudEventBus,
         cloud_event_publishing_options: CloudEventPublishingOptions,
         cml_worker_repository: CMLWorkerRepository,
-        aws_ec2_client: AwsEc2Client,
     ):
         super().__init__(
             mediator,
@@ -71,21 +80,17 @@ class DeleteCMLWorkerCommandHandler(
             cloud_event_publishing_options,
         )
         self.cml_worker_repository = cml_worker_repository
-        self.aws_ec2_client = aws_ec2_client
 
-    async def handle_async(self, request: DeleteCMLWorkerCommand) -> OperationResult[bool]:
-        """Handle delete CML Worker command.
+    async def handle_async(self, request: DeleteCMLWorkerCommand) -> OperationResult[dict]:
+        """Handle delete CML Worker command (soft delete).
+
+        ADR-015: DB-only operation. No EC2 calls.
 
         Args:
             request: Delete command with worker ID and options
 
         Returns:
-            OperationResult with True if deleted successfully, or error
-
-        Raises:
-            EC2InstanceNotFoundException: If instance doesn't exist (logged as warning)
-            EC2InstanceOperationException: If terminate operation fails
-            EC2AuthenticationException: If AWS credentials invalid
+            OperationResult with termination details
         """
         command = request
 
@@ -93,7 +98,7 @@ class DeleteCMLWorkerCommandHandler(
         add_span_attributes(
             {
                 "cml_worker.id": command.worker_id,
-                "cml_worker.terminate_instance": command.terminate_instance,
+                "cml_worker.force_hard_delete": command.force_hard_delete,
                 "cml_worker.has_deleted_by": command.deleted_by is not None,
             }
         )
@@ -106,100 +111,82 @@ class DeleteCMLWorkerCommandHandler(
                 if not worker:
                     error_msg = f"CML Worker not found: {command.worker_id}"
                     log.error(error_msg)
-                    return self.bad_request(error_msg)
+                    return self.not_found("CMLWorker", error_msg)
 
                 span.set_attribute("ec2.instance_id", worker.state.aws_instance_id or "none")
                 span.set_attribute("cml_worker.current_status", worker.state.status.value)
 
-            # Terminate EC2 instance if requested and instance exists
-            if command.terminate_instance and worker.state.aws_instance_id:
-                with tracer.start_as_current_span("terminate_ec2_instance") as span:
-                    try:
-                        aws_region = AwsRegion(worker.state.aws_region)
+            # Check if already terminated
+            if worker.state.status == CMLWorkerStatus.TERMINATED:
+                log.info(f"CML Worker {command.worker_id} is already terminated")
+                return self.ok(
+                    {
+                        "message": "Worker already terminated",
+                        "worker_id": command.worker_id,
+                        "status": CMLWorkerStatus.TERMINATED.value,
+                        "terminated_at": worker.state.terminated_at.isoformat() if worker.state.terminated_at else None,
+                    }
+                )
 
-                        success = await self.aws_ec2_client.terminate_instance(
-                            aws_region=aws_region,
-                            instance_id=worker.state.aws_instance_id,
-                        )
-
-                        if not success:
-                            log.warning(
-                                f"Failed to terminate EC2 instance {worker.state.aws_instance_id}, "
-                                "but will continue with deletion"
-                            )
-                        else:
-                            # If termination initiated successfully, update status and return (don't delete)
-                            # This allows monitoring to track the "shutting-down" state until termination
-                            worker.update_status(CMLWorkerStatus.SHUTTING_DOWN)
-                            await self.cml_worker_repository.update_async(worker)
-                            log.info(
-                                f"CML Worker {command.worker_id} marked as SHUTTING_DOWN. "
-                                "Monitoring will track termination."
-                            )
-                            return self.ok(True)
-
-                        span.set_attribute("ec2.terminate_success", success)
-
-                    except EC2InstanceNotFoundException as e:
-                        # Instance already gone - log warning and continue
-                        log.warning(
-                            f"EC2 instance {worker.state.aws_instance_id} not found during deletion: {e}. "
-                            "Continuing with database deletion."
-                        )
-                        span.set_attribute("ec2.already_terminated", True)
-
-                    except (
-                        EC2InstanceOperationException,
-                        EC2AuthenticationException,
-                        IntegrationException,
-                    ) as e:
-                        # EC2 termination failed - don't proceed with deletion
-                        error_msg = (
-                            f"Failed to terminate EC2 instance {worker.state.aws_instance_id}: {e}. "
-                            "Worker not deleted from database."
-                        )
-                        log.error(error_msg)
-                        return self.bad_request(error_msg)
-            elif command.terminate_instance and not worker.state.aws_instance_id:
-                log.info(f"CML Worker {command.worker_id} has no AWS instance to terminate")
-
-            # Mark worker as terminated in domain before deletion
-            with tracer.start_as_current_span("mark_worker_terminated") as span:
-                if worker.state.status != CMLWorkerStatus.TERMINATED:
+            # Force hard delete (admin escape hatch for cleanup)
+            if command.force_hard_delete:
+                with tracer.start_as_current_span("force_hard_delete") as span:
+                    log.warning(f"Force hard delete requested for worker {command.worker_id} by {command.deleted_by}")
                     worker.terminate(terminated_by=command.deleted_by)
-                    span.set_attribute("cml_worker.marked_terminated", True)
+                    deleted = await self.cml_worker_repository.delete_async(command.worker_id, worker)
+
+                    if not deleted:
+                        return self.bad_request(f"Failed to delete worker {command.worker_id}")
+
+                    span.set_attribute("cml_worker.hard_deleted", True)
+
+                return self.ok(
+                    {
+                        "message": "Worker permanently deleted (hard delete)",
+                        "worker_id": command.worker_id,
+                        "deleted_by": command.deleted_by,
+                    }
+                )
+
+            # Soft delete: Set desired_status to TERMINATED
+            # Worker-controller will handle EC2 termination and update status
+            with tracer.start_as_current_span("soft_delete_worker") as span:
+                # Set desired_status to TERMINATED - worker-controller reconciles
+                worker.update_desired_status(CMLWorkerStatus.TERMINATED)
+
+                # If worker has an EC2 instance, mark as SHUTTING_DOWN for UI visibility
+                # If no EC2 instance (orphaned record), mark as TERMINATED immediately
+                if worker.state.aws_instance_id:
+                    worker.update_status(CMLWorkerStatus.SHUTTING_DOWN)
+                    new_status = CMLWorkerStatus.SHUTTING_DOWN
                 else:
-                    span.set_attribute("cml_worker.already_terminated", True)
+                    # No EC2 instance - terminate immediately (soft delete)
+                    worker.terminate(terminated_by=command.deleted_by)
+                    new_status = CMLWorkerStatus.TERMINATED
 
-            # Delete worker from repository
-            with tracer.start_as_current_span("delete_from_repository") as span:
-                # Pass the worker to allow domain events to be published before deletion
-                deleted = await self.cml_worker_repository.delete_async(command.worker_id, worker)
+                await self.cml_worker_repository.update_async(worker)
 
-                if not deleted:
-                    error_msg = f"Failed to delete CML Worker {command.worker_id} from database"
-                    log.error(error_msg)
-                    return self.bad_request(error_msg)
-
-                span.set_attribute("cml_worker.deleted", True)
+                span.set_attribute("cml_worker.desired_status", CMLWorkerStatus.TERMINATED.value)
+                span.set_attribute("cml_worker.new_status", new_status.value)
 
             log.info(
-                f"CML Worker deleted successfully: id={worker.id()}, "
-                f"aws_instance_id={worker.state.aws_instance_id or 'none'}, "
-                f"terminate_instance={command.terminate_instance}, "
-                f"deleted_by={command.deleted_by or 'system'}"
+                f"CML Worker {command.worker_id} marked for termination (soft delete). "
+                f"desired_status=TERMINATED, status={new_status.value}. "
+                f"Worker-controller will handle EC2 termination. "
+                f"Record will be purged by TerminatedWorkerCleanupJob after retention period."
             )
 
-            return self.ok(True)
-
-        except (
-            EC2InstanceOperationException,
-            EC2AuthenticationException,
-            IntegrationException,
-        ) as e:
-            log.error(f"Failed to delete CML Worker {command.worker_id}: {e}")
-            return self.bad_request(str(e))
+            return self.accepted(
+                {
+                    "message": "Worker termination initiated (soft delete)",
+                    "worker_id": command.worker_id,
+                    "desired_status": CMLWorkerStatus.TERMINATED.value,
+                    "status": new_status.value,
+                    "has_ec2_instance": bool(worker.state.aws_instance_id),
+                    "note": "Record will be retained for audit. Use force_hard_delete=True for immediate removal.",
+                }
+            )
 
         except Exception as e:
             log.exception(f"Unexpected error deleting CML Worker {command.worker_id}")
-            return self.bad_request(f"Unexpected error: {str(e)}")
+            return self.internal_server_error(f"Unexpected error: {str(e)}")

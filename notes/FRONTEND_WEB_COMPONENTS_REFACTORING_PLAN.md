@@ -1,5 +1,27 @@
 # Frontend Refactoring Plan: Web Components + Pub/Sub Architecture
 
+## Implementation Progress Summary
+
+| Phase | Status | Key Deliverables |
+|-------|--------|------------------|
+| Phase 1: Foundation | ✅ Complete | EventBus, BaseComponent, SSEService refactor |
+| Phase 2: First Components | ✅ Complete | WorkerCard, WorkerList |
+| Phase 3: Complex Components | ✅ Complete | WorkerDetailsModal, all core LCM components |
+| Phase 4: Migration | 🔄 In Progress | Feature flags, cards views migrated |
+| Phase 5: Legacy Cleanup | 🔜 Not Started | Remove feature flags, delete legacy code |
+
+**Overall Progress: ~75% Complete**
+
+**Remaining Work:**
+
+- Create `OverviewPage.js` dashboard (~4-6 hours)
+- Create `SystemPage.js` (~3-4 hours)
+- Complete Workers table integration (~2-3 hours)
+- Remove feature flags and legacy code (~4-6 hours)
+- Add component tests (~4-6 hours)
+
+---
+
 ## Executive Summary
 
 The current frontend is **unmaintainable** due to:
@@ -215,7 +237,7 @@ SSE event → worker-sse.js handler → upsertWorkerSnapshot(data)
 ✅ **1. EventBus** (`src/ui/src/scripts/core/EventBus.js`) - DONE
 
 - Singleton pub/sub with wildcard support
-- Type-safe event constants
+- Type-safe event constants (50+ EventTypes defined)
 - Middleware hooks for logging
 
 ✅ **2. BaseComponent** (`src/ui/src/scripts/core/BaseComponent.js`) - DONE
@@ -223,285 +245,102 @@ SSE event → worker-sse.js handler → upsertWorkerSnapshot(data)
 - Base class for all web components
 - Auto-cleanup subscriptions on unmount
 - State management helpers
-- Lifecycle hooks
+- Lifecycle hooks (onMount, onUnmount, onAttributeChange, onStateChange)
+- Utility methods (debounce, throttle, $, $$)
 
 ✅ **3. SSEService Refactor** (`src/ui/src/scripts/services/SSEService.js`) - DONE
 
-- Remove custom event emitter
-- Publish directly to EventBus
+- Removed custom event emitter
+- Publishes directly to EventBus (50+ SSE event types mapped)
 - Singleton pattern maintained
+- Exponential backoff reconnection
+- Graceful shutdown handling
 
-**4. WorkerStore Refactor** (`src/ui/src/scripts/store/WorkerStore.js`):
+✅ **4. WorkerStore Integration** - DONE (via SSEService)
 
-```javascript
-// Before: Custom subscription system
-const state = { listeners: new Set() };
-function emit() { state.listeners.forEach(fn => fn(state)); }
+- SSEService now publishes all worker events to EventBus
+- Components subscribe directly to EventBus
+- Legacy store subscriptions still work for backward compatibility
 
-// After: Publish to EventBus
-import { eventBus, EventTypes } from '../core/EventBus.js';
+✅ **5. Testing Setup** - PARTIALLY DONE
 
-export function upsertWorkerSnapshot(snapshot) {
-    // ... update internal state ...
-    eventBus.emit(EventTypes.WORKER_SNAPSHOT, snapshot);
-}
-
-export function updateWorkerMetrics(id, metrics) {
-    // ... update internal state ...
-    eventBus.emit(EventTypes.WORKER_METRICS_UPDATED, { worker_id: id, ...metrics });
-}
-```
-
-**5. Testing Setup**:
-
-```bash
-npm install --save-dev @web/test-runner @web/test-runner-playwright
-```
-
-Create `web-test-runner.config.mjs`:
-
-```javascript
-export default {
-    files: 'tests/**/*.test.js',
-    nodeResolve: true,
-    coverage: true,
-};
-```
+- Parcel build configured
+- Component structure supports testing
+- TODO: Add @web/test-runner configuration
 
 ### Phase 2: First Components (Week 2)
 
 **Priority 1: Worker Card Component**
 
-✅ **Created** (`src/ui/src/scripts/components-v2/WorkerCard.js`) - DONE
+✅ **Created** (`src/ui/src/scripts/components/WorkerCard.js`) - DONE (376 lines)
 
 **Features**:
 
-- Self-contained rendering
-- Shadow DOM encapsulation
-- Subscribes to `WORKER_SNAPSHOT`, `WORKER_METRICS_UPDATED`
-- Auto-removes on `WORKER_DELETED`
-- Emits `UI_MODAL_OPENED` when clicked
-
-**Usage**:
-
-```html
-<worker-card worker-id="abc123"></worker-card>
-<worker-card worker-id="def456" compact></worker-card>
-```
-
-**Test Example** (`tests/components/WorkerCard.test.js`):
-
-```javascript
-import { fixture, html } from '@open-wc/testing';
-import '../src/scripts/components-v2/WorkerCard.js';
-import { eventBus, EventTypes } from '../src/scripts/core/EventBus.js';
-
-describe('WorkerCard', () => {
-    it('renders worker data', async () => {
-        const el = await fixture(html`
-            <worker-card worker-id="test123"></worker-card>
-        `);
-
-        // Emit snapshot event
-        eventBus.emit(EventTypes.WORKER_SNAPSHOT, {
-            worker_id: 'test123',
-            name: 'Test Worker',
-            status: 'running',
-            cpu_utilization: 45.2,
-        });
-
-        await el.updateComplete;
-
-        expect(el.shadowRoot.querySelector('.card')).to.exist;
-        expect(el.shadowRoot.textContent).to.include('Test Worker');
-    });
-
-    it('updates metrics reactively', async () => {
-        const el = await fixture(html`
-            <worker-card worker-id="test123"></worker-card>
-        `);
-
-        // Initial snapshot
-        eventBus.emit(EventTypes.WORKER_SNAPSHOT, {
-            worker_id: 'test123',
-            cpu_utilization: 30.0,
-        });
-        await el.updateComplete;
-
-        // Metrics update
-        eventBus.emit(EventTypes.WORKER_METRICS_UPDATED, {
-            worker_id: 'test123',
-            cpu_utilization: 75.5,
-        });
-        await el.updateComplete;
-
-        expect(el.shadowRoot.textContent).to.include('75.5');
-    });
-});
-```
+- Self-contained rendering (Light DOM for Bootstrap integration)
+- Subscribes to `WORKER_SNAPSHOT`, `WORKER_METRICS_UPDATED`, `WORKER_STATUS_CHANGED`
+- Reactive state updates via BaseComponent.setState()
+- Compact and full card variants
+- Tooltip support for metrics
 
 **Priority 2: Worker List Component**
 
-Create `src/ui/src/scripts/components-v2/WorkerList.js`:
+✅ **Created** (`src/ui/src/scripts/components/WorkerList.js`) - DONE (503 lines)
 
-```javascript
-export class WorkerList extends BaseComponent {
-    constructor() {
-        super();
-    }
+**Features**:
 
-    onMount() {
-        // Subscribe to worker events
-        this.subscribe(EventTypes.WORKER_CREATED, (data) => {
-            this.addWorkerCard(data.worker_id);
-        });
-
-        this.subscribe(EventTypes.WORKER_DELETED, (data) => {
-            this.removeWorkerCard(data.worker_id);
-        });
-
-        // Load initial workers
-        this.loadWorkers();
-    }
-
-    async loadWorkers() {
-        // Fetch from API or store
-        const workers = await workersApi.listWorkers(this.getAttr('region'));
-
-        this.innerHTML = workers.map(w =>
-            `<worker-card worker-id="${w.id}"></worker-card>`
-        ).join('');
-    }
-
-    addWorkerCard(workerId) {
-        const card = document.createElement('worker-card');
-        card.setAttribute('worker-id', workerId);
-        this.appendChild(card);
-    }
-
-    removeWorkerCard(workerId) {
-        const card = this.querySelector(`worker-card[worker-id="${workerId}"]`);
-        card?.remove();
-    }
-}
-
-customElements.define('worker-list', WorkerList);
-```
-
-**Usage**:
-
-```html
-<worker-list region="us-east-1"></worker-list>
-```
+- Collection management with Map-based worker storage
+- Filtering by region, status, search term
+- Real-time SSE updates with race condition prevention
+- Debounced rendering for performance
+- Cards and table view support
 
 ### Phase 3: Complex Components (Week 3)
 
 **Worker Details Modal Component**
 
-Create `src/ui/src/scripts/components-v2/WorkerDetailsModal.js`:
+✅ **Created** (`src/ui/src/scripts/components/WorkerDetailsModal.js`) - DONE
 
-```javascript
-export class WorkerDetailsModal extends BaseComponent {
-    constructor() {
-        super();
-        this.attachShadow({ mode: 'open' });
-    }
+**Features**:
 
-    static get observedAttributes() {
-        return ['worker-id', 'open'];
-    }
+- Horizontal tabs (AWS, CML, Labs, Monitoring, Events)
+- Subscribes to worker snapshot updates
+- Lab management operations
+- License management panel
+- Real-time metrics display
 
-    onMount() {
-        // Subscribe to modal open events
-        this.subscribe(EventTypes.UI_MODAL_OPENED, (data) => {
-            if (data.type === 'worker-details') {
-                this.open(data.workerId);
-            }
-        });
+**Additional Domain Components** - ALL DONE:
 
-        // Subscribe to worker updates
-        this.subscribe(EventTypes.WORKER_SNAPSHOT, (data) => {
-            if (data.worker_id === this.getAttr('worker-id')) {
-                this.setState({ worker: data });
-            }
-        });
+- ✅ `WorkersApp.js` - Workers page controller with SSE management
+- ✅ `StatisticsPanel.js` - Statistics summary panel
+- ✅ `FilterBar.js` - Filter toolbar component
+- ✅ `LabletInstanceCard.js` - Lablet instance card component
+- ✅ `LabletInstanceList.js` - Lablet instance list component
+- ✅ `LabletDefinitionCard.js` - Lablet definition card component
+- ✅ `LabletDefinitionList.js` - Lablet definition list component
 
-        this.render();
-    }
+**Core Reusable Components** - ALL DONE:
 
-    open(workerId) {
-        this.setAttr('worker-id', workerId);
-        this.setAttr('open', '');
-        this.loadWorkerDetails(workerId);
-    }
-
-    close() {
-        this.removeAttribute('open');
-        this.emit(EventTypes.UI_MODAL_CLOSED, { type: 'worker-details' });
-    }
-
-    async loadWorkerDetails(workerId) {
-        // Fetch full details
-        const worker = await workersApi.getWorkerDetails(region, workerId);
-        this.setState({ worker, loading: false });
-    }
-
-    render() {
-        const { worker, loading } = this.getState();
-        const isOpen = this.hasAttribute('open');
-
-        this.shadowRoot.innerHTML = `
-            <style>${this.getModalStyles()}</style>
-            <div class="modal ${isOpen ? 'show' : ''}" @click="${() => this.close()}">
-                <div class="modal-dialog" @click.stop>
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5>${worker?.name || 'Loading...'}</h5>
-                            <button @click="${() => this.close()}">&times;</button>
-                        </div>
-                        <div class="modal-body">
-                            ${loading ? this.renderLoading() : this.renderContent(worker)}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    renderContent(worker) {
-        return `
-            <div class="tabs">
-                <overview-tab .worker="${worker}"></overview-tab>
-                <cml-tab .worker="${worker}"></cml-tab>
-                <labs-panel worker-id="${worker.id}"></labs-panel>
-                <monitoring-tab worker-id="${worker.id}"></monitoring-tab>
-            </div>
-        `;
-    }
-}
-
-customElements.define('worker-details-modal', WorkerDetailsModal);
-```
-
-**Sub-components for tabs**:
-
-- `<overview-tab>` - AWS details, AMI, networking
-- `<cml-tab>` - CML version, license, system health
-- `<labs-panel>` - Lab management (create, start, stop, delete)
-- `<monitoring-tab>` - Metrics charts, CloudWatch data
-- `<events-tab>` - Event log
+- ✅ `LcmTabView.js` - Tabbed container with variants
+- ✅ `LcmDataTable.js` - Data table with sort/filter/pagination
+- ✅ `LcmMetricCard.js` - Metric display cards
+- ✅ `LcmActionBar.js` - Toolbar with actions
+- ✅ `LcmUserMenu.js` - User profile dropdown
+- ✅ `LcmStatusBadge.js` - Status badges
+- ✅ `LcmModal.js` - Modal dialogs
+- ✅ `LcmGrafanaPanel.js` - Grafana panel embedding
 
 ### Phase 4: Migration Strategy (Weeks 4-5)
 
-**Incremental Replacement**:
+**Incremental Replacement** - IN PROGRESS:
 
-1. **Keep existing code running** - dual mode
-2. **Replace one view at a time**:
-   - Week 4: Replace user (cards) view with `<worker-list>`
-   - Week 5: Replace admin (table) view
-   - Week 6: Replace modals with `<worker-details-modal>`
+1. ✅ **Keep existing code running** - dual mode via feature flags
+2. ✅ **Workers cards view** - Replaced with `<worker-list>` and `<worker-card>`
+3. ✅ **Lablets page** - Full page component with `<lablets-page>`
+4. 🔄 **Workers table view** - Partially integrated
+5. 🔜 **Overview dashboard** - Not started
+6. 🔜 **System page** - Not started
 
-**Feature Flags**:
+**Feature Flags** - IMPLEMENTED:
 
 ```javascript
 const USE_WEB_COMPONENTS = localStorage.getItem('use-web-components') === 'true';
@@ -531,35 +370,61 @@ function handleStoreUpdate(storeState) {
 }
 ```
 
-### Phase 5: Complete Migration (Week 6)
+### Phase 5: Complete Migration (Week 6) - 🔜 NOT STARTED
 
 **Remove Legacy Code**:
 
 1. Delete `workers.js`, `worker-render.js`, `worker-sse.js`, etc.
 2. Remove global `window.workersApp` namespace
 3. Refactor store to pure EventBus publisher
-4. Update templates to use web components
+4. Update templates to use web components only
 
-**Final Structure**:
+**Current Final Structure**:
 
 ```
 src/ui/src/scripts/
 ├── core/
-│   ├── EventBus.js         ✅ (created)
-│   └── BaseComponent.js    ✅ (created)
+│   ├── EventBus.js         ✅ (created - 50+ event types)
+│   └── BaseComponent.js    ✅ (created - 254 lines)
 ├── services/
-│   ├── SSEService.js       ✅ (refactored)
-│   ├── APIService.js       (singleton, no DOM coupling)
-│   └── WorkerStore.js      (EventBus publisher)
-├── components-v2/
-│   ├── WorkerCard.js       ✅ (created)
-│   ├── WorkerList.js       (to create)
-│   ├── WorkerDetailsModal.js (to create)
-│   ├── LabsPanel.js
-│   ├── MetricsChart.js
-│   ├── LicenseManager.js
-│   └── FilterBar.js
-└── utils/              (unchanged - pure functions)
+│   ├── SSEService.js       ✅ (refactored - 335 lines, EventBus integration)
+│   ├── PrometheusClient.js ✅ (created - Prometheus API queries)
+│   ├── session-manager.js  ✅ (exists)
+│   ├── connection-indicator.js ✅ (exists)
+│   └── theme.js            ✅ (exists)
+├── store/
+│   └── workerStore.js      🔄 (legacy - needs EventBus migration)
+├── components/
+│   ├── core/               ✅ ALL DONE
+│   │   ├── LcmTabView.js
+│   │   ├── LcmDataTable.js
+│   │   ├── LcmMetricCard.js
+│   │   ├── LcmGrafanaPanel.js
+│   │   ├── LcmActionBar.js
+│   │   ├── LcmUserMenu.js
+│   │   ├── LcmStatusBadge.js
+│   │   ├── LcmModal.js
+│   │   └── index.js
+│   ├── pages/              🔄 IN PROGRESS
+│   │   ├── LabletsPage.js  ✅ (639 lines)
+│   │   ├── WorkersPage.js  ✅ (created)
+│   │   ├── OverviewPage.js 🔜 (TODO)
+│   │   ├── SystemPage.js   🔜 (TODO)
+│   │   └── index.js
+│   ├── WorkerCard.js       ✅ (376 lines)
+│   ├── WorkerList.js       ✅ (503 lines)
+│   ├── WorkerDetailsModal.js ✅ (created)
+│   ├── WorkersApp.js       ✅ (created)
+│   ├── StatisticsPanel.js  ✅ (created)
+│   ├── FilterBar.js        ✅ (created)
+│   ├── LabletInstanceCard.js ✅ (created)
+│   ├── LabletInstanceList.js ✅ (created)
+│   ├── LabletDefinitionCard.js ✅ (created)
+│   ├── LabletDefinitionList.js ✅ (created)
+│   └── ... (legacy files to be removed)
+├── api/                    ✅ (unchanged - pure functions)
+├── ui/                     ✅ (unchanged - utilities)
+└── utils/                  ✅ (unchanged - pure functions)
 ```
 
 ---
@@ -696,26 +561,33 @@ eventBus.use(async (eventType, data) => {
 
 ## Conclusion
 
-The current frontend is a **maintenance nightmare** due to:
+The current frontend **refactoring is ~75% complete**. The major architectural improvements have been implemented:
 
-- Tight coupling across 15+ fragmented modules
-- Triple event system chaos (SSE, Store, DOM)
-- Global state pollution
-- Inefficient full re-renders on every update
+**Completed:**
+✅ Unified EventBus replaces 3 fragmented event systems
+✅ BaseComponent provides consistent lifecycle management
+✅ SSEService refactored to publish to EventBus
+✅ All core reusable components created (LcmTabView, LcmDataTable, LcmModal, etc.)
+✅ All domain components created (WorkerCard, WorkerList, LabletInstanceCard, etc.)
+✅ LabletsPage and WorkersPage implemented as page-level components
+✅ Feature flag system enables gradual rollout
 
-**The recommended Web Components + EventBus refactor will**:
-✅ Reduce complexity by 60% (LOC, dependencies)
-✅ Enable 80%+ test coverage
-✅ Improve real-time update performance 6x
-✅ Eliminate global state coupling
-✅ Make features 75% faster to implement
+**Remaining:**
+🔜 Create OverviewPage.js dashboard
+🔜 Create SystemPage.js (monitoring + settings)
+🔜 Complete Workers table view integration
+🔜 Remove feature flags (enable Web Components by default)
+🔜 Delete legacy code (worker-*.js files, window.workersApp)
+🔜 Add component tests with @web/test-runner
 
-**Timeline**: 6 weeks for complete migration with incremental rollout.
+**Timeline**: Estimated 2-3 additional weeks for complete migration with testing.
 **Risk**: Low - feature flags enable safe dual-mode operation during transition.
 
 **Next Steps**:
 
-1. Review and approve this plan
-2. Create Jira epic + stories for 6-week roadmap
-3. Begin Phase 1 (EventBus + BaseComponent foundation)
-4. Weekly demos of migrated components
+1. Create OverviewPage.js with metrics dashboard
+2. Create SystemPage.js with monitoring/settings tabs
+3. Complete Workers table integration with LcmDataTable
+4. Enable Web Components by default (remove feature flags)
+5. Delete legacy code and clean up unused files
+6. Add comprehensive component tests

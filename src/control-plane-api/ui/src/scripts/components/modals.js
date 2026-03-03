@@ -94,6 +94,41 @@ export function showConfirm(title, message, onConfirm, options = {}) {
 }
 
 /**
+ * Promise-based confirmation modal (drop-in replacement for native confirm()).
+ *
+ * Returns a Promise that resolves to `true` when the user clicks the action
+ * button, or `false` when they dismiss/cancel the modal.
+ *
+ * @param {string} title - Modal title
+ * @param {string} message - Confirmation message
+ * @param {object} [options] - Same options as showConfirm (actionLabel, actionClass, iconClass, detailsHtml)
+ * @returns {Promise<boolean>}
+ */
+export function showConfirmAsync(title, message, options = {}) {
+    return new Promise(resolve => {
+        let settled = false;
+
+        const settle = value => {
+            if (!settled) {
+                settled = true;
+                resolve(value);
+            }
+        };
+
+        showConfirm(title, message, () => settle(true), { ...options, dismissOnAction: true });
+
+        // Resolve false when the modal is hidden without confirming
+        const modal = document.getElementById('confirmModal');
+        if (modal) {
+            modal.addEventListener('hidden.bs.modal', () => settle(false), { once: true });
+        } else {
+            // confirmModal element missing — fall back to native confirm
+            settle(window.confirm(message));
+        }
+    });
+}
+
+/**
  * Show success toast message
  * @param {string} message - Message to display
  */

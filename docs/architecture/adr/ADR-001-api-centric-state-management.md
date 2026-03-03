@@ -5,7 +5,7 @@
 | **Status** | Accepted |
 | **Date** | 2026-01-15 |
 | **Deciders** | Architecture Team |
-| **Related ADRs** | [ADR-002](./ADR-002-separate-scheduler-service.md), [ADR-005](./ADR-005-state-store-architecture.md) |
+| **Related ADRs** | [ADR-002](./ADR-002-separate-resource-scheduler-service.md), [ADR-005](./ADR-005-state-store-architecture.md) |
 
 ## Context
 

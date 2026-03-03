@@ -352,7 +352,7 @@ return self.ok(instance_dto)
 **Published Event**:
 
 - **Type**: `cml_worker.imported.v1`
-- **Source**: `/cml-cloud-manager/workers`
+- **Source**: `/lablet-cloud-manager/workers`
 - **Format**: CloudEvents v1.0 specification
 - **Transport**: Configured via `CloudEventPublishingOptions` (HTTP/AMQP/Kafka)
 
@@ -708,7 +708,7 @@ curl -X POST "http://localhost:8000/api/region/us-west-2/workers/import" \
   -d '{"ami_name": "refdesktop-cml290"}'
 
 # Verify worker in database
-mongosh cml_cloud_manager --eval 'db.cml_workers.find({}, {name:1, ami_name:1, ami_description:1}).pretty()'
+mongosh lablet_cloud_manager --eval 'db.cml_workers.find({}, {name:1, ami_name:1, ami_description:1}).pretty()'
 
 # Verify monitoring job scheduled
 curl "http://localhost:8000/api/system/scheduler/jobs"

@@ -1,29 +1,29 @@
-# CML Cloud Manager - Production Docker Compose Configuration
+# Lablet Cloud Manager - Production Docker Compose Configuration
 # This file contains the complete production stack with separate API and Worker services
 # Usage: docker-compose -f deployment/docker-compose/docker-compose.prod.yml --env-file deployment/docker-compose/.env.prod up
 
-name: cml-cloud-manager
+name: lablet-cloud-manager
 services:
   # Nginx - Reverse Proxy
   # Single entry point for all services
   # http://localhost:${NGINX_PORT:-80}/
   nginx:
     image: ${NGINX_IMAGE}
-    container_name: cml-cloud-manager-nginx
+    container_name: lablet-cloud-manager-nginx
     restart: unless-stopped
     ports:
       - "${NGINX_PORT:-80}:80"
       # For HTTPS/TLS (uncomment when certificates are configured)
       # - "${NGINX_SSL_PORT:-443}:443"
     volumes:
-      - ../nginx/conf.d/${NGINX_CONF_FILE:-cml-cloud-manager.conf}:/etc/nginx/conf.d/cml-cloud-manager.conf:ro
+      - ../nginx/conf.d/${NGINX_CONF_FILE:-lablet-cloud-manager.conf}:/etc/nginx/conf.d/lablet-cloud-manager.conf:ro
       - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../nginx/conf.d:/etc/nginx/conf.d:ro
       # For SSL certificates (create these directories when needed)
       # - ../nginx/ssl:/etc/nginx/ssl:ro
       - nginx_logs:/var/log/nginx
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
     depends_on:
       - api
       - worker
@@ -45,12 +45,12 @@ services:
       retries: 3
       start_period: 10s
 
-  # CML Cloud Manager - API Service
+  # Lablet Cloud Manager - API Service
   # Handles web traffic and HTTP API requests
   # Internal only - accessed via nginx
   api:
     image: ${IMAGE_REPO}:${IMAGE_TAG}
-    container_name: cml-cloud-manager-api
+    container_name: lablet-cloud-manager-api
     restart: unless-stopped
     # Ports exposed only to Docker network, accessed via nginx
     expose:
@@ -75,16 +75,24 @@ services:
       # Keycloak
       KEYCLOAK_URL: ${PUBLIC_STACK_URL:-http://localhost}/auth
       KEYCLOAK_URL_INTERNAL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-cml-cloud-manager}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-cml-cloud-manager-public}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-lablet-cloud-manager}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-lablet-cloud-manager-public}
 
       # Token Validation
       VERIFY_ISSUER: ${VERIFY_ISSUER:-true}
-      EXPECTED_ISSUER: ${EXPECTED_ISSUER:-http://localhost:8090/realms/cml-cloud-manager}
+      EXPECTED_ISSUER: ${EXPECTED_ISSUER:-http://localhost:8090/realms/lablet-cloud-manager}
       VERIFY_AUDIENCE: ${VERIFY_AUDIENCE:-true}
-      EXPECTED_AUDIENCE: ${EXPECTED_AUDIENCE:-["cml-cloud-manager"]}
-      REFRESH_AUTO_LEEWAY_SECONDS: ${REFRESH_AUTO_LEEWAY_SECONDS:-60}
-      SESSION_MAX_DURATION_MINUTES: ${SESSION_MAX_DURATION_MINUTES:-30}
+      EXPECTED_AUDIENCE: ${EXPECTED_AUDIENCE:-["lablet-cloud-manager"]}
+
+      # Token Lifespans (aligned with Keycloak realm settings)
+      ACCESS_TOKEN_LIFESPAN_SECONDS: ${ACCESS_TOKEN_LIFESPAN_SECONDS:-1500}
+      SSO_SESSION_IDLE_TIMEOUT_MINUTES: ${SSO_SESSION_IDLE_TIMEOUT_MINUTES:-30}
+      SSO_SESSION_MAX_LIFESPAN_MINUTES: ${SSO_SESSION_MAX_LIFESPAN_MINUTES:-600}
+      REFRESH_AUTO_LEEWAY_SECONDS: ${REFRESH_AUTO_LEEWAY_SECONDS:-300}
+
+      # Session Management
+      SESSION_MAX_DURATION_MINUTES: ${SESSION_MAX_DURATION_MINUTES:-600}
+      SESSION_EXPIRATION_WARNING_MINUTES: ${SESSION_EXPIRATION_WARNING_MINUTES:-10}
 
       # Database & Persistence
       CONNECTION_STRINGS: '{"mongo": "mongodb://${MONGODB_ROOT_USERNAME:-root}:${MONGODB_ROOT_PASSWORD:-change-me-in-production}@mongodb:27017/?authSource=admin"}'
@@ -115,11 +123,11 @@ services:
 
       # Observability
       CLOUD_EVENT_SINK: http://event-player:8080/events/pub
-      CLOUD_EVENT_SOURCE: https://cml-cloud-manager.io
-      CLOUD_EVENT_TYPE_PREFIX: io.cml-cloud-manager
+      CLOUD_EVENT_SOURCE: https://lablet-cloud-manager.io
+      CLOUD_EVENT_TYPE_PREFIX: io.lablet-cloud-manager
 
       # OpenTelemetry
-      OTEL_SERVICE_NAME: cml-cloud-manager-api
+      OTEL_SERVICE_NAME: lablet-cloud-manager-api
       OTEL_SERVICE_VERSION: 1.0.0
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
@@ -129,7 +137,7 @@ services:
       OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "false"
 
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
     depends_on:
       - mongodb
       - keycloak
@@ -148,11 +156,11 @@ services:
       retries: 3
       start_period: 40s
 
-  # CML Cloud Manager - Worker Service
+  # Lablet Cloud Manager - Worker Service
   # Handles background jobs: metrics collection, auto-import, lab refresh
   worker:
     image: ${IMAGE_REPO}:${IMAGE_TAG}
-    container_name: cml-cloud-manager-worker
+    container_name: lablet-cloud-manager-worker
     restart: unless-stopped
     # Ports exposed only to Docker network
     expose:
@@ -177,16 +185,24 @@ services:
       # Keycloak
       KEYCLOAK_URL: ${PUBLIC_STACK_URL:-http://localhost}/auth
       KEYCLOAK_URL_INTERNAL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-cml-cloud-manager}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-cml-cloud-manager-public}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-lablet-cloud-manager}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-lablet-cloud-manager-public}
 
       # Token Validation
       VERIFY_ISSUER: ${VERIFY_ISSUER:-true}
-      EXPECTED_ISSUER: ${EXPECTED_ISSUER:-http://localhost:8090/realms/cml-cloud-manager}
+      EXPECTED_ISSUER: ${EXPECTED_ISSUER:-http://localhost:8090/realms/lablet-cloud-manager}
       VERIFY_AUDIENCE: ${VERIFY_AUDIENCE:-true}
-      EXPECTED_AUDIENCE: ${EXPECTED_AUDIENCE:-["cml-cloud-manager"]}
-      REFRESH_AUTO_LEEWAY_SECONDS: ${REFRESH_AUTO_LEEWAY_SECONDS:-60}
-      SESSION_MAX_DURATION_MINUTES: ${SESSION_MAX_DURATION_MINUTES:-30}
+      EXPECTED_AUDIENCE: ${EXPECTED_AUDIENCE:-["lablet-cloud-manager"]}
+
+      # Token Lifespans (aligned with Keycloak realm settings)
+      ACCESS_TOKEN_LIFESPAN_SECONDS: ${ACCESS_TOKEN_LIFESPAN_SECONDS:-1500}
+      SSO_SESSION_IDLE_TIMEOUT_MINUTES: ${SSO_SESSION_IDLE_TIMEOUT_MINUTES:-30}
+      SSO_SESSION_MAX_LIFESPAN_MINUTES: ${SSO_SESSION_MAX_LIFESPAN_MINUTES:-600}
+      REFRESH_AUTO_LEEWAY_SECONDS: ${REFRESH_AUTO_LEEWAY_SECONDS:-300}
+
+      # Session Management
+      SESSION_MAX_DURATION_MINUTES: ${SESSION_MAX_DURATION_MINUTES:-600}
+      SESSION_EXPIRATION_WARNING_MINUTES: ${SESSION_EXPIRATION_WARNING_MINUTES:-10}
 
       # Database & Persistence
       CONNECTION_STRINGS: '{"mongo": "mongodb://${MONGODB_ROOT_USERNAME:-root}:${MONGODB_ROOT_PASSWORD:-change-me-in-production}@mongodb:27017/?authSource=admin"}'
@@ -222,11 +238,11 @@ services:
 
       # Observability
       CLOUD_EVENT_SINK: http://event-player:8080/events/pub
-      CLOUD_EVENT_SOURCE: https://cml-cloud-manager.io
-      CLOUD_EVENT_TYPE_PREFIX: io.cml-cloud-manager
+      CLOUD_EVENT_SOURCE: https://lablet-cloud-manager.io
+      CLOUD_EVENT_TYPE_PREFIX: io.lablet-cloud-manager
 
       # OpenTelemetry
-      OTEL_SERVICE_NAME: cml-cloud-manager-worker
+      OTEL_SERVICE_NAME: lablet-cloud-manager-worker
       OTEL_SERVICE_VERSION: 1.0.0
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
@@ -236,7 +252,7 @@ services:
       OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "false"
 
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
     depends_on:
       - mongodb
       - keycloak
@@ -268,11 +284,11 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME:-root}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:-change-me-in-production}
-      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-cml_cloud_manager}
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-lablet_cloud_manager}
     volumes:
       - mongodb_data:/data/db
     networks:
-      cml-cloud-manager-net:
+      lablet-cloud-manager-net:
         aliases:
           - mongo
 
@@ -293,7 +309,7 @@ services:
       ME_CONFIG_MONGODB_AUTH_DATABASE: admin
       ME_CONFIG_BASICAUTH: "false"
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
     depends_on:
       - mongodb
 
@@ -309,7 +325,7 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -341,10 +357,10 @@ services:
     expose:
       - "8080"
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
     volumes:
       - keycloak_data:/opt/keycloak/data
-      - ../keycloak/${KEYCLOAK_REALM_IMPORT_FILE:-cml-cloud-manager-realm-export.json}:/opt/keycloak/data/import/cml-cloud-manager-realm-export.json:ro
+      - ../keycloak/${KEYCLOAK_REALM_IMPORT_FILE:-lablet-cloud-manager-realm-export.json}:/opt/keycloak/data/import/lablet-cloud-manager-realm-export.json:ro
     healthcheck:
       test:
         [
@@ -385,8 +401,8 @@ services:
       oauth_server_url: ${PUBLIC_STACK_URL:-http://localhost}/auth
       oauth_server_url_backend: http://keycloak:8080
       oauth_legacy_keycloak: "false"
-      oauth_realm: ${KEYCLOAK_REALM:-cml-cloud-manager}
-      oauth_client_id: cml-cloud-manager-public
+      oauth_realm: ${KEYCLOAK_REALM:-lablet-cloud-manager}
+      oauth_client_id: lablet-cloud-manager-public
       oauth_client_secret: ""
 
       # HTTP Client Configuration
@@ -401,7 +417,7 @@ services:
       storage_max_recent_events: 2000
       storage_max_metadata_events: 10000
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
     depends_on:
       - keycloak
 
@@ -435,7 +451,7 @@ services:
       # Docker stats access
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
     depends_on:
       - tempo
       - loki
@@ -477,10 +493,10 @@ services:
 
       # URL Configuration
       # User-facing URL (Browser -> Keycloak)
-      GF_AUTH_GENERIC_OAUTH_AUTH_URL: ${PUBLIC_STACK_URL:-https://admin.system.io}/auth/realms/${KEYCLOAK_REALM:-cml-cloud-manager}/protocol/openid-connect/auth
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: ${PUBLIC_STACK_URL:-https://admin.system.io}/auth/realms/${KEYCLOAK_REALM:-lablet-cloud-manager}/protocol/openid-connect/auth
       # Internal URL (Grafana -> Keycloak)
-      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: http://keycloak:8080/realms/${KEYCLOAK_REALM:-cml-cloud-manager}/protocol/openid-connect/token
-      GF_AUTH_GENERIC_OAUTH_API_URL: http://keycloak:8080/realms/${KEYCLOAK_REALM:-cml-cloud-manager}/protocol/openid-connect/userinfo
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: http://keycloak:8080/realms/${KEYCLOAK_REALM:-lablet-cloud-manager}/protocol/openid-connect/token
+      GF_AUTH_GENERIC_OAUTH_API_URL: http://keycloak:8080/realms/${KEYCLOAK_REALM:-lablet-cloud-manager}/protocol/openid-connect/userinfo
 
       # TLS (Skip verification for internal communication if needed)
       GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE: "true"
@@ -500,7 +516,7 @@ services:
       - ../grafana/datasources:/etc/grafana/provisioning/datasources:ro
       - ../grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
     depends_on:
       - tempo
       - loki
@@ -524,7 +540,7 @@ services:
       - ../otel/tempo.yaml:/etc/tempo.yaml:ro
       - tempo_data:/tmp/tempo
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
 
   # Prometheus (Metrics Storage & Query)
   # Time-series database for metrics
@@ -547,7 +563,7 @@ services:
       - ../otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
 
   # Grafana Loki (Log Aggregation)
   # Stores and queries logs with trace correlation
@@ -563,7 +579,7 @@ services:
       - ../otel/loki-config.yaml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
     networks:
-      - cml-cloud-manager-net
+      - lablet-cloud-manager-net
 
 volumes:
   # Database volumes
@@ -589,6 +605,6 @@ volumes:
     driver: local
 
 networks:
-  cml-cloud-manager-net:
+  lablet-cloud-manager-net:
     driver: bridge
-    name: ${DOCKER_NETWORK_NAME:-cml-cloud-manager-net}
+    name: ${DOCKER_NETWORK_NAME:-lablet-cloud-manager-net}

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab_content version="3">
+    <title>Lablet</title>
+    <timing>
+        <min_length_minutes>0</min_length_minutes>
+        <max_length_minutes>300</max_length_minutes>
+        <warning_minutes>15</warning_minutes>
+        <warning_message>Warning, time is running out!</warning_message>
+    </timing>
+    <exercise_type>Lablet</exercise_type>
+    <intro_message>Welcome to the Lablet environment. If you see this ask exam admin to restart the browser!</intro_message>
+    <css>.cli {
+  white-space: pre-wrap; /* Preserves whitespace and wraps text */
+  font-family: "Courier New", Courier, monospace; /* Monospace font stack */
+}</css>
+    <main_page>
+        <text></text>
+        <alert></alert>
+        <progress_indicator>false</progress_indicator>
+        <diagram auto_title="true">images/topology.png</diagram>
+    </main_page>
+    <background_file wrap="true" start_here="true" title="Guidelines">resources/guidelines.html</background_file>
+    <sections item_title_visible="false" score_visible="false" backward_nav="true">
+        <section>content/section_01.xml</section>
+    </sections>
+    <resources/>
+    <backend/>
+    <variables/>
+    <device>
+        <device category="NA" device_label="ubuntu-desktop" coords="182,60,588,312" user_access_mode="web"/>
+    </device>
+    <feedback enabled="false"/>
+</lab_content>

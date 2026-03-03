@@ -1,12 +1,12 @@
-site_name: CML Cloud Starter App
-site_description: A comprehensive starter application with authentication, CQRS, and modern frontend
-site_url: https://bvandewe.github.io/cml-cloud-manager/
+site_name: Lablet Cloud Manager
+site_description: Distributed microservices platform for managing Cisco Modeling Lab (CML) infrastructure on AWS
+site_url: https://bvandewe.github.io/lablet-cloud-manager/
 strict: false
 docs_dir: docs
 site_dir: site
 
-repo_name: bvandewe/cml-cloud-manager
-repo_url: https://github.com/bvandewe/cml-cloud-manager
+repo_name: bvandewe/lablet-cloud-manager
+repo_url: https://github.com/bvandewe/lablet-cloud-manager
 edit_uri: edit/main/docs/
 
 nav:
@@ -20,16 +20,79 @@ nav:
           - Installation: getting-started/installation.md
           - Running the App: getting-started/running-the-app.md
     - Architecture:
-          - Overview: architecture/overview.md
-          - CQRS Pattern: architecture/cqrs-pattern.md
-          - Data Layer: architecture/data-layer.md
-          - Dependency Injection: architecture/dependency-injection.md
-          - Background Scheduling: architecture/background-scheduling.md
-          - Worker Monitoring: architecture/worker-monitoring.md
-          - Real-Time Updates: architecture/realtime-updates.md
-          - Worker Commands: cml-worker-commands.md
-          - CML Worker Domain Model: architecture/cml-worker-domain-model.md
-          - AWS Client Status & Tags: aws-client-status-and-tags.md
+          - Overview: architecture/index.md
+          - LCM Platform Architecture: architecture/lablet-resource-manager-architecture.md
+          - LabletSession Lifecycle: architecture/lablet-session-lifecycle-flow.md
+          - Future Roadmap: architecture/future-roadmap.md
+          - System Design: architecture/overview.md
+          - Patterns:
+                - CQRS Pattern: architecture/cqrs-pattern.md
+                - Data Layer: architecture/data-layer.md
+                - Dependency Injection: architecture/dependency-injection.md
+                - Background Scheduling: architecture/background-scheduling.md
+                - Real-Time Updates: architecture/realtime-updates.md
+          - Components:
+                - Auto-Scaling: architecture/components/auto-scaling.md
+                - '🔧 Control Plane API':
+                      - Architecture: architecture/components/control-plane-api/index.md
+                      - Idle Detection: architecture/components/control-plane-api/idle-detection.md
+                - '📅 Resource Scheduler':
+                      - Architecture: architecture/components/resource-scheduler/index.md
+                      - Worker Templates: architecture/components/resource-scheduler/worker-templates.md
+                - '🖥️ Worker Controller':
+                      - Architecture: architecture/components/worker-controller/index.md
+                      - Worker Lifecycle: architecture/components/worker-controller/worker-lifecycle.md
+                      - Worker Discovery: architecture/components/worker-controller/worker-discovery.md
+                - '🎛️ Lablet Controller':
+                      - Architecture: architecture/components/lablet-controller/index.md
+          - Domain:
+                - Worker Monitoring: architecture/worker-monitoring.md
+                - Worker Commands: cml-worker-commands.md
+                - CML Worker Domain Model: architecture/cml-worker-domain-model.md
+                - AWS Client Status & Tags: aws-client-status-and-tags.md
+          - ADRs:
+                - Index: architecture/adr/README.md
+                - ADR-001 API-Centric State Management: architecture/adr/ADR-001-api-centric-state-management.md
+                - ADR-002 Resource Scheduler Service: architecture/adr/ADR-002-separate-resource-scheduler-service.md
+                - ADR-003 CloudEvents Integration: architecture/adr/ADR-003-cloudevents-for-integration.md
+                - ADR-004 Port Allocation: architecture/adr/ADR-004-port-allocation-per-worker.md
+                - ADR-005 State Store Architecture: architecture/adr/ADR-005-state-store-architecture.md
+                - ADR-006 Scheduler HA Coordination: architecture/adr/ADR-006-resource-scheduler-ha-coordination.md
+                - ADR-007 Worker Template Seeding: architecture/adr/ADR-007-worker-template-seeding.md
+                - ADR-008 Worker Draining State: architecture/adr/ADR-008-worker-draining-state.md
+                - ADR-009 Shared Core Package: architecture/adr/ADR-009-shared-core-package.md
+                - ADR-010 Service Unification: architecture/adr/ADR-010-service-unification-neuroglia.md
+                - ADR-011 APScheduler Removal: architecture/adr/ADR-011-apscheduler-removal.md
+                - ADR-012 Dynamic Region Config: architecture/adr/ADR-012-dynamic-region-configuration.md
+                - ADR-013 SSE Protocol Improvements: architecture/adr/ADR-013-sse-protocol-improvements.md
+                - ADR-014 Worker Orphan Detection: architecture/adr/ADR-014-worker-orphan-detection.md
+                - ADR-015 Control Plane API (No EC2): architecture/adr/ADR-015-control-plane-api-no-ec2.md
+                - ADR-016 License Ops via Worker Controller: architecture/adr/ADR-016-license-operations-via-worker-controller.md
+                - ADR-017 Lab Ops via Lablet Controller: architecture/adr/ADR-017-lab-operations-via-lablet-controller.md
+                - ADR-018 LDS Integration: architecture/adr/ADR-018-lds-integration.md
+                - ADR-019 LabRecord Independent Aggregate: architecture/adr/ADR-019-labrecord-independent-aggregate.md
+                - ADR-020 Session Entity Model: architecture/adr/ADR-020-session-entity-model.md
+                - ADR-021 Child Entity Architecture: architecture/adr/ADR-021-child-entity-architecture.md
+                - ADR-022 CloudEvent Ingestion: architecture/adr/ADR-022-cloudevent-ingestion-lablet-controller.md
+    - Specifications:
+          - LRM Requirements: specs/lablet-resource-manager-requirements.md
+    - Implementation:
+          - Overview: implementation/README.md
+          - MVP Implementation Plan: implementation/mvp-implementation-plan.md
+          - Phase 0 Bootstrap: implementation/PHASE_0_BOOTSTRAP.md
+          - Phase 1 Bootstrap: implementation/PHASE_1_BOOTSTRAP.md
+          - Phase 2 Bootstrap: implementation/PHASE_2_BOOTSTRAP.md
+          - Phase 3 Bootstrap: implementation/PHASE_3_BOOTSTRAP.md
+          - Phase 4 Bootstrap: implementation/PHASE_4_BOOTSTRAP.md
+          - Codebase Discovery Audit: implementation/codebase-discovery-audit.md
+          - Status Tracking: implementation/IMPLEMENTATION_STATUS.md
+          - Risk Register: implementation/risk-register.md
+          - Testing Strategy: implementation/testing-strategy.md
+    - Services:
+          - Control Plane API: services/control-plane-api-guide.md
+          - Resource Scheduler: services/resource-scheduler-guide.md
+          - Worker Controller: services/worker-controller-guide.md
+          - Lablet Controller: services/lablet-controller-guide.md
     - Security:
           - Authentication Flows: security/authentication-flows.md
           - Authorization: security/authorization.md
@@ -103,7 +166,8 @@ markdown_extensions:
           custom_fences:
               - name: mermaid
                 class: mermaid
-                format: !!python/name:pymdownx.superfences.fence_code_format  # yamllint disable-line
+                format: !!python/name:pymdownx.superfences.fence_code_format # yamllint disable-line
+
 
     - toc:
           permalink: true
@@ -127,4 +191,4 @@ plugins:
 extra:
     social:
         - icon: fontawesome/brands/github
-          link: https://github.com/bvandewe/cml-cloud-manager
+          link: https://github.com/bvandewe/lablet-cloud-manager

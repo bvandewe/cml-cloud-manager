@@ -25,7 +25,7 @@
         {
             "datasource": {
                 "type": "prometheus",
-                "uid": "prometheus"
+                "uid": "PBFA97CFB590B2093"
             },
             "fieldConfig": {
                 "defaults": {
@@ -102,10 +102,10 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "prometheus"
+                        "uid": "PBFA97CFB590B2093"
                     },
                     "editorMode": "code",
-                    "expr": "sum(rate(cml_cloud_manager_tasks_created_total[1m]))",
+                    "expr": "sum(rate(lablet_cloud_manager_tasks_created_total[1m]))",
                     "legendFormat": "Tasks Created",
                     "range": true,
                     "refId": "A"
@@ -113,10 +113,10 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "prometheus"
+                        "uid": "PBFA97CFB590B2093"
                     },
                     "editorMode": "code",
-                    "expr": "sum(rate(cml_cloud_manager_tasks_completed_total[1m]))",
+                    "expr": "sum(rate(lablet_cloud_manager_tasks_completed_total[1m]))",
                     "legendFormat": "Tasks Completed",
                     "range": true,
                     "refId": "B"
@@ -124,10 +124,10 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "prometheus"
+                        "uid": "PBFA97CFB590B2093"
                     },
                     "editorMode": "code",
-                    "expr": "sum(rate(cml_cloud_manager_tasks_failed_total[1m]))",
+                    "expr": "sum(rate(lablet_cloud_manager_tasks_failed_total[1m]))",
                     "legendFormat": "Tasks Failed",
                     "range": true,
                     "refId": "C"
@@ -139,7 +139,7 @@
         {
             "datasource": {
                 "type": "prometheus",
-                "uid": "prometheus"
+                "uid": "PBFA97CFB590B2093"
             },
             "fieldConfig": {
                 "defaults": {
@@ -217,10 +217,10 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "prometheus"
+                        "uid": "PBFA97CFB590B2093"
                     },
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.95, sum(rate(cml_cloud_manager_task_processing_time_bucket[5m])) by (le))",
+                    "expr": "histogram_quantile(0.95, sum(rate(lablet_cloud_manager_task_processing_time_bucket[5m])) by (le))",
                     "legendFormat": "P95 Processing Time",
                     "range": true,
                     "refId": "A"
@@ -228,10 +228,10 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "prometheus"
+                        "uid": "PBFA97CFB590B2093"
                     },
                     "editorMode": "code",
-                    "expr": "histogram_quantile(0.50, sum(rate(cml_cloud_manager_task_processing_time_bucket[5m])) by (le))",
+                    "expr": "histogram_quantile(0.50, sum(rate(lablet_cloud_manager_task_processing_time_bucket[5m])) by (le))",
                     "legendFormat": "P50 Processing Time",
                     "range": true,
                     "refId": "B"
@@ -243,7 +243,7 @@
         {
             "datasource": {
                 "type": "prometheus",
-                "uid": "prometheus"
+                "uid": "PBFA97CFB590B2093"
             },
             "fieldConfig": {
                 "defaults": {
@@ -321,7 +321,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "prometheus"
+                        "uid": "PBFA97CFB590B2093"
                     },
                     "editorMode": "code",
                     "expr": "cml_worker_cpu_utilization",
@@ -332,7 +332,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "prometheus"
+                        "uid": "PBFA97CFB590B2093"
                     },
                     "editorMode": "code",
                     "expr": "cml_worker_memory_utilization",
@@ -347,7 +347,7 @@
         {
             "datasource": {
                 "type": "prometheus",
-                "uid": "prometheus"
+                "uid": "PBFA97CFB590B2093"
             },
             "fieldConfig": {
                 "defaults": {
@@ -424,7 +424,7 @@
                 {
                     "datasource": {
                         "type": "prometheus",
-                        "uid": "prometheus"
+                        "uid": "PBFA97CFB590B2093"
                     },
                     "editorMode": "code",
                     "expr": "cml_worker_labs_count",

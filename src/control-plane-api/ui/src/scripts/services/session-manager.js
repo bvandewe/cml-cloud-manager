@@ -54,11 +54,11 @@ class SessionManager {
 
         this.warningShown = true;
 
-        // Create banner
+        // Create banner - positioned below navbar
         const banner = document.createElement('div');
         banner.id = this.bannerId;
-        banner.className = 'alert alert-warning fixed-top m-0 text-center d-flex justify-content-center align-items-center';
-        banner.style.zIndex = '9999';
+        banner.className = 'alert alert-warning text-center d-flex justify-content-center align-items-center';
+        banner.style.cssText = 'position: fixed; top: 56px; left: 0; right: 0; z-index: 1040; margin: 0; border-radius: 0; background-color: #fff3cd; border-color: #ffc107;';
         banner.innerHTML = `
             <span class="me-3">
                 <i class="bi bi-exclamation-triangle-fill me-2"></i>

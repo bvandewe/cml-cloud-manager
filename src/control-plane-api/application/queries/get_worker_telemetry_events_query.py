@@ -37,9 +37,7 @@ class GetWorkerTelemetryEventsQuery(Query[OperationResult[dict[str, Any]]]):
     since: datetime | None = None
 
 
-class GetWorkerTelemetryEventsQueryHandler(
-    QueryHandler[GetWorkerTelemetryEventsQuery, OperationResult[dict[str, Any]]]
-):
+class GetWorkerTelemetryEventsQueryHandler(QueryHandler[GetWorkerTelemetryEventsQuery, OperationResult[dict[str, Any]]]):
     """Handler for GetWorkerTelemetryEventsQuery.
 
     Fetches raw telemetry events from CML API and filters for relevant user activity.
@@ -114,9 +112,7 @@ class GetWorkerTelemetryEventsQueryHandler(
                 span.set_attribute("filtered_events_count", len(filtered_events))
 
                 # Get most recent events for display
-                recent_events = get_most_recent_events(
-                    filtered_events, self._settings.worker_activity_events_max_stored
-                )
+                recent_events = get_most_recent_events(filtered_events, self._settings.worker_activity_events_max_stored)
 
                 # Extract latest activity timestamp
                 latest_activity = get_latest_activity_timestamp(filtered_events)
@@ -130,10 +126,7 @@ class GetWorkerTelemetryEventsQueryHandler(
                     "checked_at": datetime.now(timezone.utc),
                 }
 
-                log.info(
-                    f"Retrieved {len(filtered_events)} relevant events "
-                    f"from {len(raw_events)} total for worker {query.worker_id}"
-                )
+                log.info(f"Retrieved {len(filtered_events)} relevant events " f"from {len(raw_events)} total for worker {query.worker_id}")
 
                 span.set_status(Status(StatusCode.OK))
                 return self.ok(result)

@@ -51,7 +51,7 @@ make docker-rebuild
 
 ### Application Service
 
-**Container**: `cml-cloud-manager`
+**Container**: `lablet-cloud-manager`
 **Port**: 8020
 **Debug Port**: 5678
 
@@ -106,7 +106,7 @@ Watches `src/ui/` directory and rebuilds on changes:
 
 **Container**: `mongodb`
 **Port**: 27017
-**Database**: `cml_cloud_manager`
+**Database**: `lablet_cloud_manager`
 
 MongoDB 6.0 for task storage.
 
@@ -118,7 +118,7 @@ MongoDB 6.0 for task storage.
 **Connection String**:
 
 ```
-mongodb://root:neuroglia123@localhost:27017/cml_cloud_manager?authSource=admin
+mongodb://root:neuroglia123@localhost:27017/lablet_cloud_manager?authSource=admin
 ```
 
 **Persistent Storage**: Docker volume `mongodb_data`
@@ -159,12 +159,12 @@ Identity provider for OAuth2/OIDC authentication.
 - Username: `admin`
 - Password: `admin`
 
-**Realm**: `cml-cloud-manager`
+**Realm**: `lablet-cloud-manager`
 
 **Configuration**:
 
 - Automatic realm import on startup
-- Realm config: `deployment/keycloak/cml-cloud-manager-realm-export.json`
+- Realm config: `deployment/keycloak/lablet-cloud-manager-realm-export.json`
 - Pre-configured test users (admin, manager, user)
 
 **Persistent Storage**: Docker volume `keycloak_data`
@@ -235,7 +235,7 @@ LOG_LEVEL=INFO
 # MongoDB
 MONGODB_HOST=mongodb
 MONGODB_PORT=27017
-MONGODB_DATABASE=cml_cloud_manager
+MONGODB_DATABASE=lablet_cloud_manager
 MONGODB_USERNAME=root
 MONGODB_PASSWORD=neuroglia123
 
@@ -246,18 +246,18 @@ SESSION_TTL=3600
 
 # Keycloak
 KEYCLOAK_HOST=http://keycloak:8080
-KEYCLOAK_REALM=cml-cloud-manager
-KEYCLOAK_CLIENT_ID=cml-cloud-manager-client
+KEYCLOAK_REALM=lablet-cloud-manager
+KEYCLOAK_CLIENT_ID=lablet-cloud-manager-client
 KEYCLOAK_CLIENT_SECRET=your-secret
 
 # OpenTelemetry
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-OTEL_SERVICE_NAME=cml-cloud-manager
+OTEL_SERVICE_NAME=lablet-cloud-manager
 ```
 
 ## Networking
 
-All services communicate via `cml-cloud-manager-net` bridge network.
+All services communicate via `lablet-cloud-manager-net` bridge network.
 
 **DNS Resolution**:
 
@@ -275,7 +275,7 @@ Data persisted across container restarts:
 ### Backup Volumes
 
 ```bash
-docker run --rm -v cml-cloud-manager_mongodb_data:/data -v $(pwd):/backup \
+docker run --rm -v lablet-cloud-manager_mongodb_data:/data -v $(pwd):/backup \
   alpine tar czf /backup/mongodb-backup.tar.gz /data
 ```
 

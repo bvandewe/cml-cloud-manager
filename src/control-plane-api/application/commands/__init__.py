@@ -1,4 +1,8 @@
-"""Application commands package."""
+"""Application commands package.
+
+ADR-015: All commands in this package are DB-only operations.
+External calls (EC2, CloudWatch, CML API) are handled by controllers.
+"""
 
 # Base class - stays at root level
 from .command_handler_base import CommandHandlerBase
@@ -16,31 +20,31 @@ from .lab import (
     LabAction,
 )
 
+# LabletDefinition commands
+from .lablet_definition import (
+    CreateLabletDefinitionCommand,
+    CreateLabletDefinitionCommandHandler,
+    SyncLabletDefinitionCommand,
+    SyncLabletDefinitionCommandHandler,
+    UpdateLabletDefinitionCommand,
+    UpdateLabletDefinitionCommandHandler,
+)
+
+# LabletSession commands (Phase 7D — replaces LabletInstance commands)
+from .lablet_session import (
+    CreateLabletSessionCommand,
+    CreateLabletSessionCommandHandler,
+    RecordResourceObservationCommand,
+    RecordResourceObservationCommandHandler,
+    TerminateLabletSessionCommand,
+    TerminateLabletSessionCommandHandler,
+)
+
 # Settings commands
 from .settings import UpdateSystemSettingsCommand, UpdateSystemSettingsCommandHandler
 
-# Task commands
-from .task import (
-    CreateTaskCommand,
-    CreateTaskCommandHandler,
-    DeleteTaskCommand,
-    DeleteTaskCommandHandler,
-    UpdateTaskCommand,
-    UpdateTaskCommandHandler,
-)
-
-# Worker commands
+# Worker commands (DB-only per ADR-015)
 from .worker import (
-    BulkImportCMLWorkersCommand,
-    BulkImportCMLWorkersCommandHandler,
-    BulkImportResult,
-    BulkSyncResult,
-    BulkSyncWorkerCMLDataCommand,
-    BulkSyncWorkerCMLDataCommandHandler,
-    BulkSyncWorkerEC2StatusCommand,
-    BulkSyncWorkerEC2StatusCommandHandler,
-    CollectWorkerCloudWatchMetricsCommand,
-    CollectWorkerCloudWatchMetricsCommandHandler,
     CreateCMLWorkerCommand,
     CreateCMLWorkerCommandHandler,
     DeleteCMLWorkerCommand,
@@ -55,34 +59,51 @@ from .worker import (
     EnableIdleDetectionCommandHandler,
     EnableWorkerDetailedMonitoringCommand,
     EnableWorkerDetailedMonitoringCommandHandler,
-    ImportCMLWorkerCommand,
-    ImportCMLWorkerCommandHandler,
+    InternalBulkImportResult,
+    InternalBulkImportWorkersCommand,
+    InternalBulkImportWorkersCommandHandler,
+    MarkWorkerTerminatedCommand,
+    MarkWorkerTerminatedCommandHandler,
     PauseWorkerCommand,
     PauseWorkerCommandHandler,
-    RefreshWorkerLabsCommand,
-    RefreshWorkerLabsCommandHandler,
-    RefreshWorkerMetricsCommand,
-    RefreshWorkerMetricsCommandHandler,
     RegisterCMLWorkerLicenseCommand,
     RegisterCMLWorkerLicenseCommandHandler,
-    RequestWorkerDataRefreshCommand,
-    RequestWorkerDataRefreshCommandHandler,
+    RequestScaleUpCommand,
+    RequestScaleUpCommandHandler,
+    RequestWorkerRefreshCommand,
+    RequestWorkerRefreshCommandHandler,
     StartCMLWorkerCommand,
     StartCMLWorkerCommandHandler,
     StopCMLWorkerCommand,
     StopCMLWorkerCommandHandler,
-    SyncWorkerCMLDataCommand,
-    SyncWorkerCMLDataCommandHandler,
-    SyncWorkerEC2StatusCommand,
-    SyncWorkerEC2StatusCommandHandler,
     TerminateCMLWorkerCommand,
     TerminateCMLWorkerCommandHandler,
+    UpdateCMLWorkerMetricsCommand,
+    UpdateCMLWorkerMetricsCommandHandler,
     UpdateCMLWorkerStatusCommand,
     UpdateCMLWorkerStatusCommandHandler,
     UpdateCMLWorkerTagsCommand,
     UpdateCMLWorkerTagsCommandHandler,
     UpdateWorkerActivityCommand,
     UpdateWorkerActivityCommandHandler,
+    UpdateWorkerCmlDataCommand,
+    UpdateWorkerCmlDataCommandHandler,
+    UpdateWorkerEc2DetailsCommand,
+    UpdateWorkerEc2DetailsCommandHandler,
+)
+
+# WorkerTemplate commands
+from .worker_template import (
+    CreateWorkerTemplateCommand,
+    CreateWorkerTemplateCommandHandler,
+    DeleteWorkerTemplateCommand,
+    DeleteWorkerTemplateCommandHandler,
+    DisableWorkerTemplateCommand,
+    DisableWorkerTemplateCommandHandler,
+    EnableWorkerTemplateCommand,
+    EnableWorkerTemplateCommandHandler,
+    UpdateWorkerTemplateCommand,
+    UpdateWorkerTemplateCommandHandler,
 )
 
 __all__ = [
@@ -98,27 +119,33 @@ __all__ = [
     "ImportLabCommand",
     "ImportLabCommandHandler",
     "LabAction",
+    # LabletDefinition commands
+    "CreateLabletDefinitionCommand",
+    "CreateLabletDefinitionCommandHandler",
+    "SyncLabletDefinitionCommand",
+    "SyncLabletDefinitionCommandHandler",
+    # WorkerTemplate commands
+    "CreateWorkerTemplateCommand",
+    "CreateWorkerTemplateCommandHandler",
+    "DeleteWorkerTemplateCommand",
+    "DeleteWorkerTemplateCommandHandler",
+    "DisableWorkerTemplateCommand",
+    "DisableWorkerTemplateCommandHandler",
+    "EnableWorkerTemplateCommand",
+    "EnableWorkerTemplateCommandHandler",
+    "UpdateWorkerTemplateCommand",
+    "UpdateWorkerTemplateCommandHandler",
+    # LabletSession commands (Phase 7D)
+    "CreateLabletSessionCommand",
+    "CreateLabletSessionCommandHandler",
+    "RecordResourceObservationCommand",
+    "RecordResourceObservationCommandHandler",
+    "TerminateLabletSessionCommand",
+    "TerminateLabletSessionCommandHandler",
     # Settings commands
     "UpdateSystemSettingsCommand",
     "UpdateSystemSettingsCommandHandler",
-    # Task commands
-    "CreateTaskCommand",
-    "CreateTaskCommandHandler",
-    "DeleteTaskCommand",
-    "DeleteTaskCommandHandler",
-    "UpdateTaskCommand",
-    "UpdateTaskCommandHandler",
-    # Worker commands
-    "BulkImportCMLWorkersCommand",
-    "BulkImportCMLWorkersCommandHandler",
-    "BulkImportResult",
-    "BulkSyncWorkerCMLDataCommand",
-    "BulkSyncWorkerCMLDataCommandHandler",
-    "BulkSyncWorkerEC2StatusCommand",
-    "BulkSyncWorkerEC2StatusCommandHandler",
-    "BulkSyncResult",
-    "CollectWorkerCloudWatchMetricsCommand",
-    "CollectWorkerCloudWatchMetricsCommandHandler",
+    # Worker commands (DB-only per ADR-015)
     "CreateCMLWorkerCommand",
     "CreateCMLWorkerCommandHandler",
     "DeleteCMLWorkerCommand",
@@ -133,36 +160,35 @@ __all__ = [
     "EnableIdleDetectionCommandHandler",
     "EnableWorkerDetailedMonitoringCommand",
     "EnableWorkerDetailedMonitoringCommandHandler",
-    "ImportCMLWorkerCommand",
-    "ImportCMLWorkerCommandHandler",
+    "InternalBulkImportResult",
+    "InternalBulkImportWorkersCommand",
+    "InternalBulkImportWorkersCommandHandler",
+    "MarkWorkerTerminatedCommand",
+    "MarkWorkerTerminatedCommandHandler",
     "PauseWorkerCommand",
     "PauseWorkerCommandHandler",
-    "RefreshWorkerLabsCommand",
-    "RefreshWorkerLabsCommandHandler",
-    "RefreshWorkerMetricsCommand",
-    "RefreshWorkerMetricsCommandHandler",
     "RegisterCMLWorkerLicenseCommand",
     "RegisterCMLWorkerLicenseCommandHandler",
-    "RequestWorkerDataRefreshCommand",
-    "RequestWorkerDataRefreshCommandHandler",
+    "RequestScaleUpCommand",
+    "RequestScaleUpCommandHandler",
+    "RequestWorkerRefreshCommand",
+    "RequestWorkerRefreshCommandHandler",
     "StartCMLWorkerCommand",
     "StartCMLWorkerCommandHandler",
     "StopCMLWorkerCommand",
     "StopCMLWorkerCommandHandler",
-    "SyncWorkerCMLDataCommand",
-    "SyncWorkerCMLDataCommandHandler",
-    "SyncWorkerEC2StatusCommand",
-    "SyncWorkerEC2StatusCommandHandler",
     "TerminateCMLWorkerCommand",
     "TerminateCMLWorkerCommandHandler",
+    "UpdateCMLWorkerMetricsCommand",
+    "UpdateCMLWorkerMetricsCommandHandler",
     "UpdateCMLWorkerStatusCommand",
     "UpdateCMLWorkerStatusCommandHandler",
     "UpdateCMLWorkerTagsCommand",
     "UpdateCMLWorkerTagsCommandHandler",
-    "UpdateSystemSettingsCommand",
-    "UpdateSystemSettingsCommandHandler",
-    "UpdateTaskCommand",
-    "UpdateTaskCommandHandler",
     "UpdateWorkerActivityCommand",
     "UpdateWorkerActivityCommandHandler",
+    "UpdateWorkerCmlDataCommand",
+    "UpdateWorkerCmlDataCommandHandler",
+    "UpdateWorkerEc2DetailsCommand",
+    "UpdateWorkerEc2DetailsCommandHandler",
 ]

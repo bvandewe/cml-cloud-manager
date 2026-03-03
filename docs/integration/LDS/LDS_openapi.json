@@ -1,0 +1,3679 @@
+{
+    "info": {
+        "description": "This API is used by 3rd party clients to manage the Content,                     Sessions and Reports of the Lab Delivery System (LDS).",
+        "title": "LDS Reservations API",
+        "version": "3.0"
+    },
+    "paths": {
+        "/reservations/v3/lab_folder/minio/{form_qualified_name}": {
+            "get": {
+                "summary": "Get stats on content for lab module/exercise by FQN.",
+                "operationId": "getLabFolderMinIO",
+                "tags": ["Content"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "form_qualified_name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "FQN of the lab module to get stats about"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A LabFolder object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LabFolder"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "DatePublished": "2023-Aug-01 05:32:44",
+                                            "ExamId": "63377166b8f20b44c9a0444c",
+                                            "ExamVersion": "1.0",
+                                            "FormId": "64c27d71bf5ff128f135656d",
+                                            "FormName": "DES-2.1",
+                                            "FormSetId": "64c27d71bf5ff128f1356561",
+                                            "FormStatus": "In-Progress",
+                                            "InstanceAudience": "private",
+                                            "InstanceDB": "mongodb-tmp-other",
+                                            "InstanceName": "mosaic-tmp.mydomain.com",
+                                            "InstanceRegion": "us-west-1",
+                                            "InstanceType": "aws-k8s-pod",
+                                            "Layout": "SVN_Default",
+                                            "ModuleId": "6337717cb8f20b44c9a04454",
+                                            "ModuleTypeName": "Hybrid Based (Design)",
+                                            "OutstandingCommentsCount": 1,
+                                            "OutstandingRatings": 0,
+                                            "Publisher": "service-account-mosaic",
+                                            "TrackId": "63377165b8f20b44c9a0444b",
+                                            "TrackLongName": "Exam CCIE TEST Track",
+                                            "TrackShortName": "TEST",
+                                            "ValidatedBeforePublishing": false,
+                                            "Version": "4"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "summary": "Update lab content for the requested FQN to latest available from MinIO.",
+                "operationId": "putLabFolderMinIO",
+                "tags": ["Content"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "form_qualified_name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "FQN of the lab module to get stats about"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The resulting LabFolder object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LabFolder"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "DatePublished": "2023-Aug-01 05:32:44",
+                                            "ExamId": "63377166b8f20b44c9a0444c",
+                                            "ExamVersion": "1.0",
+                                            "FormId": "64c27d71bf5ff128f135656d",
+                                            "FormName": "DES-2.1",
+                                            "FormSetId": "64c27d71bf5ff128f1356561",
+                                            "FormStatus": "In-Progress",
+                                            "InstanceAudience": "private",
+                                            "InstanceDB": "mongodb-tmp-other",
+                                            "InstanceName": "mosaic-tmp.mydomain.com",
+                                            "InstanceRegion": "us-west-1",
+                                            "InstanceType": "aws-k8s-pod",
+                                            "Layout": "SVN_Default",
+                                            "ModuleId": "6337717cb8f20b44c9a04454",
+                                            "ModuleTypeName": "Hybrid Based (Design)",
+                                            "OutstandingCommentsCount": 1,
+                                            "OutstandingRatings": 0,
+                                            "Publisher": "service-account-mosaic",
+                                            "TrackId": "63377165b8f20b44c9a0444b",
+                                            "TrackLongName": "Exam CCIE TEST Track",
+                                            "TrackShortName": "TEST",
+                                            "ValidatedBeforePublishing": false,
+                                            "Version": "4"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_folder/minio/{form_qualified_name}/validate": {
+            "get": {
+                "summary": "Validate the content for lab module/exercise by Track and Exam Version.",
+                "operationId": "getLabFolderMinIOValidate",
+                "tags": ["Content"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "form_qualified_name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "FQN of the lab module to get stats about"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "LabFolder validity.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LabFolderValidity"
+                                },
+                                "examples": {
+                                    "Valid": {
+                                        "value": {
+                                            "is_valid": true,
+                                            "message": "OK"
+                                        }
+                                    },
+                                    "Not Valid": {
+                                        "value": {
+                                            "is_valid": false,
+                                            "message": "Cannot parse XML file ..."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_folder/svn/{track}/{exam_version}": {
+            "get": {
+                "summary": "Get stats on content for lab module/exercise by Track and Exam Version.",
+                "operationId": "getLabFolderSvn",
+                "tags": ["Content"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "track",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "Track of lab module to get stats about"
+                    },
+                    {
+                        "in": "path",
+                        "name": "exam_version",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "Exam Version of lab module to get stats about"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A LabFolder object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LabFolder"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "DatePublished": "2023-Jul-30 09:42:35",
+                                            "ExamId": "63377166b8f20b44c9a0444c",
+                                            "ExamVersion": "1.0",
+                                            "FormId": "633d80e6ec5f573509b90480",
+                                            "FormName": "DOO-2.1",
+                                            "FormSetId": "633d80e6ec5f573509b90472",
+                                            "FormStatus": "In-Progress",
+                                            "InstanceAudience": "private",
+                                            "InstanceDB": "mongodb-tmp-other",
+                                            "InstanceName": "mosaic-tmp.mydomain.com",
+                                            "InstanceRegion": "us-west-1",
+                                            "InstanceType": "aws-k8s-pod",
+                                            "Layout": "SVN_Default",
+                                            "ModuleId": "63377171b8f20b44c9a0444f",
+                                            "ModuleTypeName": "Hybrid Based (Deploy-Op)",
+                                            "OutstandingCommentsCount": 2,
+                                            "OutstandingRatings": 0,
+                                            "Publisher": "service-account-mosaic",
+                                            "TrackId": "63377165b8f20b44c9a0444b",
+                                            "TrackLongName": "Exam CCIE TEST Track",
+                                            "TrackShortName": "TEST",
+                                            "ValidatedBeforePublishing": false,
+                                            "Version": "7"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "summary": "Update lab content for the requested Track & Exam Version to latest available from SVN.\n",
+                "operationId": "putLabFolderSvn",
+                "tags": ["Content"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "track",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "Track of lab module to get stats about"
+                    },
+                    {
+                        "in": "path",
+                        "name": "exam_version",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "Exam Version of lab module to get stats about"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The resulting LabFolder object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LabFolder"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "DatePublished": "2023-Jul-30 09:42:35",
+                                            "ExamId": "63377166b8f20b44c9a0444c",
+                                            "ExamVersion": "1.0",
+                                            "FormId": "633d80e6ec5f573509b90480",
+                                            "FormName": "DOO-2.1",
+                                            "FormSetId": "633d80e6ec5f573509b90472",
+                                            "FormStatus": "In-Progress",
+                                            "InstanceAudience": "private",
+                                            "InstanceDB": "mongodb-tmp-other",
+                                            "InstanceName": "mosaic-tmp.mydomain.com",
+                                            "InstanceRegion": "us-west-1",
+                                            "InstanceType": "aws-k8s-pod",
+                                            "Layout": "SVN_Default",
+                                            "ModuleId": "63377171b8f20b44c9a0444f",
+                                            "ModuleTypeName": "Hybrid Based (Deploy-Op)",
+                                            "OutstandingCommentsCount": 2,
+                                            "OutstandingRatings": 0,
+                                            "Publisher": "service-account-mosaic",
+                                            "TrackId": "63377165b8f20b44c9a0444b",
+                                            "TrackLongName": "Exam CCIE TEST Track",
+                                            "TrackShortName": "TEST",
+                                            "ValidatedBeforePublishing": false,
+                                            "Version": "7"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_folder/svn/{track}/{exam_version}/validate": {
+            "get": {
+                "summary": "Validate the content for lab module/exercise by Track and Exam Version.",
+                "operationId": "getLabFolderSvnValidate",
+                "tags": ["Content"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "track",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "Track of lab module to get stats about"
+                    },
+                    {
+                        "in": "path",
+                        "name": "exam_version",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "Exam Version of lab module to get stats about"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "LabFolder validity.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LabFolderValidity"
+                                },
+                                "examples": {
+                                    "Valid": {
+                                        "value": {
+                                            "is_valid": true,
+                                            "message": "OK"
+                                        }
+                                    },
+                                    "Not Valid": {
+                                        "value": {
+                                            "is_valid": false,
+                                            "message": "Cannot parse XML file ..."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session": {
+            "get": {
+                "summary": "Get the most recent LDS Session ID for a given session state.",
+                "operationId": "getLDSSessionLatestForState",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "state",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true,
+                        "description": "LDSSession state to filter on"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An LDSSessionLatestForState object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSessionLatestForState"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "latest_session_id": "25bd6c7c-dace-4ac8-a42b-c6ad50e43517",
+                                            "state": "SESSION_PENDING"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Create a new LDS Session",
+                "operationId": "postLDSSession",
+                "tags": ["Session"],
+                "requestBody": {
+                    "description": "LDS Session (reservation) to add",
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LDSSession"
+                            },
+                            "examples": {
+                                "Exam_SVN": {
+                                    "value": {
+                                        "origin": "swaggerui",
+                                        "auth_id": "test_user",
+                                        "auth_id_type": "ordered_session",
+                                        "candidate_id": "123456789",
+                                        "location": "somewhere",
+                                        "timezone_offset": 0,
+                                        "first_name": "John",
+                                        "last_name": "Doe",
+                                        "rack_group": "SJ",
+                                        "rack_number": 1,
+                                        "email_address": "john@doe.org",
+                                        "scheduled_date": "2023-01-01",
+                                        "session_parts": [
+                                            {
+                                                "track": "TESTv1",
+                                                "exam_version": "DES-1.1",
+                                                "variables": {
+                                                    "ceo_name": "My CEO",
+                                                    "company_name": "My Company"
+                                                }
+                                            }
+                                        ]
+                                    }
+                                },
+                                "Exam_MinIO": {
+                                    "value": {
+                                        "origin": "swaggerui",
+                                        "auth_id": "test_user",
+                                        "auth_id_type": "ordered_session",
+                                        "candidate_id": "123456789",
+                                        "location": "somewhere",
+                                        "timezone_offset": 0,
+                                        "first_name": "John",
+                                        "last_name": "Doe",
+                                        "rack_group": "SJ",
+                                        "rack_number": 1,
+                                        "email_address": "john@doe.org",
+                                        "scheduled_date": "2023-01-01",
+                                        "session_parts": [
+                                            {
+                                                "repository_type": "minio",
+                                                "form_qualified_name": "Exam CCIE TEST v1 DES 1.1",
+                                                "variables": {
+                                                    "ceo_name": "My CEO",
+                                                    "company_name": "My Company"
+                                                }
+                                            }
+                                        ]
+                                    }
+                                },
+                                "Exam_NoPart": {
+                                    "value": {
+                                        "origin": "swaggerui",
+                                        "auth_id": "test_user",
+                                        "auth_id_type": "ordered_session",
+                                        "candidate_id": "123456789",
+                                        "location": "somewhere",
+                                        "timezone_offset": 0,
+                                        "first_name": "John",
+                                        "last_name": "Doe",
+                                        "rack_group": "SJ",
+                                        "rack_number": 1,
+                                        "email_address": "john@doe.org",
+                                        "scheduled_date": "2023-01-01",
+                                        "session_parts": []
+                                    }
+                                },
+                                "PracticeLab": {
+                                    "value": {
+                                        "origin": "swaggerui",
+                                        "auth_id": "test_user",
+                                        "auth_id_type": "ordered_session",
+                                        "candidate_id": "123456789",
+                                        "location": "somewhere",
+                                        "timezone_offset": 0,
+                                        "first_name": "John",
+                                        "last_name": "Doe",
+                                        "rack_group": "SJ",
+                                        "rack_number": 1,
+                                        "email_address": "john@doe.org",
+                                        "scheduled_date": "2023-01-01",
+                                        "user_timeslot_end": "2023-01-01T04:00:00.000Z",
+                                        "max_length_minutes": 240,
+                                        "session_parts": [
+                                            {
+                                                "repository_type": "minio",
+                                                "form_qualified_name": "PL CCIE TEST v1 DES 1.1",
+                                                "variables": {
+                                                    "ceo_name": "My CEO",
+                                                    "company_name": "My Company"
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An LDSSessionCreated object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSessionCreated"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "location": "http://1.2.3.4/reservations/v3/lab_session/<uuid>",
+                                            "message": "Session created",
+                                            "session_id": "13e5b2a3-3153-4216-8927-32853a2b0d95"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}": {
+            "get": {
+                "summary": "Get reservation details for a given LDS Session",
+                "operationId": "getLDSSession",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An LDSSession object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSession"
+                                },
+                                "examples": {
+                                    "Without LDSSession Parts": {
+                                        "value": {
+                                            "active_reservation": true,
+                                            "auth_id": "123456789",
+                                            "auth_id_type": "ordered_session",
+                                            "candidate_id": "123456789",
+                                            "created": "2023-10-07T07:01:53.251368+00:00",
+                                            "current_session_part": 1,
+                                            "email_address": null,
+                                            "first_name": "Joe",
+                                            "id": "859360c2-255e-4ccf-a8da-6831fc87693e",
+                                            "is_finalized": false,
+                                            "last_name": "Blow",
+                                            "location": "Somewhere",
+                                            "log_id": "SID=859360c2-255e-4ccf-a8da-6831fc87693e",
+                                            "origin": "360",
+                                            "password": null,
+                                            "rack_group": "2",
+                                            "rack_number": "1",
+                                            "scheduled_date": "2023-10-07T07:01:53.232368+00:00",
+                                            "session_parts": [],
+                                            "state": "SESSION_PENDING",
+                                            "timer_paused": false,
+                                            "timezone_offset": -4
+                                        }
+                                    },
+                                    "With LDS Session Parts": {
+                                        "value": {
+                                            "active_reservation": true,
+                                            "auth_id": "123456789",
+                                            "auth_id_type": "ordered_session",
+                                            "candidate_id": "123456789",
+                                            "created": "2023-10-07T14:28:55.393596+00:00",
+                                            "current_session_part": 1,
+                                            "email_address": null,
+                                            "first_name": "Joe",
+                                            "id": "068441bf-da43-4017-bf4b-2d849f339391",
+                                            "is_finalized": false,
+                                            "last_name": "Blow",
+                                            "location": "Somewhere",
+                                            "log_id": "SID=068441bf-da43-4017-bf4b-2d849f339391",
+                                            "origin": "360",
+                                            "password": null,
+                                            "rack_group": "2",
+                                            "rack_number": "1",
+                                            "scheduled_date": "2023-10-07T14:28:55.377701+00:00",
+                                            "session_parts": [
+                                                {
+                                                    "current_position": {
+                                                        "item_id": "m1.s1.i1",
+                                                        "module_id": "m1",
+                                                        "section_id": "m1.s1"
+                                                    },
+                                                    "exam_version": "DES-2.1",
+                                                    "form_qualified_name": "Exam CCIE INF v1.2 DES-2.1",
+                                                    "repository_type": "svn",
+                                                    "session_part_state": "SESSION_PART_RUNNING",
+                                                    "timer": {
+                                                        "warning_at": "2023-10-13T18:18:33.562073+00:00",
+                                                        "warning_message": "Time is running out!...",
+                                                        "max_ends_at": "2023-10-13T18:33:33.562073+00:00",
+                                                        "min_ends_at": "2023-10-13T13:33:33.562073+00:00"
+                                                    },
+                                                    "track": "INFv1.2",
+                                                    "variables": null
+                                                }
+                                            ],
+                                            "state": "SESSION_PENDING",
+                                            "timer_paused": false,
+                                            "timezone_offset": -4
+                                        }
+                                    },
+                                    "Practice Lab": {
+                                        "value": {
+                                            "active_reservation": true,
+                                            "auth_id": "123456789",
+                                            "auth_id_type": "ordered_session",
+                                            "candidate_id": "123456789",
+                                            "created": "2023-10-07T14:34:42.321722+00:00",
+                                            "current_session_part": 1,
+                                            "email_address": null,
+                                            "first_name": "Joe",
+                                            "id": "70e53efb-2ffa-48de-aafd-79a29a9ada06",
+                                            "is_finalized": false,
+                                            "last_name": "Blow",
+                                            "location": "Somewhere",
+                                            "log_id": "SID=70e53efb-2ffa-48de-aafd-79a29a9ada06",
+                                            "origin": "360",
+                                            "password": null,
+                                            "practice_lab": {
+                                                "earliest_login": "2023-10-07T12:29:42.155504+00:00",
+                                                "grace_period": 5,
+                                                "latest_expiry": "2023-10-07T16:39:42.155504+00:00",
+                                                "max_ends_at": "2023-10-07T16:39:42.155504+00:00",
+                                                "max_length_minutes": 240,
+                                                "user_timeslot_end": "2023-10-07T16:34:42.155504+00:00",
+                                                "user_timeslot_start": "2023-10-07T12:34:42.155504+00:00"
+                                            },
+                                            "rack_group": "2",
+                                            "rack_number": "1",
+                                            "scheduled_date": "2023-10-07T14:34:42.304912+00:00",
+                                            "session_parts": [],
+                                            "state": "SESSION_PENDING",
+                                            "timer_paused": false,
+                                            "timezone_offset": -4
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "summary": "Update an LDS Session",
+                "operationId": "patchLDSSession",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve"
+                    }
+                ],
+                "requestBody": {
+                    "description": "LDS Session (reservation) to add",
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LDSSession"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The updated LDSSession object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSession"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "active_reservation": true,
+                                            "auth_id": "123456789",
+                                            "auth_id_type": "ordered_session",
+                                            "candidate_id": "123456789",
+                                            "created": "2023-10-07T07:01:53.251368+00:00",
+                                            "current_session_part": 1,
+                                            "email_address": null,
+                                            "first_name": "Joe",
+                                            "id": "859360c2-255e-4ccf-a8da-6831fc87693e",
+                                            "is_finalized": false,
+                                            "last_name": "Blow",
+                                            "location": "Somewhere",
+                                            "log_id": "SID=859360c2-255e-4ccf-a8da-6831fc87693e",
+                                            "origin": "360",
+                                            "password": null,
+                                            "rack_group": "2",
+                                            "rack_number": "1",
+                                            "scheduled_date": "2023-10-07T07:01:53.232368+00:00",
+                                            "session_parts": [],
+                                            "state": "SESSION_PENDING",
+                                            "timer_paused": false,
+                                            "timezone_offset": -4
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/pause": {
+            "put": {
+                "summary": "Pause an LDS Session.",
+                "operationId": "putLDSSessionPause",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to pause"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "The LDSSession was paused."
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/resume": {
+            "put": {
+                "summary": "Restart an LDS Session.",
+                "operationId": "putLDSSessionRestart",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to restart/resume"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "The LDS Session was restarted."
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/release": {
+            "post": {
+                "summary": "Finalize (end) an LDS Session.",
+                "operationId": "putLDSSessionFinalize",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to Finalize"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "nullable": true
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "The LDS Session was finalized."
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/refresh_status": {
+            "put": {
+                "summary": "Check and update the status of an LDS Session.",
+                "operationId": "putLDSSessionRefreshStatus",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to check and update status for."
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "String describing result of operation performed.",
+                        "content": {
+                            "application/json": {
+                                "examples": {
+                                    "Before final session part": {
+                                        "value": {
+                                            "result": "Not on final LDS Session Part"
+                                        }
+                                    },
+                                    "Session and session part set user finished": {
+                                        "value": {
+                                            "result": "LDS Session Part and LDS Session set user finished"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/force_user_finished": {
+            "put": {
+                "summary": "Forces a session and all it's parts to User Finished state.",
+                "operationId": "putLDSSessionForceUserFinished",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to check and update status for."
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "String describing result of operation performed.",
+                        "content": {
+                            "application/json": {
+                                "examples": {
+                                    "Session and session part set user finished": {
+                                        "value": {
+                                            "result": "LDS Session Part and LDS Session set user finished"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/lablet_launch_url": {
+            "get": {
+                "summary": "Get URL with JWT to launch in Lablet Mode.",
+                "operationId": "getLDSSessionLabletLaunchURL",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A launch URL.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "url": {
+                                            "type": "string",
+                                            "description": "The URL to launch the lab in lablet mode"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/accesslog": {
+            "get": {
+                "summary": "Get access logs entries for an LDS Session.",
+                "operationId": "getLDSSessionAccessLogs",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An LDSSessionAccessLog object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSessionAccessLog"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "session_info": {
+                                                "active_reservation": true,
+                                                "auth_id": "123456789",
+                                                "auth_id_type": "ordered_session",
+                                                "candidate_id": "123456789",
+                                                "created": "2023-10-04T16:29:49.640572+00:00",
+                                                "current_session_part": 1,
+                                                "email_address": null,
+                                                "first_name": "Joe",
+                                                "id": "08e10136-8678-43d5-bc97-e67266f99e60",
+                                                "is_finalized": false,
+                                                "last_name": "Blow",
+                                                "location": "Somewhere",
+                                                "log_id": "SID=08e10136-8678-43d5-bc97-e67266f99e60",
+                                                "origin": "360",
+                                                "password": null,
+                                                "rack_group": "2",
+                                                "rack_number": "1",
+                                                "scheduled_date": "2023-10-04T16:29:49.624847+00:00",
+                                                "session_parts": [],
+                                                "state": "SESSION_PENDING",
+                                                "timer_paused": false,
+                                                "timezone_offset": -4
+                                            },
+                                            "session_logs": [
+                                                {
+                                                    "category": "SESSION_LOG_CAT_LOGIN",
+                                                    "created": "2023-10-04T16:29:49.688607+00:00",
+                                                    "log_str": "foobar",
+                                                    "origin_identifier": null,
+                                                    "window_type": "Login"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/feedback": {
+            "get": {
+                "summary": "Fetch the list of all feedback items associated with all LDS Session Parts for the requested LDS Session.\n",
+                "operationId": "getLDSSessionFeedback",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A Feedback object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Feedback"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "session_part_feedback": [
+                                                {
+                                                    "item_id": "m1.s1.i1",
+                                                    "session_part": 1,
+                                                    "timestamp": 1696353795,
+                                                    "user_feedback": "foo"
+                                                },
+                                                {
+                                                    "item_id": "m1.s1.i2",
+                                                    "session_part": 1,
+                                                    "timestamp": 1696353795,
+                                                    "user_feedback": "bar"
+                                                },
+                                                {
+                                                    "item_id": "m2.s1.i1",
+                                                    "session_part": 2,
+                                                    "timestamp": 1696353795,
+                                                    "user_feedback": "blah"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/part/{part_num}": {
+            "get": {
+                "summary": "Fetch a specific LDS Session Part.",
+                "operationId": "getLDSSessionPart",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An LDSSessionPart object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSessionPart"
+                                },
+                                "examples": {
+                                    "MinIO/S3 Repository & FQN": {
+                                        "value": {
+                                            "exam_version": "DES-2.1",
+                                            "form_qualified_name": "Exam CCIE SEC v1 DES 2.1",
+                                            "repository_type": "minio",
+                                            "session_part_state": "SESSION_PART_PENDING",
+                                            "track": "SECv1",
+                                            "variables": null
+                                        }
+                                    },
+                                    "Subversion Repository & Track + Exam Version": {
+                                        "value": {
+                                            "exam_version": "CCIE4.0",
+                                            "form_qualified_name": "Exam CCIE CCIE CCIE4.0",
+                                            "repository_type": "svn",
+                                            "session_part_state": "SESSION_PART_PENDING",
+                                            "track": "CCIE",
+                                            "variables": null
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Add a new LDS Session Part to an LDS Session.",
+                "operationId": "postLDSSessionPart",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to create Session Part in"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "requestBody": {
+                    "description": "LDS Session Part to add",
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LDSSessionPart"
+                            },
+                            "examples": {
+                                "SVN": {
+                                    "value": {
+                                        "track": "TESTv1",
+                                        "exam_version": "DES-1.1",
+                                        "variables": {
+                                            "ceo_name": "My CEO",
+                                            "company_name": "My Company"
+                                        }
+                                    }
+                                },
+                                "MinIO": {
+                                    "value": {
+                                        "repository_type": "minio",
+                                        "form_qualified_name": "Exam CCIE TEST v1 DES 1.1",
+                                        "variables": {
+                                            "ceo_name": "My CEO",
+                                            "company_name": "My Company"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The added LDSSessionPart object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSessionPart"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "exam_version": "DES-2.1",
+                                            "form_qualified_name": "Exam CCIE SEC v1 DES 2.1",
+                                            "repository_type": "minio",
+                                            "session_part_state": "SESSION_PART_PENDING",
+                                            "track": "SECv1",
+                                            "variables": null
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "summary": "Update an existing LDS Session Part.",
+                "operationId": "putLDSSessionPart",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to update"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "requestBody": {
+                    "description": "LDS Session Part updates",
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LDSSessionPart"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The updated LDSSessionPart object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSessionPart"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "exam_version": "DES-2.1",
+                                            "form_qualified_name": "Exam CCIE SEC v1 DES 2.1",
+                                            "repository_type": "minio",
+                                            "session_part_state": "SESSION_PART_PENDING",
+                                            "track": "SECv1",
+                                            "variables": null
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "summary": "Delete an LDS Session Part.",
+                "operationId": "deleteLDSSessionPart",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to delete"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "The LDSSessionPart was deleted."
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/part/{part_num}/extend": {
+            "put": {
+                "summary": "Add (or remove) extra time from an LDS Session Part",
+                "operationId": "putLDSSessionPartExtension",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to adjust timing for"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "requestBody": {
+                    "description": "The timing adjustment in minutes.",
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LDSSessionPartTimeAdjustment"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "The time allotment for the LDSSessionPart was updated."
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/part/{part_num}/adjust": {
+            "put": {
+                "summary": "Add (or remove) extra time from an LDS Session Part",
+                "operationId": "putLDSSessionPartAdjustment",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to adjust timing for"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "requestBody": {
+                    "description": "The timing adjustment in minutes",
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LDSSessionPartTimeAdjustment"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "The time allotment for the LDSSessionPart was updated."
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/part/{part_num}/collect": {
+            "get": {
+                "summary": "Collect all end-user question responses for an LDS Session Part",
+                "operationId": "getLDSSessionPartResponses",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve responses for"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An LDSSessionPartResponses object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSessionPartResponses"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "sections": {
+                                                "1": {
+                                                    "items": {
+                                                        "2": {
+                                                            "questions": {
+                                                                "1": {
+                                                                    "answers": [
+                                                                        {
+                                                                            "3": "Option 3"
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            }
+                                                        },
+                                                        "3": {
+                                                            "questions": {
+                                                                "1": {
+                                                                    "answers": [
+                                                                        {
+                                                                            "4": "Option 4"
+                                                                        },
+                                                                        {
+                                                                            "1": "Option 1"
+                                                                        }
+                                                                    ]
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/part/{part_num}/devices": {
+            "get": {
+                "summary": "Get details on devices associated with an LDS Session Part",
+                "operationId": "getLDSSessionPartDevice",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to get devices for"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An array of LDSSessionPartDev objects.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/LDSSessionPartDev"
+                                    }
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": [
+                                            {
+                                                "device_label": "R1",
+                                                "host": "1.1.1.1",
+                                                "port": 2001,
+                                                "protocol": "telnet"
+                                            },
+                                            {
+                                                "device_label": "R2",
+                                                "host": "1.1.1.1",
+                                                "port": 2002,
+                                                "protocol": "telnet"
+                                            },
+                                            {
+                                                "device_label": "PC1",
+                                                "host": "1.1.1.2",
+                                                "password": "foopw",
+                                                "port": 2001,
+                                                "protocol": "vnc"
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "summary": "Delete any existing (if any) and add the requested devices that are associated with an LDS Session Part.\n",
+                "operationId": "putLDSSessionPartDevice",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to add/replace devices for"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "requestBody": {
+                    "description": "LDS Session Part Devices to add/replace",
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/LDSSessionPartDev"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An array of the resulting LDSSessionPartDev objects.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/LDSSessionPartDev"
+                                    }
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": [
+                                            {
+                                                "device_label": "R1",
+                                                "host": "1.1.1.1",
+                                                "port": 2001,
+                                                "protocol": "telnet"
+                                            },
+                                            {
+                                                "device_label": "R2",
+                                                "host": "1.1.1.1",
+                                                "port": 2002,
+                                                "protocol": "telnet"
+                                            },
+                                            {
+                                                "device_label": "PC1",
+                                                "host": "1.1.1.2",
+                                                "password": "foopw",
+                                                "port": 2001,
+                                                "protocol": "vnc"
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/part/{part_num}/variables": {
+            "get": {
+                "summary": "Fetch variables assigned to an LDS Session Part.",
+                "operationId": "getLDSSessionPartVariables",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to add/replace variables for"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The resulting LDSSessionPartVariables hash/dict.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/object"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "variables": {
+                                                "umbrella_username": "joeuser",
+                                                "umbreally_password": "mypassword"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "summary": "Replace variables for an LDS Session Part.",
+                "operationId": "putLDSSessionPartVariables",
+                "tags": ["SessionPart"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to add/replace variables for"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "requestBody": {
+                    "description": "Dict (or hash) of name/value pairs to add/replace as variables",
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "examples": {
+                                "CloudCredentials": {
+                                    "value": {
+                                        "umbrella_username": "joeuser",
+                                        "umbrella_password": "mypassword"
+                                    }
+                                },
+                                "ContentVariables": {
+                                    "value": {
+                                        "company_name": "Texla",
+                                        "ceo_name": "Ejon Busk"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The resulting LDSSessionPartVariables hash/dict.",
+                        "content": {
+                            "application/json": {
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "variables": {
+                                                "umbrella_username": "joeuser",
+                                                "umbrella_password": "mypassword"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/logs": {
+            "get": {
+                "summary": "Fetch logs for an LDS Session.",
+                "operationId": "getLDSSessionLogs",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An LDSSessionLog object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSessionLog"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "session_info": {
+                                                "active_reservation": true,
+                                                "auth_id": "123456789",
+                                                "auth_id_type": "ordered_session",
+                                                "created": 1696527379,
+                                                "current_session_part": 1,
+                                                "email_address": null,
+                                                "first_name": "Joe",
+                                                "id": "26a6b061-3d61-4c91-8023-a146a95e7873",
+                                                "last_name": "Blow",
+                                                "location": "Somewhere",
+                                                "notes": null,
+                                                "origin_id": "360",
+                                                "practice_lab": false,
+                                                "rack_group": "2",
+                                                "rack_number": 1,
+                                                "scheduled_date": 1696527379,
+                                                "session_finalized": false,
+                                                "session_parts": [
+                                                    {
+                                                        "exam_version": "DES-0.1",
+                                                        "form_qualified_name": null,
+                                                        "repository_type": "svn",
+                                                        "session_part_state": "SESSION_PART_USER_FINISHED",
+                                                        "track": "INFv1.2",
+                                                        "variables": null
+                                                    }
+                                                ],
+                                                "session_state": "SESSION_PRELAUNCH",
+                                                "timer_paused": false,
+                                                "timezone_offset": -4
+                                            },
+                                            "session_logs": [
+                                                {
+                                                    "category": "SESSION_LOG_CAT_LOGIN",
+                                                    "entry": "foobar",
+                                                    "timestamp": 1696527379
+                                                },
+                                                {
+                                                    "author": "author-testuser1/client-ip-testclient",
+                                                    "body": {
+                                                        "created": 1696527379,
+                                                        "ldssession_id": "26a6b061-3d61-4c91-8023-a146a95e7873",
+                                                        "state": "SESSION_PENDING"
+                                                    },
+                                                    "created": 1696527379,
+                                                    "origin": "pylds.ldssession.create",
+                                                    "target": "state",
+                                                    "updated": null
+                                                },
+                                                {
+                                                    "author": "testclient",
+                                                    "body": {
+                                                        "created": 1696527379,
+                                                        "ldssession_id": "26a6b061-3d61-4c91-8023-a146a95e7873",
+                                                        "state": "SESSION_PRELAUNCH"
+                                                    },
+                                                    "created": 1696527379,
+                                                    "origin": "pylds.ldssession.change_state",
+                                                    "target": "state",
+                                                    "updated": null
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/lab_session/{ldssession_id}/statuses": {
+            "get": {
+                "summary": "Fetch status information associated with an LDS Session.",
+                "operationId": "getLDSSessionStatuses",
+                "tags": ["Session"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An LDSSessionStatuses object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LDSSessionStatuses"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "id": "85452017-a80d-43b3-96cc-3bb98afb8c75",
+                                            "session_part_statuses": [
+                                                {
+                                                    "new_status": "SESSION_PART_PENDING",
+                                                    "session_part": 1,
+                                                    "timestamp": 1696538243
+                                                }
+                                            ],
+                                            "session_statuses": [
+                                                {
+                                                    "new_status": "SESSION_PENDING",
+                                                    "session_part": 1,
+                                                    "timestamp": 1696538242
+                                                },
+                                                {
+                                                    "new_status": "SESSION_PRELAUNCH",
+                                                    "session_part": 1,
+                                                    "timestamp": 169653824
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/reporting/feedback": {
+            "get": {
+                "summary": "Report on feedback.",
+                "operationId": "getReportingFeedback",
+                "tags": ["Reports"],
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "required": false,
+                        "description": "Beginning time range to pull from"
+                    },
+                    {
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "Str",
+                            "format": "date-time"
+                        },
+                        "required": false,
+                        "description": "Ending time range to pull from"
+                    },
+                    {
+                        "in": "query",
+                        "name": "fqn",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on Form Qualified Name"
+                    },
+                    {
+                        "in": "query",
+                        "name": "track",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on Track"
+                    },
+                    {
+                        "in": "query",
+                        "name": "exam_version",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on Exam Version"
+                    },
+                    {
+                        "in": "query",
+                        "name": "location",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on specified location"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An array of ReportingFeedback objects.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ReportingFeedback"
+                                    }
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": [
+                                            {
+                                                "created": "2023-10-12T13:53:38.781557+00:00",
+                                                "detail": "foo",
+                                                "session_part": 1,
+                                                "target_id": "m1.s1.i1",
+                                                "target_type": "item"
+                                            },
+                                            {
+                                                "created": "2023-10-12T13:53:38.781566+00:00",
+                                                "detail": "bar",
+                                                "session_part": 1,
+                                                "target_id": "m1.s1.i2",
+                                                "target_type": "item"
+                                            },
+                                            {
+                                                "created": "2023-10-12T13:53:38.792050+00:00",
+                                                "detail": "blah",
+                                                "session_part": 3,
+                                                "target_id": "m2.s1.i1",
+                                                "target_type": "item"
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/reporting/lab_session": {
+            "get": {
+                "summary": "Report on LDS Sessions.",
+                "operationId": "getReportingLabSession",
+                "tags": ["Reports"],
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "required": false,
+                        "description": "Beginning time range to pull from"
+                    },
+                    {
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "Str",
+                            "format": "date-time"
+                        },
+                        "required": false,
+                        "description": "Ending time range to pull from"
+                    },
+                    {
+                        "in": "query",
+                        "name": "fqn",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on Form Qualified Name"
+                    },
+                    {
+                        "in": "query",
+                        "name": "track",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on Track"
+                    },
+                    {
+                        "in": "query",
+                        "name": "exam_version",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on Exam Version"
+                    },
+                    {
+                        "in": "query",
+                        "name": "location",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on specified Location"
+                    },
+                    {
+                        "in": "query",
+                        "name": "state",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on specified State"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A LabSessionsReport object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LabSessionsReport"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "lab_sessions": [
+                                                {
+                                                    "active_reservation": true,
+                                                    "auth_id": "0",
+                                                    "auth_id_type": "ordered_session",
+                                                    "created": "2023-10-12T13:23:56.411648+00:00",
+                                                    "current_session_part": null,
+                                                    "email_address": "jsmith@cisco.com",
+                                                    "first_name": "John",
+                                                    "id": "354156ff-642d-4975-b5a5-e0a511ec9c9d",
+                                                    "last_name": "Smith",
+                                                    "location": "Somewhere",
+                                                    "log_id": "SID=354156ff-642d-4975-b5a5-e0a511ec9c9d",
+                                                    "notes": null,
+                                                    "origin_id": "360",
+                                                    "rack_group": "2",
+                                                    "rack_number": "1",
+                                                    "rpt_child_window_content_count": 0,
+                                                    "rpt_child_window_devices_count": 0,
+                                                    "rpt_child_window_resources_count": 0,
+                                                    "rpt_total_child_window_count": 0,
+                                                    "rpt_total_devices_focus_count": 0,
+                                                    "rpt_total_feedback_count": 3,
+                                                    "rpt_total_guidelines_focus_count": 0,
+                                                    "rpt_total_navigation_event_count": 0,
+                                                    "rpt_total_response_count": 0,
+                                                    "rpt_total_session_duration": 29.99,
+                                                    "rpt_total_timer_expired": 0,
+                                                    "rpt_total_window_focus_changes_count": 0,
+                                                    "rpt_window_content_focus_count": 0,
+                                                    "rpt_window_resources_focus_count": 0,
+                                                    "scheduled_date": "2023-10-12T13:23:56.306957+00:00",
+                                                    "session_finalized": false,
+                                                    "session_parts": [
+                                                        {
+                                                            "created": "2023-10-12T13:23:56.647572+00:00",
+                                                            "exam_version": "DES-2.1",
+                                                            "form_qualified_name": "TEST_FQN",
+                                                            "repository_type": "svn",
+                                                            "rpt_feedback_count": 2,
+                                                            "rpt_session_duration": null,
+                                                            "rpt_timer_expired": null,
+                                                            "session_part_state": "SESSION_PART_PENDING",
+                                                            "track": "INFv1.2"
+                                                        },
+                                                        {
+                                                            "created": "2023-10-12T13:23:56.663046+00:00",
+                                                            "exam_version": "DOO-2.1",
+                                                            "form_qualified_name": null,
+                                                            "repository_type": "svn",
+                                                            "rpt_feedback_count": 1,
+                                                            "rpt_session_duration": 29.99,
+                                                            "rpt_timer_expired": false,
+                                                            "session_part_state": "SESSION_PART_PENDING",
+                                                            "track": "INFv1.2"
+                                                        }
+                                                    ],
+                                                    "session_state": "SESSION_PENDING",
+                                                    "timer_paused": false,
+                                                    "timezone_offset": 0
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/reporting/data/events": {
+            "get": {
+                "summary": "Report on Access Log Events based on SID and/or PID.",
+                "operationId": "getReportingAccessLogEvents",
+                "tags": ["Reports"],
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "sid",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": false,
+                        "description": "LDS Session ID"
+                    },
+                    {
+                        "in": "query",
+                        "name": "pid",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": false,
+                        "description": "Session Part num/index (1, 2, 3, etc.)"
+                    },
+                    {
+                        "in": "query",
+                        "name": "from_date",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "required": false,
+                        "description": "Beginning time range to pull from"
+                    },
+                    {
+                        "in": "query",
+                        "name": "to_date",
+                        "schema": {
+                            "type": "Str",
+                            "format": "date-time"
+                        },
+                        "required": false,
+                        "description": "Ending time range to pull from"
+                    },
+                    {
+                        "in": "query",
+                        "name": "window_type",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter WindowType"
+                    },
+                    {
+                        "in": "track",
+                        "name": "origin_identifier",
+                        "schema": {
+                            "type": "Str"
+                        },
+                        "required": false,
+                        "description": "Filter on Origin ID"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An array of LDSSessionAccessLogItem objects.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/LDSSessionAccessLogItem"
+                                    }
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": [
+                                            {
+                                                "category": "SESSION_LOG_CAT_POPUP",
+                                                "created": "2023-10-02T12:57:48.713550+00:00",
+                                                "log_str": "name[main] path[/login] event[focus] Focusing a window.",
+                                                "origin_identifier": "/login - focus",
+                                                "window_type": "Popup"
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/reporting/options_order/{ldssession_id}/part/{part_num}": {
+            "get": {
+                "summary": "Get option ordering data for all items in an LDS Session Part.",
+                "operationId": "getReportingSessionPartOptionsOrdering",
+                "tags": ["Reports"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to add/replace variables for"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Summary of requested LDSSession and LDSSessionPart with all Question Options Order information for the LDSSessionpart.\n",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "session": "12345678-1234-1234-1234-123456789012",
+                                        "parts": [
+                                            {
+                                                "index": 1,
+                                                "form_qualified_name": "Exam CCIE SEC v1 DES 1.1",
+                                                "questions_options_order": [
+                                                    {
+                                                        "m1.s1.i1": "[1, 4, 3, 2]"
+                                                    },
+                                                    {
+                                                        "m1.s1.i2": "[[4, 3, 1, 2], [3, 1, 4, 2]]"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/reporting/options_order/{ldssession_id}": {
+            "get": {
+                "summary": "Get option ordering data for all items in an LDS Session Part.",
+                "operationId": "getReportingSessionOptionsOrdering",
+                "tags": ["Reports"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to add/replace variables for"
+                    },
+                    {
+                        "in": "query",
+                        "name": "question_index_pattern",
+                        "schema": {
+                            "type": "string",
+                            "format": "regex"
+                        },
+                        "required": false,
+                        "description": "A regular expression that matches a given \"Question Index\".  \"Full\" Questions Index strings are in the form `m1.s2.i3.q4` (and \"relative\" index values drop the `m#.` at the front).  As a regular expression, both full and partial matches are acceptable (including \"full\" and \"relative\" question indexes).  It shouldn't matter in most cases, but note that `.` is a meta-character in regular expressions, so you might want to escape it in the format `\\.`.  Also note that `\\d+` can be a handy shortcut to match the numbers that appears in the index strings.\n"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Summary of requested LDSSession and LDSSessionPart with all Question Options Order information for the LDSSessionpart.\n",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "session": "12345678-1234-1234-1234-123456789012",
+                                        "parts": [
+                                            {
+                                                "index": 1,
+                                                "form_qualified_name": "Exam CCIE SEC v1 DES 1.1",
+                                                "questions_options_order": [
+                                                    {
+                                                        "m1.s1.i1.q1": "[1, 4, 3, 2]"
+                                                    },
+                                                    {
+                                                        "m1.s1.i2.q1": "[[4, 3, 1, 2], [3, 1, 4, 2]]"
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                "index": 2,
+                                                "form_qualified_name": "Exam CCIE SEC v1 DOO 1.1",
+                                                "questions_options_order": [
+                                                    {
+                                                        "m1.s1.i1.q1": "[4, 1, 3, 2, 5]"
+                                                    },
+                                                    {
+                                                        "m1.s1.i2.q1": "[3, 1, 4, 2]"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/v3/reporting/options_order/find_sessions": {
+            "get": {
+                "summary": "Search for LDS Sessions that have a specific options order for a given question.",
+                "description": "Notes on `question_responses` format:\n* Drag & Drop: Each pair is in the format `[<option_num>, <label_num>]`\n* Category Drag & Drop: Each response chosen by the candidate/user is a triplet in the\n    form `<option_num>, <category_num>-<label_num>` where:\n\n      - `option_num` = ID number from the list of draggable items.\n      - `category_num` = ID number of the category (column) an item was dragged to.\n      - `label_num` = ID number of the label (drop zone) inside that category (column).\n",
+                "operationId": "getReportingOptionsOrderFindSessions",
+                "tags": ["Reports"],
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "options_order_pattern",
+                        "schema": {
+                            "type": "string",
+                            "format": "regex"
+                        },
+                        "required": true,
+                        "description": "A regular expression that matches the \"options order\" string for each item/question that is shown to a user.  (The first time a user views each item, the questions in that item are prepared, including if the questions include randomized option order, and saves it in the database.)  The format of the values for a simple MCSA or MCMA with four options would appear as `[1, 2, 3, 4]` if `random_order=false` is specified (or something like `[2, 1, 4, 3]` if randomization is enabled on that question). Matrix-style questions will appear like `[[2, 1, 4, 3], [3, 1, 2]]`.  Note that if you want to include `[` or `]` characters in your regular expression, then you need to escape them with a `\\` like `\\]` or `\\[` (`[` and `]` are meta-characters that are used to define a \"character class\", so if you don't escape them, the regular expession syntax will give them special meaning, including requiring them to be in matched pairs.)  Also note that all regular expressions in this endpoint are processed by the database and therefore use the POSIX style of regular expressions.\n"
+                    },
+                    {
+                        "in": "query",
+                        "name": "question_index_pattern",
+                        "schema": {
+                            "type": "string",
+                            "format": "regex"
+                        },
+                        "required": false,
+                        "description": "A regular expression that matches a given \"Question Index\".  \"Full\" Questions Index strings are in the form `m1.s2.i3.q4` (and \"relative\" index values drop the `m#.` at the front).  As a regular expression, both full and partial matches are acceptable (including \"full\" and \"relative\" question indexes).  It shouldn't matter in most cases, but note that `.` is a meta-character in regular expressions, so you might want to escape it in the format `\\.`.  Also note that `\\d+` can be a handy shortcut to match the numbers that appears in the index strings.\n"
+                    },
+                    {
+                        "in": "query",
+                        "name": "part_name_pattern",
+                        "schema": {
+                            "type": "Str",
+                            "format": "regex"
+                        },
+                        "required": false,
+                        "description": "A regular expression that matches against the Form Qualified Name (FQN) of the LDS Session Part a question appeared in.\n"
+                    },
+                    {
+                        "in": "query",
+                        "name": "from",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "required": false,
+                        "description": "Beginning time range to pull from (in `YYYY-MM-DD` format).  Note that records from the start of the date specified will be included.  The default is 30 days prior to the current day.  Also note that while it normally won't matter, technically, this is filtering against the time that a given question was queried by the LDS Frontend, not the session \"schedule date\" or other times.\n"
+                    },
+                    {
+                        "in": "query",
+                        "name": "to",
+                        "schema": {
+                            "type": "Str",
+                            "format": "date-time"
+                        },
+                        "required": false,
+                        "description": "Ending time range to pull from (in `YYYY-MM-DD` format).  Note that records through midnight at the end of the date specified will be included.  The default is the current day (\"today\").  Also note that while it normally won't matter, technically, this is filtering against the time that a given question was queried by the LDS Frontend, not the session \"schedule date\" or other times.\n"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An array of QuestionOptionOrderSchema objects.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/QuestionOptionOrder"
+                                    }
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": [
+                                            {
+                                                "session_id": "be95d662-a34f-4f60-8df8-71eb7658f6fb",
+                                                "session_date": "2020-01-07T00:00:00+00:00",
+                                                "form_qualified_name": "Exam CCIE INF v1.2 DES 2.1",
+                                                "question_index": "m1.s1.i2.q1",
+                                                "relative_question_index": "s1.i2.q1",
+                                                "options_order": "[1, 2, 4, 3]",
+                                                "question_responses": "[]"
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reservations/lab_session/{ldssession_id}/{part_num}/ports/no_nat": {
+            "get": {
+                "summary": "\"Ports\" endpoint for TVProxy. Returns a mix of LDSSession & device info.",
+                "operationId": "getLDSSessionsPartTVProxyData",
+                "tags": ["TVProxy"],
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "ldssession_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true,
+                        "description": "UUID for LDSSession to retrieve"
+                    },
+                    {
+                        "in": "path",
+                        "name": "part_num",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true,
+                        "description": "Part number (index) of the session part (1, 2, 3, etc.)"
+                    }
+                ],
+                "security": [
+                    {
+                        "basicAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A TVProxySummary object.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TVProxySummary"
+                                },
+                                "examples": {
+                                    "Basic": {
+                                        "value": {
+                                            "lab_session_devices": {
+                                                "session_part_devices": {
+                                                    "device": [
+                                                        {
+                                                            "device_label": "SW1",
+                                                            "device_name": "SW1",
+                                                            "id": "SW1",
+                                                            "ip_address": "1.2.3.4",
+                                                            "password": null,
+                                                            "port_num": 23,
+                                                            "type": "telnet"
+                                                        },
+                                                        {
+                                                            "device_label": "SW2",
+                                                            "device_name": "SW2",
+                                                            "id": "SW2",
+                                                            "ip_address": "2.3.4.5",
+                                                            "password": null,
+                                                            "port_num": 30001,
+                                                            "type": "telnet"
+                                                        }
+                                                    ]
+                                                },
+                                                "session_part_state": 100
+                                            },
+                                            "lds_pid": "1",
+                                            "lds_sid": "771a22dd-b134-484d-8009-3ef357c083c5",
+                                            "message": "Ports for session part",
+                                            "session_part_state_name": "SESSION_PART_PENDING",
+                                            "whitelist_command_set": {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "openapi": "3.0.0",
+    "components": {
+        "schemas": {
+            "LabFolder": {
+                "type": "object",
+                "properties": {
+                    "DatePublished": {
+                        "type": "string"
+                    },
+                    "Version": {
+                        "type": "string"
+                    },
+                    "Publisher": {
+                        "type": "string"
+                    },
+                    "Layout": {
+                        "type": "string"
+                    },
+                    "FormName": {
+                        "type": "string"
+                    },
+                    "FormStatus": {
+                        "type": "string"
+                    },
+                    "FormId": {
+                        "type": "string"
+                    },
+                    "FormSetId": {
+                        "type": "string"
+                    },
+                    "ModuleId": {
+                        "type": "string"
+                    },
+                    "ModuleTypeName": {
+                        "type": "string"
+                    },
+                    "ExamId": {
+                        "type": "string"
+                    },
+                    "ExamVersion": {
+                        "type": "string"
+                    },
+                    "TrackId": {
+                        "type": "string"
+                    },
+                    "TrackShortName": {
+                        "type": "string"
+                    },
+                    "TrackLongName": {
+                        "type": "string"
+                    },
+                    "InstanceName": {
+                        "type": "string"
+                    },
+                    "InstanceType": {
+                        "type": "string"
+                    },
+                    "InstanceRegion": {
+                        "type": "string"
+                    },
+                    "InstanceAudience": {
+                        "type": "string"
+                    },
+                    "InstanceDB": {
+                        "type": "string"
+                    },
+                    "OutstandingCommentsCount": {
+                        "type": "integer"
+                    },
+                    "OutstandingRatings": {
+                        "type": "integer"
+                    },
+                    "ValidatedBeforePublishing": {
+                        "type": "boolean"
+                    },
+                    "stdout": {
+                        "type": "string"
+                    },
+                    "stderr": {
+                        "type": "string"
+                    }
+                },
+                "required": ["DatePublished", "ExamId", "ExamVersion", "FormId", "FormName", "FormSetId", "ModuleId", "TrackId", "TrackLongName", "TrackShortName", "Version"]
+            },
+            "LDSSessionPartItem": {
+                "type": "object",
+                "properties": {
+                    "module_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "section_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "item_id": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                }
+            },
+            "LDSSessionPartTimer": {
+                "type": "object",
+                "properties": {
+                    "min_ends_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "max_ends_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "warning_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "warning_message": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                }
+            },
+            "LDSSessionPart": {
+                "type": "object",
+                "properties": {
+                    "repository_type": {
+                        "type": "string",
+                        "default": "svn",
+                        "enum": ["svn", "minio"]
+                    },
+                    "form_qualified_name": {
+                        "type": "string"
+                    },
+                    "track": {
+                        "type": "string"
+                    },
+                    "exam_version": {
+                        "type": "string"
+                    },
+                    "session_part_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "current_position": {
+                        "readOnly": true,
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LDSSessionPartItem"
+                            }
+                        ]
+                    },
+                    "timer": {
+                        "readOnly": true,
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LDSSessionPartTimer"
+                            }
+                        ]
+                    },
+                    "variables": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "LDSSessionPracticeLab": {
+                "type": "object",
+                "properties": {
+                    "max_length_minutes": {
+                        "type": "integer"
+                    },
+                    "grace_period": {
+                        "type": "integer"
+                    },
+                    "user_timeslot_start": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "user_timeslot_end": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "earliest_login": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "latest_expiry": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "max_ends_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "LDSSession": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "origin": {
+                        "type": "string"
+                    },
+                    "auth_id": {
+                        "type": "string"
+                    },
+                    "auth_id_type": {
+                        "type": "string"
+                    },
+                    "candidate_id": {
+                        "type": "string"
+                    },
+                    "location": {
+                        "type": "string"
+                    },
+                    "timezone_offset": {
+                        "type": "integer"
+                    },
+                    "first_name": {
+                        "type": "string"
+                    },
+                    "last_name": {
+                        "type": "string"
+                    },
+                    "rack_group": {
+                        "type": "string"
+                    },
+                    "rack_number": {
+                        "type": "string"
+                    },
+                    "scheduled_date": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "password": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "email_address": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "user_timeslot_end": {
+                        "type": "string",
+                        "format": "date-time",
+                        "writeOnly": true,
+                        "nullable": true
+                    },
+                    "max_length_minutes": {
+                        "type": "integer",
+                        "writeOnly": true,
+                        "nullable": true
+                    },
+                    "state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "is_finalized": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "log_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "active_reservation": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "timer_paused": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "current_session_part": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "session_parts": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LDSSessionPart"
+                        }
+                    },
+                    "practice_lab": {
+                        "$ref": "#/components/schemas/LDSSessionPracticeLab"
+                    }
+                },
+                "required": ["auth_id", "auth_id_type", "candidate_id", "first_name", "last_name", "location", "origin", "rack_group", "rack_number", "scheduled_date", "timezone_offset"]
+            },
+            "LDSSessionAccessLogItem": {
+                "type": "object",
+                "properties": {
+                    "log_str": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "category": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "window_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "origin_identifier": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                }
+            },
+            "LDSSessionAccessLog": {
+                "type": "object",
+                "properties": {
+                    "session_info": {
+                        "$ref": "#/components/schemas/LDSSession"
+                    },
+                    "session_logs": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LDSSessionAccessLogItem"
+                        }
+                    }
+                }
+            },
+            "LDSSessionLogSessionInfo": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "active_reservation": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "auth_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "auth_id_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "current_session_part": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "email_address": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "first_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "session_finalized": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "practice_lab": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "last_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "location": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "notes": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "origin_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "rack_group": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "rack_number": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "session_parts": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LDSSessionPart"
+                        }
+                    },
+                    "scheduled_date": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "session_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "SKU": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "timer_paused": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "timezone_offset": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                }
+            },
+            "LDSSessionLogSessionLogs": {
+                "type": "object",
+                "properties": {}
+            },
+            "LDSSessionLog": {
+                "type": "object",
+                "properties": {
+                    "session_info": {
+                        "$ref": "#/components/schemas/LDSSessionLogSessionInfo"
+                    },
+                    "session_logs": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LDSSessionLogSessionLogs"
+                        }
+                    }
+                }
+            },
+            "LDSSessionAndPartStatusItem": {
+                "type": "object",
+                "properties": {
+                    "new_status": {
+                        "type": "string"
+                    },
+                    "session_part": {
+                        "type": "integer"
+                    },
+                    "timestamp": {
+                        "type": "integer"
+                    }
+                },
+                "required": ["new_status", "session_part", "timestamp"]
+            },
+            "LDSSessionStatuses": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "session_statuses": {
+                        "type": "array",
+                        "readOnly": true,
+                        "items": {
+                            "$ref": "#/components/schemas/LDSSessionAndPartStatusItem"
+                        }
+                    },
+                    "session_part_statuses": {
+                        "type": "array",
+                        "readOnly": true,
+                        "items": {
+                            "$ref": "#/components/schemas/LDSSessionAndPartStatusItem"
+                        }
+                    }
+                }
+            },
+            "FeedbackItem": {
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "user_feedback": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "session_part": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "timestamp": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                }
+            },
+            "Feedback": {
+                "type": "object",
+                "properties": {
+                    "session_part_feedback": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FeedbackItem"
+                        }
+                    }
+                }
+            },
+            "LDSSessionPartTimeAdjustment": {
+                "type": "object",
+                "properties": {
+                    "time_adjustment": {
+                        "type": "integer",
+                        "writeOnly": true
+                    },
+                    "time_extension": {
+                        "type": "integer",
+                        "writeOnly": true
+                    }
+                }
+            },
+            "LabFolderValidity": {
+                "type": "object",
+                "properties": {
+                    "is_valid": {
+                        "type": "boolean"
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                }
+            },
+            "LDSSessionLatestForState": {
+                "type": "object",
+                "properties": {
+                    "latest_session_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "state": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                }
+            },
+            "LDSSessionCreated": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "format": "url",
+                        "readOnly": true
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "message": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                }
+            },
+            "LDSSessionPartResponses": {
+                "type": "object",
+                "properties": {
+                    "sections": {
+                        "type": "object",
+                        "readOnly": true,
+                        "additionalProperties": {}
+                    }
+                }
+            },
+            "LDSSessionPartDev": {
+                "type": "object",
+                "properties": {
+                    "device_label": {
+                        "type": "string"
+                    },
+                    "protocol": {
+                        "type": "string"
+                    },
+                    "host": {
+                        "type": "string"
+                    },
+                    "port": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "password": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": ["device_label", "host", "protocol"]
+            },
+            "ReportingFeedback": {
+                "type": "object",
+                "properties": {
+                    "created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "detail": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "session_part": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "target_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "target_type": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                }
+            },
+            "ReportingLabSessionPart": {
+                "type": "object",
+                "properties": {
+                    "created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "exam_version": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "form_qualified_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "repository_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "rpt_feedback_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_session_duration": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "rpt_timer_expired": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "session_part_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "track": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                }
+            },
+            "ReportingLabSession": {
+                "type": "object",
+                "properties": {
+                    "active_reservation": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "auth_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "auth_id_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "current_session_part": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "email_address": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "first_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "last_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "location": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "log_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "notes": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "origin_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "rack_group": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "rack_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "rpt_child_window_content_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_child_window_devices_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_child_window_resources_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_total_child_window_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_total_devices_focus_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_total_feedback_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_total_guidelines_focus_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_total_navigation_event_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_total_response_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_total_session_duration": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_total_timer_expired": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_total_window_focus_changes_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_window_content_focus_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rpt_window_resources_focus_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "scheduled_date": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "session_finalized": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "session_parts": {
+                        "type": "array",
+                        "readOnly": true,
+                        "items": {
+                            "$ref": "#/components/schemas/ReportingLabSessionPart"
+                        }
+                    },
+                    "session_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "timer_paused": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "timezone_offset": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                }
+            },
+            "LabSessionsReport": {
+                "type": "object",
+                "properties": {
+                    "lab_sessions": {
+                        "type": "array",
+                        "readOnly": true,
+                        "items": {
+                            "$ref": "#/components/schemas/ReportingLabSession"
+                        }
+                    }
+                }
+            },
+            "QuestionOptionOrder": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "session_date": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "form_qualified_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "question_index": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "relative_question_index": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "options_order": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "question_responses": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                }
+            },
+            "TVProxyDevice": {
+                "type": "object",
+                "properties": {
+                    "device_label": {
+                        "type": "string"
+                    },
+                    "device_name": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "ip_address": {
+                        "type": "string"
+                    },
+                    "port_num": {
+                        "type": "integer"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                }
+            },
+            "TVProxySummary": {
+                "type": "object",
+                "properties": {
+                    "devices": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TVProxyDevice"
+                        }
+                    },
+                    "lds_sid": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "lds_pid": {
+                        "type": "string"
+                    },
+                    "session_part_state": {
+                        "type": "integer"
+                    },
+                    "session_part_state_name": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "whitelist_command_set": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                }
+            }
+        },
+        "securitySchemes": {
+            "basicAuth": {
+                "type": "http",
+                "scheme": "basic"
+            }
+        }
+    },
+    "host": "labs.mydomain.com:None"
+}

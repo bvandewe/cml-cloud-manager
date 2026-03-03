@@ -6,8 +6,8 @@ isort....................................................................Failed
 - hook id: isort
 - files were modified by this hook
 
-Fixing /Users/bvandewe/Documents/Work/Systems/Mozart/src/microservices/cml-cloud-manager/src/application/services/worker_monitoring_scheduler.py
-Fixing /Users/bvandewe/Documents/Work/Systems/Mozart/src/microservices/cml-cloud-manager/src/integration/models/cml_host_dto.py
+Fixing /Users/bvandewe/Documents/Work/Systems/Mozart/src/microservices/lablet-cloud-manager/src/application/services/worker_monitoring_scheduler.py
+Fixing /Users/bvandewe/Documents/Work/Systems/Mozart/src/microservices/lablet-cloud-manager/src/integration/models/cml_host_dto.py
 
 flake8...................................................................Failed
 

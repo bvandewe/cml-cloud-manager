@@ -15,7 +15,7 @@ spec:
 {{ include "cml.selectorLabels" . | indent 8 }}
     spec:
       containers:
-        - name: cml-cloud-manager
+        - name: lablet-cloud-manager
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:

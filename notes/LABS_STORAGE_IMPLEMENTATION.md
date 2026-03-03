@@ -259,7 +259,7 @@ Worker <worker_id>: synced=X, created=Y, updated=Z
 
 ```javascript
 // Connect to MongoDB and check collection
-use cml_cloud_manager
+use lablet_cloud_manager
 db.lab_records.find().pretty()
 db.lab_records.getIndexes()
 ```

@@ -37,10 +37,7 @@ def parse_event_timestamp(timestamp_str: str) -> datetime:
             continue
 
     # If none match, raise error with helpful message
-    raise ValueError(
-        f"Timestamp '{timestamp_str}' does not match any expected format. "
-        f"Expected ISO 8601 format like '2025-11-19T10:25:32' or '2025-11-19T10:25:32Z'"
-    )
+    raise ValueError(f"Timestamp '{timestamp_str}' does not match any expected format. " f"Expected ISO 8601 format like '2025-11-19T10:25:32' or '2025-11-19T10:25:32Z'")
 
 
 def filter_relevant_events(
@@ -95,9 +92,7 @@ def filter_relevant_events(
             log.warning(f"Error processing event {event}: {e}")
             continue
 
-    log.debug(
-        f"Filtered {len(filtered)} relevant events from {len(events)} total " f"({excluded_count} excluded by filters)"
-    )
+    log.debug(f"Filtered {len(filtered)} relevant events from {len(events)} total " f"({excluded_count} excluded by filters)")
 
     return filtered
 
