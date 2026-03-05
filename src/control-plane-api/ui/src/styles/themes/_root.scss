@@ -1,0 +1,41 @@
+// =============================================================================
+// ROOT VARIABLES (Light Theme Defaults)
+// Defines CSS custom properties that are used by SCSS variables
+// =============================================================================
+
+:root {
+    // Semantic Colors
+    --color-bg-primary: #{$color-bg-primary};
+    --color-bg-secondary: #{$color-bg-secondary};
+    --color-bg-tertiary: #{$color-bg-tertiary};
+
+    --color-text-primary: #{$color-text-primary};
+    --color-text-secondary: #{$color-text-secondary};
+    --color-text-muted: #{$color-text-muted};
+    --color-text-inverse: #{$color-text-inverse};
+
+    --color-border: #{$color-border};
+    --color-border-light: #{$color-border-light};
+
+    // Brand colors as CSS vars
+    --color-primary: #{$color-primary};
+    --color-secondary: #{$color-secondary};
+    --color-success: #{$color-success};
+    --color-info: #{$color-info};
+    --color-warning: #{$color-warning};
+    --color-danger: #{$color-danger};
+
+    // LCM-specific semantic colors
+    --worker-active-color: #{$worker-active-color};
+    --worker-idle-color: #{$worker-idle-color};
+    --worker-stopped-color: #{$worker-stopped-color};
+    --lablet-running-color: #{$lablet-running-color};
+    --lablet-stopped-color: #{$lablet-stopped-color};
+
+    // Shadows as CSS vars (for theme switching)
+    --shadow-sm: #{$shadow-sm};
+    --shadow-md: #{$shadow-md};
+    --shadow-lg: #{$shadow-lg};
+    --shadow-card: #{$shadow-card};
+    --shadow-card-hover: #{$shadow-card-hover};
+}

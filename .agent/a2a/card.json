@@ -1,0 +1,250 @@
+{
+    "$schema": "https://a2a.dev/schema/agent-card-v1.json",
+    "name": "lcm-architecture-team",
+    "version": "1.0.0",
+    "description": "LCM Architecture Team - A coordinated group of specialized AI agents responsible for Lablet Cloud Manager system integrity, multi-service documentation, and cloud infrastructure architectural compliance.",
+
+    "provider": {
+        "organization": "Mozart Platform",
+        "url": "https://github.com/bvandewe/lablet-cloud-manager"
+    },
+
+    "parent": {
+        "team": "aix-architecture-team",
+        "repository": "aix",
+        "relationship": "extends"
+    },
+
+    "capabilities": {
+        "streaming": true,
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "multiTurn": true,
+        "multiService": true
+    },
+
+    "agents": [
+        {
+            "id": "lcm-principal-architect",
+            "name": "LCM Principal Architect",
+            "role": "Team Lead - Cloud Strategy & Alignment",
+            "description": "Strategic oversight for cloud infrastructure. Translates platform goals into architectural mandates for distributed microservices.",
+            "skills": [
+                {
+                    "id": "cloud-strategy",
+                    "name": "Cloud Strategy",
+                    "description": "Analyze AWS infrastructure patterns and optimize for cost, performance, and reliability"
+                },
+                {
+                    "id": "multi-service-coordination",
+                    "name": "Multi-Service Coordination",
+                    "description": "Coordinate architectural decisions across control-plane-api, resource-scheduler, lablet-controller, worker-controller"
+                },
+                {
+                    "id": "resource-optimization",
+                    "name": "Resource Optimization",
+                    "description": "Design scheduling policies and idle detection for m5zn.metal instances"
+                },
+                {
+                    "id": "architectural-decisions",
+                    "name": "Architectural Decisions",
+                    "description": "Record and enforce architectural decisions with rationale"
+                }
+            ],
+            "namespaceOwnership": {
+                "readWrite": ["lcm-infrastructure", "lcm-architecture"],
+                "readOnly": ["lcm-cml-domain", "aix-architecture"]
+            },
+            "fileOwnership": ["docs/architecture/*", "docs/infrastructure/*"]
+        },
+        {
+            "id": "lcm-document-master",
+            "name": "LCM Document Master",
+            "role": "Documentation Lead - Single Source of Truth",
+            "description": "Maintains specification documents, knowledge graph structure, and cross-service documentation consistency.",
+            "skills": [
+                {
+                    "id": "spec-definition",
+                    "name": "Specification Definition",
+                    "description": "Create and maintain technical specifications in mkdocs format with Mermaid diagrams"
+                },
+                {
+                    "id": "cml-api-documentation",
+                    "name": "CML API Documentation",
+                    "description": "Document Cisco Modeling Lab API integration patterns and constraints"
+                },
+                {
+                    "id": "cross-service-docs",
+                    "name": "Cross-Service Documentation",
+                    "description": "Maintain consistency across 4 microservice documentation sets"
+                },
+                {
+                    "id": "knowledge-graph-management",
+                    "name": "Knowledge Graph Management",
+                    "description": "Structure and maintain LCM knowledge namespaces and relationships"
+                }
+            ],
+            "namespaceOwnership": {
+                "readWrite": ["lcm-cml-domain", "lcm-architecture", "lcm-operations"],
+                "readOnly": ["lcm-infrastructure", "aix-architecture"]
+            },
+            "fileOwnership": ["docs/**/*.md", "*/docs/**/*.md", "lcm-core/docs/*"]
+        },
+        {
+            "id": "lcm-senior-architect",
+            "name": "LCM Senior Architect",
+            "role": "Implementation Lead - Spec-to-Code",
+            "description": "Translates specifications to implementation across microservices, verifies patterns, ensures code quality and cross-service consistency.",
+            "skills": [
+                {
+                    "id": "spec-implementation",
+                    "name": "Specification Implementation",
+                    "description": "Implement features according to documented specifications across services"
+                },
+                {
+                    "id": "pattern-verification",
+                    "name": "Pattern Verification",
+                    "description": "Verify code follows established patterns (CQRS, Clean Architecture, Neuroglia, lcm-core)"
+                },
+                {
+                    "id": "code-review",
+                    "name": "Code Review",
+                    "description": "Review code for architectural compliance and quality"
+                },
+                {
+                    "id": "shared-core-management",
+                    "name": "Shared Core Management",
+                    "description": "Maintain lcm-core shared models and ensure consistent usage"
+                }
+            ],
+            "namespaceOwnership": {
+                "readWrite": [],
+                "readOnly": ["lcm-infrastructure", "lcm-architecture", "lcm-cml-domain", "aix-architecture"]
+            },
+            "fileOwnership": ["control-plane-api/src/**/*.py", "resource-scheduler/**/*.py", "lablet-controller/**/*.py", "worker-controller/**/*.py", "lcm-core/**/*.py", "tests/**/*.py"]
+        },
+        {
+            "id": "lcm-code-extractor",
+            "name": "LCM Code Extractor",
+            "role": "Reverse Engineer - Multi-Service Analysis",
+            "description": "Analyzes existing codebase across all microservices, detects drift from documentation, mines implementation patterns.",
+            "skills": [
+                {
+                    "id": "multi-service-drift-detection",
+                    "name": "Multi-Service Drift Detection",
+                    "description": "Compare source code against documentation across all 4 microservices to identify discrepancies"
+                },
+                {
+                    "id": "pattern-mining",
+                    "name": "Pattern Mining",
+                    "description": "Extract and document patterns from existing implementations"
+                },
+                {
+                    "id": "dependency-analysis",
+                    "name": "Dependency Analysis",
+                    "description": "Analyze code dependencies, lcm-core usage, and architectural layers"
+                },
+                {
+                    "id": "consistency-verification",
+                    "name": "Consistency Verification",
+                    "description": "Verify consistent usage of shared models and patterns across services"
+                }
+            ],
+            "namespaceOwnership": {
+                "readWrite": [],
+                "readOnly": ["lcm-infrastructure", "lcm-architecture", "lcm-cml-domain", "lcm-operations"]
+            },
+            "fileOwnership": []
+        }
+    ],
+
+    "communication": {
+        "taskQueue": {
+            "path": ".agent/a2a/tasks/",
+            "format": "json",
+            "statuses": ["queued", "in-progress", "completed", "failed"]
+        },
+        "channels": [
+            {
+                "id": "lcm-architecture-decisions",
+                "name": "LCM Architecture Decisions",
+                "description": "Broadcast channel for LCM architectural decisions and cross-service changes",
+                "path": ".agent/a2a/channels/architecture.channel.md"
+            }
+        ],
+        "upstream": {
+            "team": "aix-architecture-team",
+            "channel": "architecture-decisions",
+            "path": "../aix/.agent/a2a/channels/architecture.channel.md"
+        }
+    },
+
+    "endpoints": {
+        "mcp": {
+            "url": "http://localhost:8060/agents",
+            "protocol": "mcp",
+            "description": "MCP endpoint via LCM control-plane-api"
+        },
+        "http": {
+            "url": "http://localhost:8060/api/agents",
+            "protocol": "http",
+            "description": "REST API for agent invocation"
+        }
+    },
+
+    "authentication": {
+        "schemes": ["oauth2"],
+        "oauth2": {
+            "issuer": "http://localhost:8041/realms/lablet-cloud-manager",
+            "tokenUrl": "http://localhost:8041/realms/lablet-cloud-manager/protocol/openid-connect/token",
+            "scopes": ["agent:invoke", "knowledge:read", "knowledge:write", "worker:admin", "lab:admin"]
+        }
+    },
+
+    "services": {
+        "description": "LCM is a distributed system of 4 microservices + shared core",
+        "components": [
+            {
+                "id": "control-plane-api",
+                "name": "Control Plane API",
+                "port": 8060,
+                "description": "User-facing API with UI, authentication, and SSE events"
+            },
+            {
+                "id": "resource-scheduler",
+                "name": "Resource Scheduler",
+                "port": 8061,
+                "description": "Scheduling policies and reservation management"
+            },
+            {
+                "id": "lablet-controller",
+                "name": "Lablet Controller",
+                "port": 8062,
+                "description": "CML lab lifecycle management"
+            },
+            {
+                "id": "worker-controller",
+                "name": "Worker Controller",
+                "port": 8063,
+                "description": "EC2 instance lifecycle and metrics"
+            },
+            {
+                "id": "lcm-core",
+                "name": "LCM Core",
+                "type": "library",
+                "description": "Shared domain models and infrastructure utilities"
+            }
+        ]
+    },
+
+    "defaultInputModes": ["text", "file"],
+    "defaultOutputModes": ["text", "artifact", "file"],
+
+    "metadata": {
+        "repository": "lablet-cloud-manager",
+        "parentRepository": "aix",
+        "teamFile": ".agent/teams/lcm-architecture.team.md",
+        "rulesPath": ".agent/rules/",
+        "workflowsPath": ".agent/workflows/"
+    }
+}

@@ -5,7 +5,7 @@
 | **Status** | Active |
 | **Created** | 2026-03-02 |
 | **Parent ADR** | [ADR-034](../architecture/adr/ADR-034-pipeline-executor-lifecycle-handlers.md) |
-| **Last Updated** | 2026-03-02 |
+| **Last Updated** | 2026-03-04 |
 
 ## 1. Current State Summary
 
@@ -36,27 +36,36 @@ lablet-controller → GET /api/internal/lablet-definitions/{id} → CPA → JSON
 
 | Component | Location | Status |
 |-----------|----------|--------|
-| `LabletDefinitionReadModel.pipelines` field | `lcm_core/domain/entities/read_models/` | ❌ Missing |
-| `simpleeval` dependency | `lablet-controller/pyproject.toml` | ❌ Not added |
-| `PipelineExecutor` class | `lablet-controller/application/` | ❌ Not created |
-| `PipelineContext` dataclass | `lablet-controller/application/` | ❌ Not created |
-| `PipelineResult` dataclass | `lablet-controller/application/` | ❌ Not created |
-| `LifecyclePhaseHandler` class | `lablet-controller/application/` | ❌ Not created |
-| Per-session `asyncio.Lock` on reconciler | `lablet_reconciler.py` | ❌ Not added |
-| `PipelineRunRecord` on `LabRecord` | `control-plane-api/domain/entities/` | ❌ Not created |
+| `LabletDefinitionReadModel.pipelines` field | `lcm_core/domain/entities/read_models/` | ✅ Sprint A |
+| `simpleeval` dependency | `lablet-controller/pyproject.toml` | ✅ Sprint A |
+| `PipelineExecutor` class | `lablet-controller/application/` | ✅ Sprint B |
+| `PipelineContext` dataclass | `lablet-controller/application/` | ✅ Sprint B |
+| `PipelineResult` dataclass | `lablet-controller/application/` | ✅ Sprint B |
+| `LifecyclePhaseHandler` class | `lablet-controller/application/` | ✅ Sprint C |
+| Per-session `asyncio.Lock` on reconciler | `lablet_reconciler.py` | ✅ Sprint C |
+| Internal `terminate_session` endpoint | CPA + lcm_core client | ✅ Sprint C |
+| Pipeline resumability (executor) | `pipeline_executor.py` | ✅ Sprint C |
+| Teardown step handlers | `lablet_reconciler.py` | ❌ Sprint D |
+| Pipeline SSE events + projectors | CPA | ❌ Sprint E |
+| Pipeline progress UI | CPA frontend | ❌ Sprint E |
+| `PipelineRunRecord` on `LabRecord` | `control-plane-api/domain/entities/` | ❌ Sprint E |
 
 ### What DOES Exist (Reusable)
 
 | Component | Location | Reusability |
 |-----------|----------|-------------|
-| 9 `_step_*` handler methods | `lablet_reconciler.py` L582–L2009 | ✅ Keep — executor dispatches to these |
-| `_build_default_progress()` | `lablet_reconciler.py` | ⚠️ Replace with pipeline YAML parsing |
-| `_next_executable_step()` | `lablet_reconciler.py` | ⚠️ Replace with DAG topological sort |
-| `_is_pipeline_complete()` | `lablet_reconciler.py` | ⚠️ Replace with PipelineResult check |
-| `_get_step_result_data()` | `lablet_reconciler.py` | ✅ Keep — used by step handlers |
-| `_handle_instantiating()` | `lablet_reconciler.py` L497–L577 | 🔄 Refactor to delegate to handler |
+| 9 `_step_*` handler methods | `lablet_reconciler.py` L864–L1271 | ✅ Keep — executor dispatches to these |
+| `_build_default_progress()` | ~~`lablet_reconciler.py`~~ | ✅ REMOVED (Sprint C, AD-PIPELINE-009) |
+| `_next_executable_step()` | ~~`lablet_reconciler.py`~~ | ✅ REMOVED (Sprint C, AD-PIPELINE-009) |
+| `_is_pipeline_complete()` | ~~`lablet_reconciler.py`~~ | ✅ REMOVED (Sprint C, AD-PIPELINE-009) |
+| `_get_step_result_data()` | `lablet_reconciler.py` | ✅ Kept — simplified for dict-of-dicts format |
+| `_handle_instantiating()` | `lablet_reconciler.py` L540–L640 | ✅ REWRITTEN (Sprint C — fire-and-check pattern) |
 | `_definition_cache` | `lablet_reconciler.py` | ✅ Keep — now includes pipelines |
-| 879-line test file | `tests/test_instantiation_pipeline.py` | 🔄 Adapt tests for PipelineExecutor |
+| `test_instantiation_pipeline.py` | `tests/` (880 lines, 41 tests) | ✅ REWRITTEN (Sprint C — dict-of-dicts progress) |
+| `PipelineExecutor` | `application/services/pipeline_executor.py` (577 lines) | ✅ Sprint B + graphlib refactor |
+| `LifecyclePhaseHandler` | `application/services/lifecycle_phase_handler.py` (246 lines) | ✅ Sprint C |
+| `PipelineResult` | `application/models/pipeline_result.py` (38 lines) | ✅ Sprint B + max_retries |
+| Pipeline helpers | `lablet_reconciler.py` L770–L860 | ✅ Sprint C — _get_pipeline_def,_build_pipeline_context, _build_step_dispatcher |
 
 ---
 
@@ -217,177 +226,210 @@ result = await step_dispatcher(step["handler"], context.session, progress)
 ### Sprint C: LifecyclePhaseHandler + Reconciler Integration (Phase 3)
 
 **Goal:** Wire the executor into the reconciler via managed background tasks.
+**No backward compatibility** — all definitions MUST have pipelines (AD-PIPELINE-009).
+**Seed files are mandatory deliverables.**
+
+**Full prompt:** See `docs/implementation/ADR-034-sprint-c-prompt.md`
+
+#### C0: Fix PipelineExecutor — _persist_progress + resumability
+
+- Fix `_persist_progress()` to call CPA with per-step params (not bulk dict)
+- Add pipeline resumability: `execute()` accepts `existing_progress`, skips completed steps
+- Add `max_retries: int` to PipelineResult (from pipeline_def)
 
 #### C1: Create `LifecyclePhaseHandler` class
 
-**File:** `src/lablet-controller/application/services/lifecycle_phase_handler.py` (new)
-
-As specified in ADR-034 §2. Key behaviors:
-
-- `start()` → creates `asyncio.Task`
-- `_run()` → calls `PipelineExecutor.execute()`, then `_on_complete()` or `_on_error()`
-- `stop()` → cancels task gracefully
-- `is_running` property → `self._task and not self._task.done()`
+- Managed `asyncio.Task` wrapper — `start()`, `stop()`, `is_running`, `result`
+- Does NOT auto-terminate on failure — stores result for reconciler to inspect
+- Reconciler decides: retry or terminate based on max_retries
 
 #### C2: Add per-session `asyncio.Lock` to reconciler
 
-**File:** `src/lablet-controller/application/hosted_services/lablet_reconciler.py`
-
-**Changes:**
-
-1. Add `_session_locks: dict[str, asyncio.Lock] = {}` alongside `_definition_cache`
-2. Add `_get_session_lock(session_id) → asyncio.Lock` method
-3. Wrap `reconcile()` body in `async with lock:`
-4. Clear locks in `_step_down()`
+- `_session_locks: dict[str, asyncio.Lock]` with lazy init
+- `reconcile()` → `_reconcile_inner()` wrapped in lock
 
 #### C3: Add `_active_handlers` management to reconciler
 
-**File:** `src/lablet-controller/application/hosted_services/lablet_reconciler.py`
+- `_active_handlers: dict[str, LifecyclePhaseHandler]`
+- `_pipeline_retry_counts: dict[str, int]` — tracks restart count
+- `_build_step_dispatcher()` — adapter wrapping `_step_*` methods
+- `_step_down()` cancels all handlers, clears locks + retry counts
 
-**Changes:**
+#### C4: Refactor `_handle_instantiating()` — pipeline delegation only
 
-1. Add `_active_handlers: dict[str, LifecyclePhaseHandler] = {}`
-2. Add `_get_pipeline_def(instance, pipeline_name) → dict | None` — looks up `pipelines` from cached definition
-3. Add `_build_pipeline_context(instance) → PipelineContext` — constructs context from reconciler state
-4. Update `_step_down()` → cancel all active handlers
+- No legacy fallback — definitions without pipelines → terminate session
+- Completed handler → check result → retry or terminate based on max_retries
+- Resume from existing progress (executor resumability)
+- REMOVE legacy helpers: `_build_default_progress`, `_next_executable_step`, etc.
 
-#### C4: Refactor `_handle_instantiating()` to delegate to handler
+#### C5: Add internal terminate endpoint + CPA client method
 
-**File:** `src/lablet-controller/application/hosted_services/lablet_reconciler.py`
+- New internal endpoint: `POST /api/internal/lablet-sessions/{id}/terminate`
+- New CPA client method: `terminate_session(session_id, terminated_by, reason)`
+- Reuses existing `TerminateLabletSessionCommand` (port + capacity release)
 
-**This is the critical refactor.** Replace the current L497–L577 implementation:
+#### C6: Update seed files with max_retries and validated handler names
 
-**Before (current):** Monolithic — bootstrap progress, find next step, dispatch, persist.
+- Add `max_retries` and `retry_backoff` at pipeline level
+- Validate handler names match existing `_step_*` methods
+- Mark future handlers (teardown, evidence, grading) as TBD
+- **Mandatory deliverables — seed files must load correctly**
 
-**After (new):**
+#### C7: Tests (~50–65 new tests)
 
-```python
-async def _handle_instantiating(self, instance) -> ReconciliationResult:
-    handler_key = f"{instance.id}:instantiate"
-
-    # Check for existing handler
-    if handler_key in self._active_handlers:
-        handler = self._active_handlers[handler_key]
-        if handler.is_running:
-            return ReconciliationResult.success()  # self-driving
-        del self._active_handlers[handler_key]
-        return ReconciliationResult.success()
-
-    # Get pipeline definition from LabletDefinition
-    pipeline_def = self._get_pipeline_def(instance, "instantiate")
-    if not pipeline_def:
-        await self._api.fail_session(instance.id, reason="No 'instantiate' pipeline defined")
-        return ReconciliationResult.failed("No pipeline defined")
-
-    # Start new handler
-    context = self._build_pipeline_context(instance)
-    handler = LifecyclePhaseHandler(
-        session_id=instance.id,
-        pipeline_name="instantiate",
-        pipeline_def=pipeline_def,
-        context=context,
-        executor=self._pipeline_executor,
-    )
-    self._active_handlers[handler_key] = handler
-    await handler.start()
-    return ReconciliationResult.success()
-```
-
-#### C5: Adapt `_step_*` handlers for new dispatch interface
-
-**Current signature:** `async def _step_content_sync(self, instance, progress) → dict`
-
-**New signature:** The step handlers need to work with the `PipelineContext` and return a standardized `StepResult`. Two approaches:
-
-**Option A — Adapter pattern (least disruption):** Keep existing step handlers unchanged. The `PipelineExecutor` wraps the dispatch call to pass `(instance, progress)` extracted from context.
-
-**Option B — Refactor step handlers (cleaner):** Update all 9 step handlers to accept `PipelineContext` instead of `(instance, progress)`. This is more work but aligns with the long-term vision.
-
-**Recommendation:** Start with Option A for the `instantiate` pipeline. Refactor incrementally as other pipelines are added.
-
-#### C6: Update test suite
-
-**Files:**
-
-- Adapt `tests/test_instantiation_pipeline.py` — existing tests for `_handle_instantiating` need updating
-- Add `tests/test_lifecycle_phase_handler.py` — handler start/stop/cancel/completion tests
-- Add `tests/test_reconciler_concurrency.py` — per-session lock tests, handler deduplication
+- Rewrite `test_instantiation_pipeline.py` (no legacy path)
+- New `test_lifecycle_phase_handler.py` (15–20 tests)
+- New `test_reconciler_concurrency.py` (8–12 tests)
+- Update `test_pipeline_executor.py` (persist + resumability tests)
+- New CPA tests for internal terminate endpoint
 
 ---
 
-### Sprint D: Additional Pipeline Handlers (Phase 3 cont.)
+### Sprint D: Additional Pipeline Handlers + Teardown (Phase 3 cont.)
 
-**Goal:** Implement `_handle_collecting()`, `_handle_grading()`, `_handle_stopping()` — all following the same handler delegation pattern established in Sprint C.
+**Goal:** Implement pipeline delegation for `_handle_stopping()`, `_handle_collecting()`,
+`_handle_grading()` and decompose the inline teardown logic into step handlers.
 
-These are lower priority because:
+#### D1: Decompose `_handle_stopping()` into step handlers
 
-1. The `instantiate` pipeline is the immediate stall fix
-2. `collect_evidence` and `compute_grading` step handlers don't exist yet (Phase 5: Grading Integration)
-3. `teardown` steps partially exist but aren't structured as a pipeline
+- `_step_stop_lab` — Stop the CML lab
+- `_step_wipe_lab` — Wipe lab state for reuse
+- `_step_deregister_lds` — Archive LDS session
+- `_step_archive` — Transition session to ARCHIVED
 
-#### D1: Implement `_handle_collecting()` with handler delegation
+#### D2: Wire `_handle_stopping()` to LifecyclePhaseHandler + teardown pipeline
 
-#### D2: Implement `_handle_grading()` with handler delegation
+#### D3: Create stub step handlers for evidence collection
 
-#### D3: Implement `_handle_stopping()` (teardown pipeline) with handler delegation
+- `_step_capture_configs`, `_step_capture_screenshots`, `_step_export_pcaps`,
+  `_step_package_evidence`
 
-#### D4: Create stub step handlers for evidence collection and grading
+#### D4: Create stub step handlers for grading
+
+- `_step_load_rubric`, `_step_evaluate`, `_step_record_score`
+
+#### D5: Wire `_handle_collecting()` and `_handle_grading()` to pipeline delegation
+
+#### D6: Tests for all new step handlers and delegation paths
+
+#### D7: Remove TBD markers from seed files — all handlers now exist
 
 ---
 
-### Sprint E: Output Storage & LabRecord Integration (Phase 4)
+### Sprint E: UX, SSE Events, Queries & Frontend (Phase 4)
+
+**Goal:** Improve user experience with real-time pipeline progress, extended queries,
+and frontend enhancements.
+
+#### E1: Pipeline Progress SSE Events
+
+- New CloudEvent types: `pipeline.step.completed.v1`, `pipeline.step.failed.v1`,
+  `pipeline.started.v1`, `pipeline.completed.v1`, `pipeline.retry.v1`
+- Wire PipelineExecutor to emit events via context.api or event bus
+- SSE projector broadcasts to subscribed UI clients
+
+#### E2: Pipeline Progress Projectors (CPA Read Side)
+
+- `PipelineExecutionProjector` — listens to pipeline CloudEvents
+- `PipelineExecutionRecord` read model (session_id, pipeline_name, status, steps[],
+  started_at, completed_at, duration_seconds, retry_count, outputs, error)
+- MongoDB collection `pipeline_executions` with indexes on session_id, status, started_at
+
+#### E3: Extended Queries
+
+- `GET /api/pipeline-executions?session_id=...` — executions for a session
+- `GET /api/pipeline-executions?pipeline_name=...&status=...` — filtered by name/status
+- `GET /api/pipeline-executions?from=...&to=...` — datetime range
+- `GET /api/pipeline-executions/{id}/steps` — step-level detail
+- `GET /api/pipeline-executions/stats` — aggregated stats (avg duration, failure rate)
+- `GET /api/lablet-sessions/{id}/pipeline-history` — all pipeline runs for a session
+
+#### E4: Frontend Pipeline Progress UI
+
+- Session detail: pipeline progress panel with real-time SSE updates
+- Session list: pipeline status indicator column
+- Retry/terminate buttons for failed pipelines
+- Pipeline timeline visualization with timing bars
+- Toast notifications for pipeline completed/failed
+
+#### E5: Admin Dashboard Enhancements
+
+- Pipeline health overview: success/failure rates, avg duration trends
+- Active pipelines panel: currently running handlers
+- Failed pipelines queue: sessions awaiting retry/intervention
+- Bulk retry/terminate actions for admin users
+
+#### E6: Session Recovery UX
+
+- "Retry Pipeline" action on failed sessions
+- "View Pipeline Logs" — step-by-step execution log
+- "Manual Override" — skip a failed step and continue (admin only)
+
+---
+
+### Sprint F: Output Storage & LabRecord Integration (Phase 5)
 
 **Goal:** Store pipeline execution history on the LabRecord aggregate.
 
-#### E1: Add `PipelineRunRecord` to LabRecord aggregate (CPA domain)
+#### F1: Add `PipelineRunRecord` to LabRecord aggregate (CPA domain)
 
-#### E2: Create `AppendPipelineRunCommand` (CPA application)
+#### F2: Create `AppendPipelineRunCommand` (CPA application)
 
-#### E3: Wire `LifecyclePhaseHandler._on_complete()` → CPA command
+#### F3: Wire `LifecyclePhaseHandler._on_complete()` → CPA command
 
-#### E4: S3 artifact upload for file outputs
+#### F4: S3 artifact upload for file outputs
 
 ---
 
-### Sprint F: Definition Decomposition (Phase 5) — Separate ADR
+### Sprint G: Definition Decomposition (Phase 6) — Separate ADR
 
 **Goal:** Extract ContentSyncRecord from LabletDefinition. This warrants its own ADR.
-
-### Sprint G: UX Redesign (Phase 6) — Separate scope
-
-**Goal:** Tabbed definition detail modal, pipeline DAG visualization, SSE for step progress.
 
 ---
 
 ## 3. Dependency Chain
 
 ```
-Sprint A (Foundation)
-  ├── A1: LabletDefinitionReadModel.pipelines  ← MUST be first
-  ├── A2: simpleeval dependency               ← MUST be before B3
-  └── A3: ADR-034 errata                      ← housekeeping
+Sprint A (Foundation) ✅ DONE
+  ├── A1: LabletDefinitionReadModel.pipelines  ✅
+  └── A2: simpleeval dependency                ✅
 
-Sprint B (PipelineExecutor) — depends on A1, A2
-  ├── B1: PipelineContext
-  ├── B2: PipelineResult
-  ├── B3: PipelineExecutor class              ← core deliverable
-  └── B4: Unit tests                          ← validates B1-B3
+Sprint B (PipelineExecutor) ✅ DONE — depends on A1, A2
+  ├── B1: PipelineContext                      ✅
+  ├── B2: PipelineResult                       ✅
+  ├── B3: PipelineExecutor class               ✅ (48 tests)
+  └── B4: Unit tests                           ✅
 
-Sprint C (Integration) — depends on B3
-  ├── C1: LifecyclePhaseHandler
-  ├── C2: Per-session asyncio.Lock
-  ├── C3: _active_handlers management
-  ├── C4: _handle_instantiating refactor      ← critical path
-  ├── C5: Step handler adapter
-  └── C6: Test suite updates
+Sprint C (Integration) ✅ DONE — 126 tests, 8 tasks complete
+  ├── C0: Fix _persist_progress + resumability     ✅
+  ├── C1: LifecyclePhaseHandler (246 lines)         ✅
+  ├── C2: Per-session asyncio.Lock                  ✅
+  ├── C3: _active_handlers management               ✅
+  ├── C4: _handle_instantiating refactor            ✅ (fire-and-check pattern)
+  ├── C5: Internal terminate endpoint (CPA)         ✅
+  ├── C6: Seed files + max_retries                  ✅
+  └── C7: Test suite (126 tests across 4 files)     ✅
+  └── Bonus: graphlib refactor (AD-PIPELINE-010)    ✅
 
-Sprint D (More Pipelines) — depends on C4
-Sprint E (Output Storage) — depends on C1
-Sprint F (Decomposition) — independent
-Sprint G (UX) — depends on E1
+Sprint D (Teardown + More Pipelines) 🎯 CURRENT — depends on C4
+  ├── D1: Decompose _handle_stopping into step handlers
+  ├── D2: Wire _handle_stopping to LifecyclePhaseHandler
+  ├── D3: Stub step handlers for evidence collection
+  ├── D4: Stub step handlers for grading
+  ├── D5: Wire _handle_collecting + _handle_grading
+  ├── D6: Tests for all new handlers + delegation
+  └── D7: Validate seed files load with all handlers
+
+Sprint E (UX & Observability) — depends on C4
+  ├── SSE events for pipeline progress
+  ├── Pipeline execution projectors + queries
+  └── Frontend pipeline progress UI
+
+Sprint F (Output Storage) — depends on D
+Sprint G (Definition Decomposition) — independent
 ```
 
-**Critical path:** A1 → A2 → B3 → C4
+**Critical path:** A1 → A2 → B3 → C0 → C4 → C5
 
 ---
 
@@ -395,22 +437,29 @@ Sprint G (UX) — depends on E1
 
 | Risk | Mitigation |
 |------|-----------|
-| Step handler refactoring breaks existing tests | Adapter pattern (Option A) avoids changing step signatures |
-| Definition cache doesn't include `pipelines` for old definitions | `pipelines` defaults to `None` — `_handle_instantiating` checks and fails gracefully |
+| Step handler refactoring breaks existing tests | Adapter pattern wraps existing `_step_*` signatures — no signature changes needed |
+| Definition without pipelines at runtime | No backward compat (AD-PIPELINE-009) — terminate with clear error. Seed files must be updated. |
+| Failed pipeline stalls session | Reconciler retries with backoff up to max_retries, then terminates via internal endpoint (AD-PIPELINE-007, AD-PIPELINE-008) |
 | Per-session lock deadlock | Locks are per-session (no nesting) — deadlock only possible if same session awaits itself (impossible in single-threaded asyncio) |
 | PipelineExecutor too tightly coupled to reconciler | Executor receives a `step_dispatcher` callable — fully testable without reconciler |
 | simpleeval security | Expressions authored by admins only (seed YAML), not user input; simpleeval blocks `_`-prefixed attrs |
+| Definition cache never invalidated | `_definition_cache` persists for process lifetime — requires restart on pipeline changes (cache invalidation deferred) |
 
 ---
 
 ## 5. Session Handoff Notes
 
-### Decisions Stored This Session
+### Decisions Stored Across Sessions
 
 - **AD-PIPELINE-002**: PipelineExecutor with DAG inner loop (no polling)
 - **AD-PIPELINE-003**: LifecyclePhaseHandler as managed asyncio.Task
 - **AD-PIPELINE-004**: simpleeval for skip_when evaluation
 - **AD-PIPELINE-005**: Per-session asyncio.Lock for concurrency safety
+- **AD-PIPELINE-006**: Strip `$` prefix from skip_when expressions (simpleeval limitation)
+- **AD-PIPELINE-007**: No auto-teardown on failure — reconciler retries with resumability
+- **AD-PIPELINE-008**: Internal terminate_session endpoint for system-initiated termination
+- **AD-PIPELINE-009**: No backward compat — all definitions must have pipelines, seed files mandatory
+- **AD-PIPELINE-010**: Replace manual Kahn's algorithm with `graphlib.TopologicalSorter` (stdlib, CPython 3.9+)
 
 ### Key Files Modified This Session
 

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<section id="1">
+    <title>Lablet Practical</title>
+    <item id="1" scored="true" points="1">
+        <title>1: Item</title>
+        <text><![CDATA[<p>Configure both routers with the interfaces shown below. Ensure that the interfaces are operational.</p>
+<table class="ccie-table ccie_table">
+<colgroup><col><col><col></colgroup>
+<tbody>
+  <tr style="text-align:center;"><th>Device</th><th>Interface</th><th>IP Address</th></tr>
+  <tr><td>R1</td><td>Loopback1001</td><td>192.168.1.1/32</td></tr><tr><td>R2</td><td>Loopback1002</td><td>192.168.2.2/32</td></tr>
+</tbody>
+</table>
+]]></text>
+        <resources/>
+    </item>
+</section>

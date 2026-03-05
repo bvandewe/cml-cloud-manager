@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab_content version="3">
+    <title>Lablet</title>
+    <timing>
+        <min_length_minutes>0</min_length_minutes>
+        <max_length_minutes>240</max_length_minutes>
+        <warning_minutes>15</warning_minutes>
+        <warning_message></warning_message>
+    </timing>
+    <exercise_type>Lablet</exercise_type>
+    <intro_message>Welcome to the Lablet environment.</intro_message>
+    <main_page>
+        <text></text>
+        <alert></alert>
+        <progress_indicator>false</progress_indicator>
+        <diagram auto_title="true">images/main.png</diagram>
+    </main_page>
+    <background_file wrap="true" start_here="true" title="Guidelines">resources/guidelines.html</background_file>
+    <sections item_title_visible="false" score_visible="false" backward_nav="true">
+        <section>content/section_01.xml</section>
+    </sections>
+    <resources/>
+    <backend/>
+    <variables/>
+    <device>
+        <device category="R2" device_label="R2" coords="128,271,192,307" user_access_mode="web"/>
+        <device category="R1" device_label="R1" coords="128,87,192,123" user_access_mode="web"/>
+    </device>
+    <feedback enabled="false"/>
+</lab_content>

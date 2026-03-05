@@ -1,0 +1,73 @@
+# Worker Templates Configuration
+#
+# This file defines the available worker templates for provisioning CML workers.
+# Templates are seeded to MongoDB on startup and used for capacity-based
+# worker selection and cost optimization.
+#
+# Per ADR-007: Templates are managed as configuration, not user-created entities.
+
+templates:
+    - name: micro
+      description: Micro worker for testing and development (minimal resources)
+      instance_type: micro # t3.micro
+      ami_name_pattern: 'CML-*'
+      capacity:
+          cpu_cores: 2
+          memory_gb: 1
+          storage_gb: 20
+          max_nodes: 2
+      cost_per_hour_usd: 0.0104
+      enabled: true
+
+    - name: small
+      description: Small worker for simple labs with up to 5 nodes
+      instance_type: small # t3.small
+      ami_name_pattern: 'CML-*'
+      capacity:
+          cpu_cores: 2
+          memory_gb: 2
+          storage_gb: 50
+          max_nodes: 5
+      cost_per_hour_usd: 0.0208
+      enabled: true
+
+    - name: medium
+      description: Medium worker for moderate workloads with up to 15 nodes
+      instance_type: medium # t3.medium
+      ami_name_pattern: 'CML-*'
+      capacity:
+          cpu_cores: 2
+          memory_gb: 4
+          storage_gb: 100
+          max_nodes: 15
+      cost_per_hour_usd: 0.0416
+      enabled: true
+
+    - name: large
+      description: Large worker for complex labs with up to 30 nodes
+      instance_type: large # t3.large
+      ami_name_pattern: 'CML-*'
+      capacity:
+          cpu_cores: 2
+          memory_gb: 8
+          storage_gb: 200
+          max_nodes: 30
+      cost_per_hour_usd: 0.0832
+      enabled: true
+
+    - name: metal
+      description: Metal worker with nested virtualization for large-scale deployments
+      instance_type: metal # m5zn.metal
+      ami_name_pattern: 'CML-*'
+      capacity:
+          cpu_cores: 48
+          memory_gb: 192
+          storage_gb: 1000
+          max_nodes: 200
+      cost_per_hour_usd: 3.9641
+      enabled: true
+# Notes:
+# - cost_per_hour_usd is approximate and varies by region
+# - max_nodes depends on node definitions and their resource requirements
+# - Adjust ami_name_pattern per environment/region as needed
+# - Metal instances are expensive - use for production deployments only

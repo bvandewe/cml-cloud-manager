@@ -1,0 +1,180 @@
+<!-- Lablet Sessions Dashboard Component (Phase 7 — renamed from Lablet Instances) -->
+<div id="lablet-sessions-section" style="display: none">
+    <!-- Web Components Container -->
+    <div id="lablet-sessions-container">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col">
+                <h2>
+                    <i class="bi bi-collection"></i> Lablet Sessions
+                </h2>
+                <p class="text-muted">
+                    Manage lablet sessions and monitor their lifecycle.
+                </p>
+            </div>
+            <div class="col-auto">
+                <div class="btn-group" role="group">
+                    <button class="btn btn-primary admin-only-element" data-bs-toggle="modal"
+                        data-bs-target="#createLabletSessionModal" style="display: none;">
+                        <i class="bi bi-plus-circle"></i> New Session
+                    </button>
+                    <button class="btn btn-outline-secondary" id="refresh-lablet-sessions-btn">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lablet Session List Component -->
+        <lablet-session-list></lablet-session-list>
+    </div>
+</div>
+
+<!-- Lablet Session Details Modal -->
+<!-- DEPRECATED: Use <session-details-modal> custom element (Phase 3, labletsession-ux.md) -->
+<div class="modal fade" id="labletSessionDetailsModal" tabindex="-1" aria-labelledby="labletSessionDetailsModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="labletSessionDetailsModalLabel">
+                    <i class="bi bi-info-circle"></i> Session Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="labletSessionDetailsContent">
+                <!-- Content loaded dynamically -->
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Lablet Session Modal -->
+<div class="modal fade" id="createLabletSessionModal" tabindex="-1" aria-labelledby="createLabletSessionModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createLabletSessionModalLabel">
+                    <i class="bi bi-plus-circle"></i> Create Lablet Session
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createLabletSessionForm">
+                    <!-- Definition Selection Dropdown -->
+                    <div class="mb-3">
+                        <label for="instanceDefinitionId" class="form-label">Lablet Definition <span
+                                class="text-danger">*</span></label>
+                        <select class="form-select" id="instanceDefinitionId" required>
+                            <option value="">Select a definition...</option>
+                            <!-- Populated dynamically by LabletsPage._populateDefinitionDropdown() -->
+                        </select>
+                        <div class="form-text">Select the lab template to instantiate.</div>
+                    </div>
+
+                    <!-- Region Selection -->
+                    <div class="mb-3">
+                        <label for="instanceRegion" class="form-label">Target Region <span
+                                class="text-danger">*</span></label>
+                        <select class="form-select" id="instanceRegion" required>
+                            <option value="">Select a region...</option>
+                            <option value="us-east-1">US East (N. Virginia)</option>
+                            <option value="us-east-2">US East (Ohio)</option>
+                            <option value="us-west-1">US West (N. California)</option>
+                            <option value="us-west-2">US West (Oregon)</option>
+                            <option value="eu-west-1">EU (Ireland)</option>
+                            <option value="eu-central-1">EU (Frankfurt)</option>
+                            <option value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+                            <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                        </select>
+                        <div class="form-text">AWS region where the session will be scheduled.</div>
+                    </div>
+
+                    <!-- Start Time + Duration -->
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label for="instanceTimeslotStart" class="form-label">Start Time <span
+                                    class="text-danger">*</span></label>
+                            <input type="datetime-local" class="form-control" id="instanceTimeslotStart" required>
+                            <div class="form-text">When the lab should be available.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="instanceDuration" class="form-label">Duration (min) <span
+                                    class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="instanceDuration" min="5" max="480"
+                                value="120" required>
+                            <div class="form-text">Lab session length.</div>
+                        </div>
+                    </div>
+
+                    <!-- External Reservation ID (Optional) -->
+                    <div class="mb-3">
+                        <label for="instanceReservationId" class="form-label">Reservation ID (Optional)</label>
+                        <input type="text" class="form-control" id="instanceReservationId"
+                            placeholder="External reservation system reference">
+                        <div class="form-text">Link this session to an external reservation system.</div>
+                    </div>
+
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-info" id="dryRunCreateLabletSession"
+                    title="Preview the Placement algorithm">
+                    <i class="bi bi-cpu me-1"></i>Dry Run
+                </button>
+                <button type="button" class="btn btn-primary" id="submitCreateLabletSession">
+                    <i class="bi bi-plus-circle"></i> Create Session
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Lablet Session Modal -->
+<div class="modal fade" id="deleteLabletSessionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-trash"></i> Terminate Lablet Session
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="deleteSessionId" />
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <strong>Warning:</strong> This action cannot be undone.
+                </div>
+                <p>
+                    Are you sure you want to terminate the lablet session
+                    <strong id="deleteSessionName"></strong>?
+                </p>
+                <p class="text-muted">
+                    This will stop the lab and release all associated resources.
+                </p>
+                <div class="mb-3">
+                    <label for="deleteSessionReason" class="form-label">Reason (optional)</label>
+                    <textarea class="form-control" id="deleteSessionReason" rows="2"
+                        placeholder="Enter termination reason..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="submitDeleteLabletSession">
+                    <i class="bi bi-trash"></i> Terminate
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

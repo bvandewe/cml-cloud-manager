@@ -1,0 +1,35 @@
+# LDS (Lab Delivery System) Deployment Configuration
+#
+# Per-region LDS deployment settings for session provisioning.
+# Lablet-controller loads this at startup and selects the appropriate
+# deployment based on the worker's AWS region.
+#
+# AD-P4-02: Multi-region LDS deployment configuration via YAML,
+# following the same pattern as worker_templates.yaml (CPA) and
+# aws_regions.yaml (worker-controller).
+#
+# In Docker: mounted at /app/config/lds_deployments.yaml
+# Locally: ./config/lds_deployments.yaml (relative to lablet-controller root)
+#
+# Authentication: HTTP Basic Auth (per LDS Reservations API v3)
+
+deployments:
+    us-east-1:
+        # LDS instance serving US East region
+        base_url: 'http://localhost:8048' # Replace with actual URL in production
+        username: 'testuser1'
+        password: 'testpass1'
+        # Timeouts
+        timeout_seconds: 30
+        # Optional: descriptive label
+        label: 'LDS US East (Primary)'
+
+    us-west-2:
+        base_url: 'http://localhost:8048' # Replace with actual URL in production
+        username: 'testuser1'
+        password: 'testpass1'
+        timeout_seconds: 30
+        label: 'LDS US West'
+
+# Default deployment (used when no region-specific deployment found)
+default_region: 'us-east-1'

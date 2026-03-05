@@ -1,0 +1,97 @@
+// =============================================================================
+// BUTTONS COMPONENT
+// Button styles and variants
+// =============================================================================
+
+// Base button enhancements
+.btn {
+    @include button-base;
+
+    // Icon spacing
+    i {
+        font-size: 1em;
+    }
+
+    // Loading state
+    &.btn-loading {
+        position: relative;
+        pointer-events: none;
+
+        .btn-text {
+            opacity: 0;
+        }
+
+        .spinner-border {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+    }
+}
+
+// Button group spacing
+.btn-group {
+    gap: 0;
+
+    .btn {
+        margin: 0;
+    }
+}
+
+// Action buttons container
+.action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $spacing-2;
+
+    .btn {
+        margin: 0;
+    }
+}
+
+// Icon-only buttons
+.btn-icon {
+    padding: $spacing-2;
+    line-height: 1;
+
+    i {
+        margin: 0;
+    }
+}
+
+// Small button group
+.btn-group-sm .btn {
+    padding: $spacing-1 $spacing-2;
+    font-size: $font-size-sm;
+}
+
+// Button with badge
+.btn-badge {
+    position: relative;
+
+    .badge {
+        position: absolute;
+        top: -$spacing-1;
+        right: -$spacing-1;
+        font-size: $font-size-xs;
+    }
+}
+
+// Radio button groups (toggle style)
+.btn-check:checked + .btn {
+    background-color: var(--color-primary, $color-primary);
+    border-color: var(--color-primary, $color-primary);
+    color: var(--color-text-inverse, $color-text-inverse);
+}
+
+// Toolbar button group
+.btn-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $spacing-2;
+
+    .btn-group {
+        margin: 0;
+    }
+}

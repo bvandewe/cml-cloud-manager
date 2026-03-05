@@ -11,12 +11,10 @@ from typing import cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot, AggregateState
-
 from domain.enums import CML_WORKER_VALID_TRANSITIONS, CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 from domain.events.cloudwatch_monitoring_updated_domain_event import CloudWatchMonitoringUpdatedDomainEvent
 from domain.events.cml_worker import (
+    AllocatedCapacityRecalculatedDomainEvent,
     CMLServiceStatusUpdatedDomainEvent,
     CMLWorkerCapacityUpdatedDomainEvent,
     CMLWorkerCreatedDomainEvent,
@@ -72,6 +70,8 @@ from domain.value_objects.cml_metrics import (
 )
 from domain.value_objects.port_allocation import PortAllocation
 from domain.value_objects.worker_capacity import WorkerCapacity
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot, AggregateState
 
 
 class CMLWorkerState(AggregateState[str]):
@@ -791,6 +791,22 @@ class CMLWorkerState(AggregateState[str]):
             max_nodes=(max(0, (self.allocated_capacity.max_nodes or 0) - (released_capacity.max_nodes or 0)) if self.allocated_capacity.max_nodes is not None else None),
         )
         self.updated_at = event.removed_at
+
+    @dispatch(AllocatedCapacityRecalculatedDomainEvent)
+    def on(self, event: AllocatedCapacityRecalculatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply allocated capacity recalculation event to the state.
+
+        Directly replaces allocated_capacity and session_ids with
+        recomputed values. Used as a repair mechanism for drifted data.
+        """
+        self.session_ids = list(event.active_session_ids)
+        self.allocated_capacity = WorkerCapacity(
+            cpu_cores=event.recalculated_cpu_cores,
+            memory_gb=event.recalculated_memory_gb,
+            storage_gb=event.recalculated_storage_gb,
+            max_nodes=event.recalculated_max_nodes,
+        )
+        self.updated_at = event.recalculated_at
 
 
 class InvalidCMLWorkerTransitionError(Exception):
@@ -2126,6 +2142,44 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
                     released_storage_gb=storage_gb,
                     released_nodes=max_nodes,
                     removed_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+
+    def recalculate_capacity(
+        self,
+        recalculated_cpu_cores: int,
+        recalculated_memory_gb: int,
+        recalculated_storage_gb: int,
+        recalculated_max_nodes: int | None,
+        active_session_ids: list[str],
+        stale_session_ids: list[str],
+    ) -> None:
+        """Recalculate allocated capacity from scratch.
+
+        Repair mechanism for when allocated_capacity has drifted due to
+        bugs in session lifecycle handlers. Directly replaces allocated_capacity
+        and session_ids with recomputed values.
+
+        Args:
+            recalculated_cpu_cores: Correct total CPU cores allocated
+            recalculated_memory_gb: Correct total memory in GB allocated
+            recalculated_storage_gb: Correct total storage in GB allocated
+            recalculated_max_nodes: Correct total node count allocated
+            active_session_ids: Session IDs that are actually still active
+            stale_session_ids: Session IDs that were tracked but are no longer active
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                AllocatedCapacityRecalculatedDomainEvent(
+                    aggregate_id=self.id(),
+                    recalculated_cpu_cores=recalculated_cpu_cores,
+                    recalculated_memory_gb=recalculated_memory_gb,
+                    recalculated_storage_gb=recalculated_storage_gb,
+                    recalculated_max_nodes=recalculated_max_nodes,
+                    active_session_ids=active_session_ids,
+                    stale_session_ids=stale_session_ids,
+                    recalculated_at=datetime.now(timezone.utc),
                 )
             )
         )

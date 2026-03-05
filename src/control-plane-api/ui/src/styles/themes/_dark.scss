@@ -1,0 +1,284 @@
+// =============================================================================
+// DARK THEME
+// Override CSS custom properties for dark mode
+// =============================================================================
+
+[data-bs-theme='dark'] {
+    // Sync with Bootstrap's color system for consistent dark mode
+    // Bootstrap uses --bs-body-bg for body background, which it sets automatically
+    // We override our custom variables to match our desired dark palette
+
+    // Background colors - darker, richer palette
+    --color-bg-primary: #1a1d21;
+    --color-bg-secondary: #212529;
+    --color-bg-tertiary: #2d3238;
+
+    // Also override Bootstrap's body background to match our secondary (same as Bootstrap default dark)
+    --bs-body-bg: var(--color-bg-secondary);
+    --bs-body-bg-rgb: 33, 37, 41;
+
+    // Text colors - softer whites for reduced eye strain
+    --color-text-primary: #e9ecef;
+    --color-text-secondary: #adb5bd;
+    --color-text-muted: #6c757d;
+    --color-text-inverse: #212529;
+
+    // Border colors - subtle, low contrast
+    --color-border: #3d4349;
+    --color-border-light: #2d3238;
+
+    // Shadows - subtle glow effect for depth
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.5);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 1px rgba(255, 255, 255, 0.05);
+    --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255, 255, 255, 0.1);
+
+    // Note: Body background is now handled by Bootstrap's --bs-body-bg
+    // which we've overridden above. No need for explicit body rule.
+
+    // Card dark mode overrides
+    .card {
+        background-color: var(--color-bg-primary);
+        border-color: var(--color-border);
+        box-shadow: var(--shadow-card);
+
+        &:hover {
+            box-shadow: var(--shadow-card-hover);
+        }
+    }
+
+    // Navbar dark mode
+    .navbar {
+        background-color: var(--color-bg-primary) !important;
+        border-bottom-color: var(--color-border);
+    }
+
+    // Form controls dark mode
+    .form-control,
+    .form-select {
+        background-color: var(--color-bg-tertiary);
+        border-color: var(--color-border);
+        color: var(--color-text-primary);
+
+        &:focus {
+            background-color: var(--color-bg-tertiary);
+            border-color: $color-primary;
+            box-shadow: 0 0 0 0.25rem rgba($color-primary, 0.25);
+        }
+
+        &::placeholder {
+            color: var(--color-text-muted);
+        }
+    }
+
+    // Table dark mode
+    .table {
+        --bs-table-bg: var(--color-bg-primary);
+        --bs-table-striped-bg: var(--color-bg-secondary);
+        --bs-table-hover-bg: var(--color-bg-tertiary);
+        color: var(--color-text-primary);
+
+        thead {
+            background-color: var(--color-bg-secondary);
+            border-bottom-color: var(--color-border);
+        }
+
+        tbody tr {
+            border-color: var(--color-border);
+        }
+    }
+
+    // Modal dark mode
+    .modal-content {
+        background-color: var(--color-bg-primary);
+        border-color: var(--color-border);
+    }
+
+    .modal-header,
+    .modal-footer {
+        background-color: var(--color-bg-secondary);
+        border-color: var(--color-border);
+    }
+
+    // Dropdown dark mode
+    .dropdown-menu {
+        background-color: var(--color-bg-primary);
+        border-color: var(--color-border);
+        box-shadow: var(--shadow-lg);
+
+        .dropdown-item {
+            color: var(--color-text-primary);
+
+            &:hover,
+            &:focus {
+                background-color: var(--color-bg-tertiary);
+            }
+        }
+
+        .dropdown-divider {
+            border-color: var(--color-border);
+        }
+    }
+
+    // Toast dark mode
+    .toast {
+        background-color: var(--color-bg-primary);
+        border-color: var(--color-border);
+
+        .toast-header {
+            background-color: var(--color-bg-secondary);
+            color: var(--color-text-primary);
+        }
+    }
+
+    // Code blocks dark mode
+    code {
+        background-color: var(--color-bg-tertiary);
+        color: #f8d7da;
+    }
+
+    pre {
+        background-color: var(--color-bg-tertiary);
+    }
+
+    // Badge refinements for dark mode
+    .badge {
+        &.bg-light {
+            background-color: var(--color-bg-tertiary) !important;
+            color: var(--color-text-primary);
+        }
+    }
+
+    // Stats cards with subtle glow in dark mode
+    .stat-card,
+    .stats-card {
+        box-shadow: var(--shadow-card);
+
+        &:hover {
+            box-shadow: var(--shadow-card-hover);
+        }
+    }
+
+    // Filters section dark mode
+    .filters-section {
+        background-color: var(--color-bg-primary);
+        box-shadow: var(--shadow-card);
+    }
+
+    // Empty state dark mode
+    .empty-state {
+        i {
+            color: var(--color-text-muted);
+        }
+
+        h5 {
+            color: var(--color-text-secondary);
+        }
+    }
+
+    // Override bg-white utility class in dark mode
+    // Prevents white backgrounds bleeding through in card headers, input groups, etc.
+    .bg-white {
+        background-color: var(--color-bg-secondary) !important;
+    }
+
+    // Input group text (search icons, etc.)
+    .input-group-text {
+        background-color: var(--color-bg-tertiary);
+        border-color: var(--color-border);
+        color: var(--color-text-secondary);
+    }
+
+    // Nav tabs & pills dark mode
+    .nav-tabs {
+        border-bottom-color: var(--color-border);
+
+        .nav-link {
+            color: var(--color-text-secondary);
+
+            &:hover,
+            &:focus {
+                border-color: var(--color-border) var(--color-border) transparent;
+                color: var(--color-text-primary);
+            }
+
+            &.active {
+                background-color: var(--color-bg-primary);
+                border-color: var(--color-border) var(--color-border) var(--color-bg-primary);
+                color: var(--color-text-primary);
+            }
+        }
+    }
+
+    .nav-pills .nav-link {
+        color: var(--color-text-secondary);
+
+        &:hover {
+            background-color: var(--color-bg-tertiary);
+            color: var(--color-text-primary);
+        }
+
+        &.active {
+            background-color: $color-primary;
+            color: #fff;
+        }
+    }
+
+    // List group dark mode
+    .list-group-item {
+        background-color: var(--color-bg-primary);
+        border-color: var(--color-border);
+        color: var(--color-text-primary);
+
+        &:hover {
+            background-color: var(--color-bg-tertiary);
+        }
+    }
+
+    // Accordion / collapse header dark mode
+    .accordion-item {
+        background-color: var(--color-bg-primary);
+        border-color: var(--color-border);
+    }
+
+    .accordion-button {
+        background-color: var(--color-bg-secondary);
+        color: var(--color-text-primary);
+
+        &:not(.collapsed) {
+            background-color: var(--color-bg-tertiary);
+            color: var(--color-text-primary);
+        }
+    }
+
+    // Progress bar dark mode
+    .progress {
+        background-color: var(--color-bg-tertiary);
+    }
+
+    // Alert dark mode adjustments
+    .alert {
+        border-color: var(--color-border);
+    }
+
+    // Description list (dl/dt/dd) text colors
+    dt {
+        color: var(--color-text-secondary);
+    }
+
+    dd {
+        color: var(--color-text-primary);
+    }
+
+    // Text utilities
+    .text-muted {
+        color: var(--color-text-muted) !important;
+    }
+
+    // Border utilities
+    .border-bottom,
+    .border-top {
+        border-color: var(--color-border) !important;
+    }
+}

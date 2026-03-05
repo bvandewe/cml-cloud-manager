@@ -1,0 +1,39 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
+<grading-rules xmlns='http://www.w3.org/2009/grading'>
+    <lab title='LAB-1.1' version='1' reportClass='Reports::LabletReport'/>
+    <!-- Section 0 : Concurrent Statements -->
+     <section index='0' tag='invariant' description='INVARIANT' mode='concurrent' >
+        <!-- Device: R1 - Concurrent Statements -->
+         <subsection index='1' description='R1' >
+            <!-- Verification - Question - 0: Item - Output  1.1:  -->
+                 <verify subject='commandOutput' device='R1' command='show ip int bri | inc Loopback' match='/^(.*)$/msig' status='positive' out='R1_INTF_BRI' timeout='5' suppressIssue='true'/>
+             <!-- Verification - Question - 0: Item - Output  2.1:  -->
+                 <verify subject='commandOutput' device='R1' command='show interface Loopback 1001' match='/^(.*)$/msig' status='positive' out='R1_LOOP1001' suppressIssue='true'/>
+         </subsection>
+        <!-- Device: R2 - Concurrent Statements -->
+         <subsection index='2' description='R2' >
+            <!-- Verification - Question - 0: Item - Output  1.1:  -->
+                 <verify subject='commandOutput' device='R2' command='show ip int bri | inc Loopback' match='/^(.*)$/msig' status='positive' out='R2_INTF_BRI' timeout='5' suppressIssue='true'/>
+             <!-- Verification - Question - 0: Item - Output  3.1:  -->
+                 <verify subject='commandOutput' device='R2' command='show interface Loopback 1002' match='/^(.*)$/msig' status='positive' out='R2_LOOP1002' suppressIssue='true'/>
+         </subsection>
+    </section>
+     <!-- Lablet Practical -->
+     <section index='1' points='5' description='Lablet Practical'>
+        <!-- Question - Check if Loopback interfaces were created -->
+         <subsection index='1' points='1' description='Check if Loopback interfaces were created' domain=''>
+                    <verify subject='parse' device='R1' string='$(R1_INTF_BRI)' regexp='/^Loopback1001/msig' mode='positive'/>
+                    <verify subject='parse' device='R1' string='$(R2_INTF_BRI)' regexp='/^Loopback1002/msig' mode='positive'/>
+                    <verify subject='parse' device='R2' string='$(R1_INTF_BRI)' regexp='/^Loopback1001/msig' mode='positive'/>
+                    <verify subject='parse' device='R2' string='$(R2_INTF_BRI)' regexp='/^Loopback1002/msig' mode='positive'/>
+        </subsection>
+        <!-- Question - Check if R1 IP set correctly -->
+         <subsection index='2' points='2' description='Check if R1 IP set correctly' domain=''>
+                    <verify subject='parse' device='R1' string='$(R1_LOOP1001)' regexp='/Internet address is 192.168.1.1\/32/msig' mode='positive'/>
+        </subsection>
+        <!-- Question - Check if R2 IP set correctly -->
+         <subsection index='3' points='2' description='Check if R2 IP set correctly' domain=''>
+                    <verify subject='parse' device='R2' string='$(R2_LOOP1002)' regexp='/Internet address is 192.168.2.2\/32/msig' mode='positive'/>
+        </subsection>
+    </section>
+</grading-rules>

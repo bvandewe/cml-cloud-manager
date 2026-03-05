@@ -44,6 +44,10 @@ from .license_status_commands import (
 )
 from .mark_worker_terminated_command import MarkWorkerTerminatedCommand, MarkWorkerTerminatedCommandHandler
 from .pause_worker_command import PauseWorkerCommand, PauseWorkerCommandHandler
+from .recalculate_worker_capacity_command import (
+    RecalculateWorkerCapacityCommand,
+    RecalculateWorkerCapacityCommandHandler,
+)
 from .register_cml_worker_license_command import RegisterCMLWorkerLicenseCommand, RegisterCMLWorkerLicenseCommandHandler
 from .release_capacity_command import ReleaseCapacityCommand, ReleaseCapacityCommandHandler
 from .request_scale_up_command import RequestScaleUpCommand, RequestScaleUpCommandHandler
@@ -64,6 +68,8 @@ __all__ = [
     "AllocateCapacityCommandHandler",
     "ReleaseCapacityCommand",
     "ReleaseCapacityCommandHandler",
+    "RecalculateWorkerCapacityCommand",
+    "RecalculateWorkerCapacityCommandHandler",
     # Create/Delete lifecycle (DB-only, controllers reconcile)
     "CreateCMLWorkerCommand",
     "CreateCMLWorkerCommandHandler",

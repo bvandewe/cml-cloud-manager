@@ -1,0 +1,12 @@
+{
+    "include": ["."],
+    "exclude": [".venv", "__pycache__", ".pytest_cache", ".ruff_cache"],
+    "extraPaths": [".", "../core"],
+    "pythonVersion": "3.11",
+    "pythonPlatform": "All",
+    "typeCheckingMode": "basic",
+    "reportMissingImports": "warning",
+    "reportMissingTypeStubs": "none",
+    "venvPath": ".",
+    "venv": ".venv"
+}

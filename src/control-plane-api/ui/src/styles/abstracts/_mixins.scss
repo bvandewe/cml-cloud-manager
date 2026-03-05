@@ -1,0 +1,293 @@
+// =============================================================================
+// MIXINS
+// Reusable style patterns for Lablet Cloud Manager
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Responsive Breakpoints
+// -----------------------------------------------------------------------------
+@mixin respond-to($breakpoint) {
+    @if $breakpoint == 'sm' {
+        @media (min-width: $breakpoint-sm) {
+            @content;
+        }
+    } @else if $breakpoint == 'md' {
+        @media (min-width: $breakpoint-md) {
+            @content;
+        }
+    } @else if $breakpoint == 'lg' {
+        @media (min-width: $breakpoint-lg) {
+            @content;
+        }
+    } @else if $breakpoint == 'xl' {
+        @media (min-width: $breakpoint-xl) {
+            @content;
+        }
+    } @else if $breakpoint == 'xxl' {
+        @media (min-width: $breakpoint-xxl) {
+            @content;
+        }
+    }
+}
+
+@mixin respond-below($breakpoint) {
+    @if $breakpoint == 'sm' {
+        @media (max-width: #{$breakpoint-sm - 1px}) {
+            @content;
+        }
+    } @else if $breakpoint == 'md' {
+        @media (max-width: #{$breakpoint-md - 1px}) {
+            @content;
+        }
+    } @else if $breakpoint == 'lg' {
+        @media (max-width: #{$breakpoint-lg - 1px}) {
+            @content;
+        }
+    } @else if $breakpoint == 'xl' {
+        @media (max-width: #{$breakpoint-xl - 1px}) {
+            @content;
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Flexbox Shortcuts
+// -----------------------------------------------------------------------------
+@mixin flex-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+@mixin flex-between {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+@mixin flex-column {
+    display: flex;
+    flex-direction: column;
+}
+
+@mixin flex-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+// -----------------------------------------------------------------------------
+// Typography
+// -----------------------------------------------------------------------------
+@mixin text-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@mixin text-truncate-lines($lines: 2) {
+    display: -webkit-box;
+    -webkit-line-clamp: $lines;
+    line-clamp: $lines;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+@mixin heading-style {
+    font-weight: $font-weight-semibold;
+    line-height: $line-height-tight;
+    margin-bottom: $spacing-2;
+}
+
+// -----------------------------------------------------------------------------
+// Cards
+// -----------------------------------------------------------------------------
+@mixin card-base {
+    background-color: var(--color-bg-primary, $color-bg-primary);
+    border-radius: $border-radius-md;
+    box-shadow: $shadow-card;
+    transition:
+        transform $transition-normal,
+        box-shadow $transition-normal;
+}
+
+@mixin card-hover {
+    transform: translateY(-4px);
+    box-shadow: $shadow-card-hover;
+}
+
+@mixin stats-card($bg-color, $text-color: $color-text-inverse) {
+    background: linear-gradient(135deg, $bg-color 0%, darken($bg-color, 10%) 100%);
+    color: $text-color;
+    border: none;
+
+    .stat-icon {
+        opacity: 0.2;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Buttons
+// -----------------------------------------------------------------------------
+@mixin button-base {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: $spacing-2;
+    padding: $spacing-2 $spacing-4;
+    border-radius: $border-radius-md;
+    font-weight: $font-weight-medium;
+    font-size: $font-size-sm;
+    transition: all $transition-fast;
+    cursor: pointer;
+    border: none;
+
+    &:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+    }
+}
+
+@mixin button-variant($bg-color, $text-color: $color-text-inverse) {
+    background-color: $bg-color;
+    color: $text-color;
+
+    &:hover:not(:disabled) {
+        background-color: darken($bg-color, 8%);
+    }
+
+    &:active:not(:disabled) {
+        background-color: darken($bg-color, 12%);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Forms
+// -----------------------------------------------------------------------------
+@mixin form-input {
+    display: block;
+    width: 100%;
+    padding: $spacing-2 $spacing-3;
+    font-size: $font-size-md;
+    font-weight: $font-weight-normal;
+    line-height: $line-height-normal;
+    color: var(--color-text-primary, $color-text-primary);
+    background-color: var(--color-bg-primary, $color-bg-primary);
+    border: 1px solid var(--color-border, $color-border);
+    border-radius: $border-radius-md;
+    transition:
+        border-color $transition-fast,
+        box-shadow $transition-fast;
+
+    &:focus {
+        border-color: $color-primary;
+        box-shadow: 0 0 0 0.25rem rgba($color-primary, 0.15);
+        outline: none;
+    }
+
+    &::placeholder {
+        color: var(--color-text-muted, $color-text-muted);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Status Indicators
+// -----------------------------------------------------------------------------
+@mixin status-badge($color) {
+    display: inline-flex;
+    align-items: center;
+    padding: $spacing-1 $spacing-2;
+    font-size: $font-size-xs;
+    font-weight: $font-weight-semibold;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    border-radius: $border-radius-sm;
+    background-color: rgba($color, 0.1);
+    color: $color;
+}
+
+@mixin status-dot($color, $size: 8px) {
+    &::before {
+        content: '';
+        display: inline-block;
+        width: $size;
+        height: $size;
+        border-radius: 50%;
+        background-color: $color;
+        margin-right: $spacing-2;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Tables
+// -----------------------------------------------------------------------------
+@mixin table-header {
+    background-color: var(--color-bg-secondary, $color-bg-secondary);
+    font-weight: $font-weight-semibold;
+    font-size: $font-size-xs;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary, $color-text-secondary);
+}
+
+@mixin table-row-hover {
+    transition: background-color $transition-fast;
+
+    &:hover {
+        background-color: var(--color-bg-secondary, $color-bg-secondary);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Animations
+// -----------------------------------------------------------------------------
+@mixin fade-in($duration: 0.3s) {
+    animation: fadeIn $duration ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@mixin slide-up($duration: 0.3s) {
+    animation: slideUp $duration ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Scrollbar (for webkit browsers)
+// -----------------------------------------------------------------------------
+@mixin custom-scrollbar($width: 8px, $track-color: transparent, $thumb-color: $color-border) {
+    &::-webkit-scrollbar {
+        width: $width;
+        height: $width;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: $track-color;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: $thumb-color;
+        border-radius: calc($width / 2);
+
+        &:hover {
+            background: darken($thumb-color, 15%);
+        }
+    }
+}

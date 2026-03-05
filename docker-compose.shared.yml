@@ -1,0 +1,569 @@
+# Lablet Cloud Manager - Shared AIX Network Configuration
+# This file defines ONLY LCM-unique services that connect to the shared aix-net network.
+#
+# Prerequisites:
+#   The 'aix_aix-net' network must exist before starting services.
+#   Start AIX infrastructure first: cd ../aix && docker compose -f docker-compose.infra.yml up -d
+#
+# Usage:
+#   Start LCM with shared infra:  make up-shared
+#   Stop LCM services:            make down-shared
+#   View logs:                    make logs-shared
+#
+# This file does NOT include: keycloak, mongodb, redis, otel-collector, events-player
+# Those services are provided by AIX's docker-compose.infra.yml
+
+name: lablet-cloud-manager-shared
+
+services:
+    # =========================================================================
+    # LCM MICROSERVICES
+    # =========================================================================
+
+    # 📱 Control Plane API (with UI)
+    # http://localhost:${APP_PORT:-8020}/
+    control-plane-api:
+        build:
+            context: ./src
+            dockerfile: control-plane-api/Dockerfile
+        command: ['sh', '-c', 'pip install debugpy watchfiles -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        ports:
+            - '${APP_PORT:-8020}:8080'
+            - '5680:5678' # Debug port
+        environment:
+            # Core Application
+            APP_NAME: ${APP_NAME:-control-plane-api}
+            APP_VERSION: ${IMAGE_TAG:-v0.1.0}
+            IMAGE_TAG: ${CONTROL_PLANE_IMAGE_TAG:-v0.1.0}
+            ENVIRONMENT: development
+            DEBUG: true
+            LOG_LEVEL: DEBUG
+            LOG_TO_FILE: 'true'
+            LOG_FILE: logs/control-plane-api.log
+            LOG_FILE_TRUNCATE_ON_START: 'true'
+            APP_HOST: 0.0.0.0
+            APP_PORT: 8080
+            APP_URL: http://localhost:${APP_PORT:-8020}
+            PYTHONPATH: '/app:/core'
+            LOCAL_DEV: true
+
+            # Security & Authentication (using shared Keycloak with AIX realm)
+            # NOTE: These are HARDCODED for shared mode - always uses AIX's Keycloak on port 8041 with 'aix' realm
+            # Uses lcm-backend (confidential client) for OAuth2 Authorization Code flow
+            ENABLE_CORS: 'true'
+            KEYCLOAK_URL: http://localhost:8041
+            KEYCLOAK_URL_INTERNAL: http://aix-keycloak:8080
+            KEYCLOAK_REALM: aix
+            KEYCLOAK_CLIENT_ID: lcm-backend
+            KEYCLOAK_CLIENT_SECRET: lcm-backend-secret-change-in-production
+            KEYCLOAK_PUBLIC_CLIENT_ID: lcm-public
+            VERIFY_ISSUER: true
+            EXPECTED_ISSUER: 'http://localhost:8041/realms/aix'
+            VERIFY_AUDIENCE: true
+            EXPECTED_AUDIENCE: '["lcm"]'
+
+            # Token Lifespans (aligned with Keycloak realm settings)
+            ACCESS_TOKEN_LIFESPAN_SECONDS: ${ACCESS_TOKEN_LIFESPAN_SECONDS:-1500}
+            SSO_SESSION_IDLE_TIMEOUT_MINUTES: ${SSO_SESSION_IDLE_TIMEOUT_MINUTES:-30}
+            SSO_SESSION_MAX_LIFESPAN_MINUTES: ${SSO_SESSION_MAX_LIFESPAN_MINUTES:-600}
+            REFRESH_AUTO_LEEWAY_SECONDS: ${REFRESH_AUTO_LEEWAY_SECONDS:-300}
+
+            # Session Management
+
+            # Database & Persistence (using shared MongoDB/Redis)
+            CONNECTION_STRINGS: '{"mongo": "mongodb://${MONGODB_ROOT_USERNAME:-root}:${MONGODB_ROOT_PASSWORD:-password123}@aix-mongodb:27017/?authSource=admin"}'
+            REDIS_URL: redis://aix-redis:6379/0
+            REDIS_ENABLED: ${REDIS_ENABLED:-true}
+            REDIS_KEY_PREFIX: 'lcm-session:'
+
+            # etcd (LCM-specific)
+            ETCD_HOST: lcm-etcd
+            ETCD_PORT: 2379
+
+            # AWS & CML Worker
+            AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+            AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+            CML_WORKER_AMI_NAME_DEFAULT: ${CML_WORKER_AMI_NAME_DEFAULT}
+            CML_WORKER_INSTANCE_TYPE_DEFAULT: ${CML_WORKER_INSTANCE_TYPE_DEFAULT}
+            CML_WORKER_SECURITY_GROUP_IDS: ${CML_WORKER_SECURITY_GROUP_IDS}
+            CML_WORKER_SUBNET_ID: ${CML_WORKER_SUBNET_ID}
+            CML_WORKER_KEY_NAME: ${CML_WORKER_KEY_NAME}
+            CML_WORKER_USERNAME: ${CML_WORKER_USERNAME}
+            CML_WORKER_API_USERNAME: ${CML_WORKER_API_USERNAME}
+            CML_WORKER_API_PASSWORD: ${CML_WORKER_API_PASSWORD}
+
+            # Monitoring & Background Jobs
+            WORKER_MONITORING_ENABLED: ${WORKER_MONITORING_ENABLED:-true}
+            AUTO_IMPORT_WORKERS_ENABLED: ${AUTO_IMPORT_WORKERS_ENABLED:-false}
+            AUTO_IMPORT_WORKERS_INTERVAL: ${AUTO_IMPORT_WORKERS_INTERVAL:-300}
+            AUTO_IMPORT_WORKERS_REGION: ${AUTO_IMPORT_WORKERS_REGION:-us-east-1}
+            AUTO_IMPORT_WORKERS_AMI_NAME: ${AUTO_IMPORT_WORKERS_AMI_NAME}
+            AUTO_IMPORT_WORKERS_FORCE_REQUEUE: true
+            LABS_REFRESH_INTERVAL: ${LABS_REFRESH_INTERVAL:-1800}
+            WORKER_METRICS_POLL_INTERVAL: ${WORKER_METRICS_POLL_INTERVAL:-300}
+
+            # Observability (using shared OTEL collector)
+            OTEL_SERVICE_NAME: control-plane-api
+            OTEL_SERVICE_VERSION: 1.0.0
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://aix-otel-collector:4317
+            OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+            OTEL_TRACES_EXPORTER: otlp
+            OTEL_METRICS_EXPORTER: otlp
+            OTEL_LOGS_EXPORTER: none
+            OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: 'false'
+
+            # Grafana (for embedded panels in UI)
+            GRAFANA_URL: ${GRAFANA_URL:-http://localhost:3000}
+            PROMETHEUS_ENABLED: ${PROMETHEUS_ENABLED:-true}
+
+            # Cloud Events (using shared events-player)
+            CLOUD_EVENT_SINK: http://aix-events-player:8080/events/pub
+            CLOUD_EVENT_SOURCE: https://lablet-cloud-manager.io
+            CLOUD_EVENT_TYPE_PREFIX: io.lablet-cloud-manager
+
+            # Service-to-Service API Key (for internal endpoints)
+            INTERNAL_API_KEY: ${INTERNAL_API_KEY:-lcm-internal-api-key-change-in-production}
+
+            # Controller Service URLs (Docker-internal for server-side health checks)
+            WORKER_CONTROLLER_URL: http://worker-controller:8083
+            LABLET_CONTROLLER_URL: http://lablet-controller:8082
+            RESOURCE_SCHEDULER_URL: http://resource-scheduler:8081
+
+        volumes:
+            - ./src/control-plane-api:/app
+            - ./src/core:/core
+        networks:
+            - aix-net
+        depends_on:
+            - lcm-etcd
+        healthcheck:
+            test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:8080/health")']
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 30s
+
+    # 📅 Resource Scheduler Service
+    # Handles LabletInstance placement decisions
+    resource-scheduler:
+        build:
+            context: ./src/resource-scheduler
+            dockerfile: Dockerfile
+        command: ['sh', '-c', 'pip install debugpy -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        ports:
+            - '${RESOURCE_SCHEDULER_PORT:-8081}:8081' # Health check
+            - '5681:5678' # Debug port
+        environment:
+            # Core Application
+            APP_NAME: resource-scheduler
+            APP_VERSION: ${IMAGE_TAG:-v0.1.0}
+            IMAGE_TAG: ${RESOURCE_SCHEDULER_IMAGE_TAG:-v0.1.0}
+            ENVIRONMENT: development
+            DEBUG: 'true'
+            LOG_LEVEL: DEBUG
+            LOG_TO_FILE: 'true'
+            LOG_FILE: logs/resource-scheduler.log
+            LOG_FILE_TRUNCATE_ON_START: 'true'
+            APP_HOST: 0.0.0.0
+            APP_PORT: 8081
+
+            # etcd Configuration (LCM-specific)
+            ETCD_HOST: lcm-etcd
+            ETCD_PORT: 2379
+
+            # Control Plane API
+            CONTROL_PLANE_API_URL: http://control-plane-api:8080
+            CONTROL_PLANE_API_KEY: ${INTERNAL_API_KEY:-lcm-internal-api-key-change-in-production}
+
+            # Leader Election
+            LEADER_LEASE_TTL: 15
+            LEADER_KEY: /lcm/resource-scheduler/leader
+
+            # Scheduling
+            RECONCILE_INTERVAL: ${RESOURCE_SCHEDULER_RECONCILE_INTERVAL:-30}
+            RECONCILE_POLLING_ENABLED: ${RESOURCE_SCHEDULER_RECONCILE_POLLING_ENABLED:-true}
+            TIMESLOT_LEAD_TIME_MINUTES: ${RESOURCE_SCHEDULER_TIMESLOT_LEAD_TIME_MINUTES:-35}
+
+            # Observability (using shared OTEL collector)
+            OTEL_SERVICE_NAME: resource-scheduler
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://aix-otel-collector:4317
+
+            # Keycloak Authentication (for admin endpoints)
+            KEYCLOAK_URL: http://localhost:8041
+            KEYCLOAK_URL_INTERNAL: http://aix-keycloak:8080
+            KEYCLOAK_REALM: aix
+            KEYCLOAK_CLIENT_ID: lcm-public
+
+        volumes:
+            - ./src/resource-scheduler:/app
+            - ./src/core:/core
+        networks:
+            - aix-net
+        depends_on:
+            - lcm-etcd
+            - control-plane-api
+        healthcheck:
+            test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:8081/api/health")']
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 15s
+
+    # 🎛️ Lablet Controller Service
+    # Handles LabletInstance reconciliation, auto-scaling, cloud provider operations
+    lablet-controller:
+        build:
+            context: ./src/lablet-controller
+            dockerfile: Dockerfile
+        command: ['sh', '-c', 'pip install debugpy -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        ports:
+            - '${LABLET_CONTROLLER_PORT:-8082}:8082' # Health check
+            - '5682:5678' # Debug port
+        environment:
+            # Core Application
+            APP_NAME: lablet-controller
+            APP_VERSION: ${IMAGE_TAG:-v0.1.0}
+            IMAGE_TAG: ${LABLET_CONTROLLER_IMAGE_TAG:-v0.1.0}
+            ENVIRONMENT: development
+            DEBUG: 'true'
+            LOG_LEVEL: DEBUG
+            LOG_TO_FILE: 'true'
+            LOG_FILE: logs/lablet-controller.log
+            LOG_FILE_TRUNCATE_ON_START: 'true'
+            APP_HOST: 0.0.0.0
+            APP_PORT: 8082
+
+            # etcd Configuration (LCM-specific)
+            ETCD_HOST: lcm-etcd
+            ETCD_PORT: 2379
+
+            # Control Plane API
+            CONTROL_PLANE_API_URL: http://control-plane-api:8080
+            CONTROL_PLANE_API_KEY: ${INTERNAL_API_KEY:-lcm-internal-api-key-change-in-production}
+
+            # Leader Election
+            LEADER_LEASE_TTL: 15
+            LEADER_KEY: /lcm/lablet-controller/leader
+
+            # Reconciliation
+            RECONCILE_INTERVAL: ${LABLET_CONTROLLER_RECONCILE_INTERVAL:-30}
+            RECONCILE_POLLING_ENABLED: ${LABLET_CONTROLLER_RECONCILE_POLLING_ENABLED:-true}
+            SCALE_DOWN_GRACE_PERIOD_MINUTES: ${LABLET_CONTROLLER_SCALE_DOWN_GRACE_PERIOD_MINUTES:-30}
+            WORKER_BOOTUP_DELAY_MINUTES: ${LABLET_CONTROLLER_WORKER_BOOTUP_DELAY_MINUTES:-20}
+
+            # CML Worker API Credentials
+            CML_WORKER_API_USERNAME: ${CML_WORKER_API_USERNAME}
+            CML_WORKER_API_PASSWORD: ${CML_WORKER_API_PASSWORD}
+
+            # LDS Integration
+            LDS_DEPLOYMENTS_CONFIG_PATH: /app/config/lds_deployments.docker.yaml
+            LDS_VERIFY_SSL: 'false'
+
+            # S3 / RustFS Object Storage (Content Sync)
+            S3_ENDPOINT: http://${S3_ENDPOINT:-aix-rustfs}:${S3_PORT:-9000}
+            S3_ACCESS_KEY: ${S3_ACCESS_KEY:-admin}
+            S3_SECRET_KEY: ${S3_SECRET_KEY:-admin123}
+            S3_REGION: ${S3_REGION:-us-east-1}
+            S3_SECURE: '${S3_SECURE:-false}'
+
+            # Environment Resolver Service (Content Sync)
+            ENVIRONMENT_RESOLVER_URL: ${ENVIRONMENT_RESOLVER_URL:-https://environment-resolver.expert.certs.cloud}
+            ENVIRONMENT_RESOLVER_ENVIRONMENT: ${ENVIRONMENT_RESOLVER_ENVIRONMENT:-CERTS-DEV}
+            ENVIRONMENT_RESOLVER_TOKEN_URL: ${ENVIRONMENT_RESOLVER_TOKEN_URL:-}
+            ENVIRONMENT_RESOLVER_CLIENT_ID: ${ENVIRONMENT_RESOLVER_CLIENT_ID:-}
+            ENVIRONMENT_RESOLVER_CLIENT_SECRET: ${ENVIRONMENT_RESOLVER_CLIENT_SECRET:-}
+            ENVIRONMENT_RESOLVER_SCOPES: ${ENVIRONMENT_RESOLVER_SCOPES:-}
+
+            # Mosaic Content Authoring Platform (Content Sync)
+            MOSAIC_TOKEN_URL: ${MOSAIC_TOKEN_URL:-}
+            MOSAIC_CLIENT_ID: ${MOSAIC_CLIENT_ID:-}
+            MOSAIC_CLIENT_SECRET: ${MOSAIC_CLIENT_SECRET:-}
+            MOSAIC_SCOPES: ${MOSAIC_SCOPES:-}
+
+            # Content Sync Service
+            CONTENT_SYNC_ENABLED: '${CONTENT_SYNC_ENABLED:-true}'
+            CONTENT_SYNC_WATCH_ENABLED: '${CONTENT_SYNC_WATCH_ENABLED:-true}'
+            CONTENT_SYNC_POLL_ENABLED: '${CONTENT_SYNC_POLL_ENABLED:-false}'
+            CONTENT_SYNC_POLL_INTERVAL: ${CONTENT_SYNC_POLL_INTERVAL:-300}
+
+            # Observability (using shared OTEL collector)
+            OTEL_SERVICE_NAME: lablet-controller
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://aix-otel-collector:4317
+
+            # Keycloak Authentication (for admin endpoints)
+            KEYCLOAK_URL: http://localhost:8041
+            KEYCLOAK_URL_INTERNAL: http://aix-keycloak:8080
+            KEYCLOAK_REALM: aix
+            KEYCLOAK_CLIENT_ID: lcm-public
+
+        volumes:
+            - ./src/lablet-controller:/app
+            - ./src/core:/core
+        networks:
+            - aix-net
+        depends_on:
+            - lcm-etcd
+            - control-plane-api
+            - lds-backend
+        healthcheck:
+            test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:8082/api/health")']
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 15s
+
+    # 🔧 Worker Controller Service
+    # Handles CML Worker observation, metrics collection, labs sync, idle detection
+    worker-controller:
+        build:
+            context: ./src/worker-controller
+            dockerfile: Dockerfile
+        command: ['sh', '-c', 'pip install debugpy -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        ports:
+            - '${WORKER_CONTROLLER_PORT:-8083}:8083'
+            - '5683:5678' # debugpy
+        environment:
+            # Core Application
+            APP_NAME: worker-controller
+            APP_VERSION: ${IMAGE_TAG:-v0.1.0}
+            IMAGE_TAG: ${WORKER_CONTROLLER_IMAGE_TAG:-v0.1.0}
+            ENVIRONMENT: development
+            DEBUG: 'true'
+            LOG_LEVEL: DEBUG
+            LOG_TO_FILE: 'true'
+            LOG_FILE: logs/worker-controller.log
+            LOG_FILE_TRUNCATE_ON_START: 'true'
+            APP_HOST: 0.0.0.0
+            APP_PORT: 8083
+            PYTHONPATH: '/app:/core'
+
+            # etcd Configuration (LCM-specific)
+            ETCD_HOST: lcm-etcd
+            ETCD_PORT: 2379
+
+            # Control Plane API (ADR-001: all mutations via API)
+            CONTROL_PLANE_API_URL: http://control-plane-api:8080
+            CONTROL_PLANE_API_KEY: ${INTERNAL_API_KEY:-lcm-internal-api-key-change-in-production}
+
+            # Leader Election
+            LEADER_LEASE_TTL: 15
+            LEADER_KEY: /lcm/worker-controller/leader
+
+            # Reconciliation
+            RECONCILE_INTERVAL: ${WORKER_CONTROLLER_RECONCILE_INTERVAL:-30}
+            RECONCILE_POLLING_ENABLED: ${WORKER_CONTROLLER_RECONCILE_POLLING_ENABLED:-true}
+
+            # Observation Intervals
+            METRICS_POLL_INTERVAL: ${WORKER_CONTROLLER_METRICS_POLL_INTERVAL:-60}
+            LABS_SYNC_INTERVAL: ${WORKER_CONTROLLER_LABS_SYNC_INTERVAL:-300}
+            IDLE_CHECK_INTERVAL: ${WORKER_CONTROLLER_IDLE_CHECK_INTERVAL:-60}
+            IDLE_THRESHOLD_MINUTES: ${WORKER_CONTROLLER_IDLE_THRESHOLD_MINUTES:-30}
+
+            # Scale-Down (Phase 3 - Auto-Scaling)
+            SCALE_DOWN_ENABLED: ${WORKER_CONTROLLER_SCALE_DOWN_ENABLED:-false}
+            MIN_WORKERS: ${WORKER_CONTROLLER_MIN_WORKERS:-0}
+            SCALE_DOWN_COOLDOWN_SECONDS: ${WORKER_CONTROLLER_SCALE_DOWN_COOLDOWN_SECONDS:-600}
+
+            # CML Worker Credentials
+            CML_WORKER_API_USERNAME: ${CML_WORKER_API_USERNAME}
+            CML_WORKER_API_PASSWORD: ${CML_WORKER_API_PASSWORD}
+
+            # Worker Discovery
+            WORKER_DISCOVERY_ENABLED: 'true'
+            WORKER_DISCOVERY_REGIONS: ${WORKER_DISCOVERY_REGIONS:-us-east-1}
+            WORKER_DISCOVERY_AMI_NAME: ${WORKER_DISCOVERY_AMI_NAME:-cisco-cml2.9*}
+            WORKER_DISCOVERY_INTERVAL: ${WORKER_DISCOVERY_INTERVAL:-120}
+
+            # AWS Configuration (for CloudWatch fallback)
+            AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+            AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+            AWS_REGION: ${AWS_REGION:-us-east-1}
+
+            # Observability (using shared OTEL collector)
+            OTEL_SERVICE_NAME: worker-controller
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://aix-otel-collector:4317
+
+            # Keycloak Authentication (for admin endpoints)
+            KEYCLOAK_URL: http://localhost:8041
+            KEYCLOAK_URL_INTERNAL: http://aix-keycloak:8080
+            KEYCLOAK_REALM: aix
+            KEYCLOAK_CLIENT_ID: lcm-public
+
+        volumes:
+            - ./src/worker-controller:/app
+            - ./src/core:/core
+        networks:
+            - aix-net
+        depends_on:
+            - lcm-etcd
+            - control-plane-api
+        healthcheck:
+            test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:8083/api/health")']
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 15s
+
+    # =========================================================================
+    # LCM-SPECIFIC INFRASTRUCTURE
+    # =========================================================================
+
+    # 📦 etcd (LCM State Store)
+    # Used for: leader election, state watches, port allocations
+    # Note: This is LCM-specific, not shared with AIX
+    lcm-etcd:
+        container_name: lcm-etcd
+        image: quay.io/coreos/etcd:v3.5.9
+        restart: always
+        ports:
+            - '${ETCD_CLIENT_PORT:-2379}:2379'
+            - '${ETCD_PEER_PORT:-2380}:2380'
+        environment:
+            ETCD_NAME: lcm-etcd-node-1
+            ETCD_DATA_DIR: /etcd-data
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+            ETCD_ADVERTISE_CLIENT_URLS: http://lcm-etcd:2379
+            ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+            ETCD_INITIAL_ADVERTISE_PEER_URLS: http://lcm-etcd:2380
+            ETCD_INITIAL_CLUSTER: lcm-etcd-node-1=http://lcm-etcd:2380
+            ETCD_INITIAL_CLUSTER_STATE: new
+            ETCD_INITIAL_CLUSTER_TOKEN: lcm-etcd-cluster
+            ETCD_LOG_LEVEL: info
+        volumes:
+            - lcm_etcd_data:/etcd-data
+        networks:
+            - aix-net
+        healthcheck:
+            test: ['CMD', 'etcdctl', 'endpoint', 'health', '--endpoints=http://localhost:2379']
+            interval: 10s
+            timeout: 5s
+            retries: 3
+
+    # Run `docker compose -f docker-compose.shared.yml exec lds-backend alembic upgrade head` to initialize the database schema!
+    lds-backend:
+        image: ${PYLDS_IMAGE:-pylds:local}
+        depends_on:
+            lds-db:
+                condition: service_healthy
+        volumes:
+            - ./.env:/home/app-user/app/.env:ro
+            - ./deployment/lds/content:/home/app-user/app/data/content:rw
+        ports:
+            - '${PYLDS_PORT:-8047}:4000'
+        command: uvicorn --host 0.0.0.0 --port 4000 --log-level info --access-log --use-colors pylds.app:app
+        environment:
+            DATABASE_URL: postgresql://postgres:pylds@lds-db/pylds
+            # REDIS_URL: redis://pylds_user:pylds@redis:6379
+            SECRET_KEY: pylds_secret
+            BASE_CONTENT_PATH: data/content/
+            MINIO_ACCESS_KEY: ${S3_ACCESS_KEY:-admin}
+            MINIO_SECRET_KEY: ${S3_SECRET_KEY:-admin123}
+            MINIO_HOST: ${S3_ENDPOINT:-rustfs}
+            MINIO_PORT: ${S3_PORT:-9000}
+            MINIO_SECURE: 'false'
+            FRONTEND_CLIENT_URL: http://localhost:${PYLDS_FRONTEND_PORT:-8048}/static/v3client
+            SUPPRESS_ORDERED_SESSION_PASSWORD: 1
+            SVN_ENABLE: 'false'
+            CLOUDEVENTS_CHANNEL_URL: ${CLOUDEVENTS_CHANNEL_URL:-http://aix-events-player:8080/events/pub}
+            CLOUDEVENTS_PREFIX: ${CLOUDEVENTS_PREFIX:-io.lablet.lds}
+            CLOUDEVENTS_SOURCE: ${CLOUDEVENTS_SOURCE:-https://labs.lcm.io}
+            DEVICE_ACCESS_PROXY: 'true'
+            DEVICE_ACCESS_PROXY_USERNAME: tvpapi
+            DEVICE_ACCESS_PROXY_PASSWORD: JfEFjxFKeFJSr
+            DEVICE_ACCESS_PROXY_SECRET: JrJlRsXzxBN1F39aM
+            DEVICE_ACCESS_HEALTH_CHECK: 'false'
+            DEVICE_ACCESS_DEFAULT_SITE: us-west
+            DEVICE_ACCESS_TELNET_PREFERENCE: web
+            SKIP_AUTOMATION_CLIENT: 'true'
+            SKIP_LDS360_CLIENT: 'true'
+            SKIP_TVP_HEALTHCHECK: 'true'
+            SKIP_CLOUDEVENTS_CLIENT: 'false'
+            GUACAMOLE_ENABLE: 'false'
+            CLIENT_ACCESS_BASE_URL: http://localhost:${PYLDS_FRONTEND_PORT:-8048}/
+        restart: unless-stopped
+        networks:
+            - aix-net
+        healthcheck:
+            test: ['CMD-SHELL', 'python -c "import urllib.request; urllib.request.urlopen(\"http://localhost:4000/api/doc/swagger.json\")" || exit 1']
+            interval: 15s
+            timeout: 5s
+            retries: 5
+            start_period: 30s
+
+    lds-frontend:
+        image: ${PYLDS_FRONTEND_IMAGE:-pylds-frontend:local-dev}
+        depends_on:
+            lds-backend:
+                condition: service_healthy
+        volumes:
+            - ./deployment/lds/FE/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+        ports:
+            - '${PYLDS_FRONTEND_PORT:-8048}:4001'
+        environment:
+            - REQUEST_URL=http://lds-backend:4000/ping
+            - API_URL=http://lds-backend:4000
+            - API_PREFIX=/api/v3
+            - PORT=4001
+            - NUXT_PORT=4001
+            - PYLDS_COMPAT_ENABLED=true
+        restart: unless-stopped
+        networks:
+            - aix-net
+
+    lds-db:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: pylds
+            POSTGRES_PASSWORD: pylds
+        healthcheck:
+            test:
+                - CMD
+                - pg_isready
+                - -U
+                - postgres
+            interval: 20s
+            timeout: 1s
+            retries: 10
+            start_period: 10s
+        ports:
+            - '0.0.0.0:5432:5432'
+        volumes:
+            - lds_postgres_data:/var/lib/postgresql/data
+        networks:
+            - aix-net
+
+    tvproxy:
+        image: tvproxy:latest
+        restart: 'no'
+        ports:
+            - '0.0.0.0:8049:8049'
+        environment:
+            - LDS_HOST=lds-backend
+            - LDS_PORT=4000
+            - API_USERNAME=tvpapi
+            - API_PASSWORD=JfEFjxFKeFJSr
+            - LDS_USERNAME=testuser1
+            - LDS_PASSWORD=testpass1
+            - LDS_SHARED_SECRET=JrJlRsXzxBN1F39aM
+            - VIRL_USERNAME=na
+            - VIRL_PASSWORD=na
+
+# =========================================================================
+# NETWORKS
+# =========================================================================
+
+networks:
+    aix-net:
+        external: true
+        name: aix_aix-net
+
+# =========================================================================
+# VOLUMES
+# =========================================================================
+
+volumes:
+    lcm_etcd_data:
+        name: lcm-etcd-data
+    lds_postgres_data:
+        name: lds-postgres-data

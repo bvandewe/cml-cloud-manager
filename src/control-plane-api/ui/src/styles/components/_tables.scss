@@ -1,0 +1,121 @@
+// =============================================================================
+// TABLES COMPONENT
+// Data tables and list views
+// =============================================================================
+
+// Workers table
+#workers-table,
+.data-table {
+    font-size: $font-size-sm;
+    background-color: var(--color-bg-primary, $color-bg-primary);
+
+    thead {
+        @include table-header;
+        border-bottom: 2px solid var(--color-border, $color-border);
+
+        th {
+            font-weight: $font-weight-semibold;
+            text-transform: uppercase;
+            font-size: $font-size-xs;
+            letter-spacing: 0.05em;
+            padding: $spacing-3 $spacing-2;
+            border-bottom: 2px solid var(--color-border, $color-border);
+            white-space: nowrap;
+        }
+    }
+
+    tbody {
+        tr {
+            @include table-row-hover;
+            border-bottom: 1px solid var(--color-border-light, $color-border-light);
+
+            td {
+                vertical-align: middle;
+                padding: $spacing-3 $spacing-2;
+            }
+        }
+    }
+
+    .btn-group-sm .btn {
+        padding: $spacing-1 $spacing-2;
+        font-size: $font-size-sm;
+
+        i {
+            font-size: 1rem;
+        }
+    }
+}
+
+// Table action buttons
+.table-actions {
+    display: flex;
+    gap: $spacing-1;
+    justify-content: flex-end;
+
+    .btn {
+        padding: $spacing-1 $spacing-2;
+    }
+}
+
+// Sortable columns
+.sortable {
+    cursor: pointer;
+    user-select: none;
+
+    &:hover {
+        background-color: var(--color-bg-tertiary, $color-bg-tertiary);
+    }
+
+    .sort-icon {
+        margin-left: $spacing-1;
+        opacity: 0.5;
+    }
+
+    &.sorted {
+        .sort-icon {
+            opacity: 1;
+            color: var(--color-primary, $color-primary);
+        }
+    }
+}
+
+// Responsive table wrapper
+.table-responsive {
+    @include custom-scrollbar;
+}
+
+// Table pagination
+.table-pagination {
+    @include flex-between;
+    padding: $spacing-3;
+    border-top: 1px solid var(--color-border, $color-border);
+
+    .pagination-info {
+        font-size: $font-size-sm;
+        color: var(--color-text-secondary, $color-text-secondary);
+    }
+
+    .pagination {
+        margin: 0;
+
+        .page-link {
+            padding: $spacing-1 $spacing-2;
+            font-size: $font-size-sm;
+            border-radius: $border-radius-sm;
+            margin: 0 $spacing-1;
+        }
+    }
+}
+
+// Empty table state
+.table-empty {
+    text-align: center;
+    padding: $spacing-8;
+    color: var(--color-text-muted, $color-text-muted);
+
+    i {
+        font-size: 3rem;
+        margin-bottom: $spacing-3;
+        opacity: 0.5;
+    }
+}

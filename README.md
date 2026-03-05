@@ -67,54 +67,29 @@ The system uses a **Control Plane + Controllers** pattern. All mutations to stat
 ### Project Structure
 
 ```
-lablet-cloud-manager/
+cml-cloud-manager/
 ├── src/
-│   ├── main.py                      # FastAPI app factory entry point
-│   ├── api/                         # API sub-app (mounted at /api)
-│   │   ├── controllers/             # Route controllers
-│   │   ├── dependencies.py          # Shared dependency helpers (auth, user)
-│   │   └── services/                # API-specific service utilities (e.g. OpenAPI config)
-│   ├── application/                 # Application layer (CQRS, mapping, settings)
-│   │   ├── settings.py
-│   │   ├── commands/                # Write operations
-│   │   ├── queries/                 # Read operations
-│   │   ├── events/                  # Domain/application events (placeholder)
-│   │   ├── mapping/                 # Object mapping profiles
-│   │   └── services/                # Cross-cutting services (logger, background jobs)
-│   │       ├── background_scheduler.py       # Background task scheduling with APScheduler
-│   │       ├── worker_metrics_collection_job.py  # Metrics collection background job
-│   │       ├── worker_monitoring_scheduler.py    # Worker monitoring orchestrator
-│   │       └── worker_notification_handler.py    # Metrics event observer
-│   ├── domain/                      # Pure domain model
-│   │   ├── entities/                # Aggregate/entity classes (CMLWorker, etc.)
-│   │   └── repositories/            # Repository interfaces (ports)
-│   ├── infrastructure/              # Technical adapters implementing ports
-│   │   └── session_store.py         # Session store implementations (in-memory/redis)
-│   ├── integration/                 # Concrete adapters / in-memory repos
-│   │   └── models/
-│   │   └── repositories/
-│   │   └── services/                # AWS integration services
-│   │       └── aws_ec2_api_client.py         # AWS EC2 and CloudWatch client
-│   ├── observability/               # Metrics, tracing, logging integration points
-│   │   └── metrics.py
-│   ├── ui/                          # Frontend build + controller sub-app
-│   │   ├── controllers/             # UI route(s)
-│   │   ├── src/                     # Parcel source (scripts, styles)
-│   │   ├── package.json             # Frontend dependencies
-├── tests/                           # Pytest suites (unit/integration)
-│   └── test_rename_integrity.py     # Ensures no leftover starter branding post-rename
-├── scripts/
-│   └── rename_project.py            # Automated project rebranding utility
-├── docs/                            # MkDocs documentation source
-├── deployment/                      # Deployment & Keycloak realm config assets
-├── notes/                           # Design / architecture scratchpad docs
-├── static/                          # Published frontend bundle (built UI assets)
-├── Makefile                         # Developer automation commands
-├── docker-compose.yml               # Local service orchestration
-├── Dockerfile                       # Application container build
-├── pyproject.toml                   # Python dependencies & tool config (Poetry)
-└── README.md                        # This file
+│   ├── control-plane-api/             # REST API, SPA UI, State Management (MongoDB writer)
+│   ├── resource-scheduler/            # Timeslot placement and worker capacity solver
+│   ├── worker-controller/             # Infrastructure lifecycle (AWS EC2 + CML System)
+│   ├── lablet-controller/             # Lab lifecycle, LDS & GradingEngine integration
+│   └── core/                          # Shared domain logic, SPI interfaces, and base classes
+├── docs/                              # Architecture and specification documents (MkDocs)
+├── scripts/                           # Developer utility scripts
+├── deployment/                        # Infrastructure and Keycloak assets
+├── docker-compose.yml                 # Local dev orchestration
+├── Makefile                           # Developer automation commands
+└── README.md
 ```
+
+### Container Maintenance and Building
+
+The LCM is composed of 4 discrete microservices that share a common domain model but run in separate containers.
+
+- **Package Management & Dependencies:** Each microservice has its own `pyproject.toml` and acts as an independent application managed by Poetry.
+- **Shared Core:** The `src/core/` package contains the shared domain entities, events, and abstract SPI dependencies. It is included in each microservice as a local path dependency (e.g., `lcm-core = {path = "../core", develop = true}`).
+- **Containerization:** Each microservice houses its own `Dockerfile` inside its directory (e.g., `src/control-plane-api/Dockerfile`). Because they all depend on `src/core/`, the Docker build context must be set to the project root so the core files can be successfully copied during the build.
+- **Automation:** The root `Makefile` orchestrates building and maintaining these containers locally. Commands like `make build` or `make rebuild-services` build the image for every microservice from the project root.
 
 ## 🚀 Quick Start
 

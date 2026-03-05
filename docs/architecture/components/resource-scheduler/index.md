@@ -1,10 +1,14 @@
 # Resource Scheduler Architecture
 
-**Version:** 1.1.0 (January 2026)
+**Version:** 2.0.0 (March 2026)
 **Status:** Current Implementation
 
-!!! note "Related Documentation"
-    For the placement algorithm details, see the [Lablet Resource Manager Architecture](../lablet-resource-manager-architecture.md).
+git add . && git commit -m "Major update: LabletSession, LabRecord, CmlWorker, PipelineExecutor"! note "Related Documentation"
+    - [Lablet Resource Manager Architecture](../../lablet-resource-manager-architecture.md) — system-wide architecture
+    - [Worker Templates](./worker-templates.md) — capacity model and template selection
+    - [ADR-002: Separate Resource Scheduler Service](../../adr/ADR-002-separate-resource-scheduler-service.md)
+    - [ADR-006: Resource Scheduler HA Coordination](../../adr/ADR-006-resource-scheduler-ha-coordination.md)
+    - [ADR-035: Legacy SchedulerService Removal](../../adr/ADR-035-legacy-scheduler-service-removal.md)
 
 ---
 
@@ -12,6 +16,7 @@
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.0.0 | 2026-03 | Major rewrite: reflects actual implementation. SchedulerHostedService (WatchTriggeredHostedService), LabletSession naming, dual-mode scheduling, CleanupHostedService, SchedulingController preview, OTel metrics. Removed references to deprecated SchedulerService and TimeslotManager. |
 | 1.1.0 | 2026-01 | Added READY, GRADED states; updated state machine for LDS integration (ADR-018) |
 | 1.0.0 | 2025-12 | Initial architecture documentation |
 
@@ -19,50 +24,60 @@
 
 ## 1. Overview
 
-The **Resource Scheduler** is responsible for placement decisions and scheduling queue management for LabletInstances. It implements:
+The **Resource Scheduler** is a **stateless, leader-elected** microservice responsible for placement decisions and scheduling queue management for `LabletSessions`, `LabRecords`, `CmlWorkers` **Resources**. It implements:
 
+- **Dual-Mode Scheduling**: etcd watch (reactive) + periodic polling (fallback)
 - **Leader Election** via etcd leases for high availability
 - **Placement Algorithm** (filter → score → select) for optimal worker assignment
-- **Timeslot Management** with lead-time buffers for proactive provisioning
-- **Scale-Up Signaling** to Worker Controller when capacity is needed
+- **Scale-Up Signaling** when capacity is exhausted (template-based selection)
+- **Dry-Run Preview** endpoint for placement analysis without execution
+- **Terminated Worker Cleanup** via periodic background job
 
-!!! important "Single Leader Design"
-    Only one Resource Scheduler instance is active at any time. The leader election via etcd ensures exactly-once processing of scheduling decisions.
+```
+git add . && git commit -m "Major update: LabletSession, LabRecord, CmlWorker, PipelineExecutor"! important "Stateless Design (ADR-002)"
+    The Resource Scheduler has **no database of its own**. It reads state from Control Plane API and etcd, makes placement decisions, and writes results back via Control Plane API REST calls.
+
+git add . && git commit -m "Major update: LabletSession, LabRecord, CmlWorker, PipelineExecutor"! important "Single Leader Design (ADR-006)"
+    Only one Resource Scheduler instance is active at any time. Leader election via etcd ensures exactly-once processing of scheduling decisions.
+```
 
 ## 2. Core Responsibilities
 
 ```mermaid
 flowchart TD
     subgraph Input
-        PENDING[PENDING LabletInstances]
-        TIMESLOTS[Approaching Timeslots]
+        PENDING[PENDING LabletSessions]
+        WATCH[etcd Watch Events]
+        ETCD_CAP[etcd Worker Capacity]
     end
 
     subgraph ResourceScheduler [Resource Scheduler]
         LEADER[Leader Election<br/>etcd lease]
-        WATCH[Watch Loop]
-        PLACE[Placement Algorithm]
-        RESERVE[Timeslot Reservation]
+        HOSTED[SchedulerHostedService<br/>WatchTriggeredHostedService]
+        PLACE[PlacementEngine<br/>filter → score → select]
+        CLEANUP[CleanupHostedService<br/>Terminated worker GC]
     end
 
     subgraph Output
-        SCHEDULED[SCHEDULED Instances]
-        SCALEUP[Scale-Up Request]
+        SCHEDULED[SCHEDULED Sessions]
+        SCALEUP[Scale-Up Request<br/>template-based]
+        METRICS[OTel Metrics]
     end
 
-    PENDING --> WATCH
-    TIMESLOTS --> WATCH
-    WATCH --> LEADER
+    PENDING --> HOSTED
+    WATCH --> HOSTED
+    ETCD_CAP --> PLACE
+    HOSTED --> LEADER
     LEADER --> PLACE
     PLACE --> SCHEDULED
     PLACE --> SCALEUP
-    WATCH --> RESERVE
-    RESERVE --> SCHEDULED
+    PLACE --> METRICS
+    CLEANUP --> METRICS
 ```
 
 ## 3. Leader Election
 
-The Resource Scheduler uses etcd leases for leader election:
+The Resource Scheduler uses etcd leases for leader election (ADR-006):
 
 ```mermaid
 sequenceDiagram
@@ -74,15 +89,15 @@ sequenceDiagram
 
     S1->>etcd: Create lease (TTL=15s)
     etcd-->>S1: Lease ID
-    S1->>etcd: PUT /scheduler/leader (lease)
+    S1->>etcd: PUT /lcm/resource-scheduler/leader (lease)
     etcd-->>S1: OK (became leader)
 
     S2->>etcd: Create lease (TTL=15s)
     etcd-->>S2: Lease ID
-    S2->>etcd: PUT /scheduler/leader (lease)
+    S2->>etcd: PUT /lcm/resource-scheduler/leader (lease)
     etcd-->>S2: CONFLICT (key exists)
 
-    Note over S1: Run scheduling loop
+    Note over S1: Run scheduling loop + watch
     Note over S2: Watch for leader key deletion
 
     loop Every TTL/3
@@ -93,10 +108,10 @@ sequenceDiagram
 
     etcd->>etcd: Lease expires (TTL)
     etcd->>S2: Watch notification (key deleted)
-    S2->>etcd: PUT /scheduler/leader (lease)
+    S2->>etcd: PUT /lcm/resource-scheduler/leader (lease)
     etcd-->>S2: OK (became leader)
 
-    Note over S2: Run scheduling loop
+    Note over S2: Run scheduling loop + watch
 ```
 
 ### Leader Election Configuration
@@ -104,172 +119,244 @@ sequenceDiagram
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `LEADER_LEASE_TTL` | Lease time-to-live (seconds) | `15` |
-| `RESOURCE_SCHEDULER_INSTANCE_ID` | Unique instance identifier | Auto-generated UUID |
+| `LEADER_KEY` | etcd key for leader election | `/lcm/resource-scheduler/leader` |
 | `RECONCILE_INTERVAL` | Scheduling loop interval (seconds) | `30` |
 
-## 4. Placement Algorithm
+## 4. Dual-Mode Scheduling
 
-The placement algorithm follows a **filter → score → select** pattern:
+The `SchedulerHostedService` extends `WatchTriggeredHostedService` from lcm-core (ADR-011) providing two scheduling modes:
+
+```mermaid
+flowchart LR
+    subgraph Reactive ["Watch Mode (Reactive)"]
+        ETCD_WATCH["etcd watch<br/>/lcm/sessions/*"]
+        DEBOUNCE["Debounce<br/>0.5s"]
+        FETCH["Fetch session<br/>by ID"]
+        R_RECONCILE["reconcile()"]
+        ETCD_WATCH --> DEBOUNCE --> FETCH --> R_RECONCILE
+    end
+
+    subgraph Polling ["Poll Mode (Fallback)"]
+        TIMER["Timer<br/>every 30s"]
+        LIST["list_resources()<br/>GET /sessions?status=pending"]
+        BATCH["For each session"]
+        P_RECONCILE["reconcile()"]
+        TIMER --> LIST --> BATCH --> P_RECONCILE
+    end
+
+    R_RECONCILE --> DECISION{Decision}
+    P_RECONCILE --> DECISION
+    DECISION -->|assign| SCHEDULE["schedule_session()"]
+    DECISION -->|scale_up| SCALEUP["request_scale_up()"]
+    DECISION -->|wait| REQUEUE["Requeue"]
+```
+
+| Mode | Trigger | Latency | Purpose |
+|------|---------|---------|---------|
+| **Watch** | etcd PUT on `/lcm/sessions/{id}/state` = `pending` | ~500ms | Immediate scheduling on session creation |
+| **Poll** | Timer every `RECONCILE_INTERVAL` seconds | ≤30s | Catch missed watch events, retry failed placements |
+
+git add . && git commit -m "Major update: LabletSession, LabRecord, CmlWorker, PipelineExecutor"! tip "Watch-Only Mode"
+    Set `RECONCILE_POLLING_ENABLED=false` to disable polling and rely entirely on etcd watch events. Useful for testing or low-latency deployments.
+
+## 5. Placement Algorithm
+
+The `PlacementEngine` implements a **filter → score → select** pattern:
 
 ```mermaid
 flowchart LR
     subgraph Filter ["1. Filter Phase"]
-        F1[License Affinity]
-        F2[Resource Requirements]
-        F3[AMI Compatibility]
-        F4[Capacity Check]
-        F5[Port Availability]
-        F6[NOT DRAINING]
+        F1[Worker Status<br/>NOT DRAINING/STOPPED]
+        F2[License Affinity<br/>tier-based compatibility]
+        F3[Resource Capacity<br/>CPU/memory/storage]
+        F4[AMI Compatibility<br/>CML version/node defs]
+        F5[Port Availability<br/>enough for template]
     end
 
     subgraph Score ["2. Score Phase"]
-        S1[Bin-Packing Score]
-        S2[Locality Score]
-        S3[Load Balance Score]
+        S1[Bin-Packing Score<br/>weight: 0.6]
+        S2[Locality Score<br/>weight: 0.2]
+        S3[Load Balance Score<br/>weight: 0.2]
     end
 
     subgraph Select ["3. Select Phase"]
         SEL[Highest Scoring Worker]
     end
 
-    Workers([All Workers]) --> Filter
+    Workers([All RUNNING Workers]) --> Filter
     Filter --> Score
     Score --> Select
-    Select --> Assigned([Assigned Worker])
+    Select --> Decision([SchedulingDecision])
 ```
 
 ### Filter Predicates
 
-| Predicate | Description | Rejection Reason |
-|-----------|-------------|------------------|
-| **License Affinity** | Worker has required CML license tier | `InsufficientLicense` |
-| **Resource Requirements** | Worker has CPU/memory/storage headroom | `InsufficientResources` |
-| **AMI Compatibility** | Worker AMI supports required node types | `IncompatibleAMI` |
-| **Capacity Check** | Worker can accept additional labs | `AtCapacity` |
-| **Port Availability** | Required ports are available | `PortConflict` |
-| **Drain Status** | Worker is not marked for draining | `WorkerDraining` |
+| Predicate | Description | Rejection Category |
+|-----------|-------------|-------------------|
+| **Worker Status** | Worker must be RUNNING (not DRAINING/STOPPING/STOPPED/TERMINATED) | `status` |
+| **License Affinity** | Worker license tier must satisfy definition requirements (enterprise ⊇ personal) | `license` |
+| **Resource Capacity** | Worker has CPU/memory/storage headroom for the definition's requirements | `capacity` |
+| **AMI Compatibility** | Worker AMI supports required CML version and node definitions | `ami` |
+| **Port Availability** | Enough ports available for the definition's port template | `ports` |
 
 ### Scoring Functions
 
 | Scorer | Weight | Description |
 |--------|--------|-------------|
-| **Bin-Packing** | 0.6 | Prefer workers with less remaining capacity (consolidate) |
-| **Locality** | 0.2 | Prefer workers in same region as user |
-| **Load Balance** | 0.2 | Prefer workers with lower active lab count |
+| **Bin-Packing** | 0.6 | Prefer workers with less remaining capacity (consolidate workloads) |
+| **Locality** | 0.2 | Prefer workers with session co-location bonus |
+| **Load Balance** | 0.2 | Prefer workers with lower active session count |
 
-### Placement Decision
+### Data Sources for Placement
+
+| Data | Source | Purpose |
+|------|--------|---------|
+| Pending sessions | CPA REST API | Sessions to schedule |
+| Running workers | CPA REST API | Candidate hosts |
+| Worker capacity (real-time) | etcd `/workers/{id}/capacity` | Accurate utilization for scoring |
+| Worker templates | CPA REST API | Scale-up template selection |
+| Lablet definitions | CPA REST API (cached per cycle) | Resource requirements |
+
+### SchedulingDecision
 
 ```python
-class PlacementEngine:
-    async def place_instance(
-        self,
-        instance: LabletInstance,
-        workers: list[CMLWorker]
-    ) -> PlacementResult:
-        # 1. Filter
-        candidates = [w for w in workers if self._passes_filters(w, instance)]
-
-        if not candidates:
-            return PlacementResult.no_fit(reason="No workers pass filters")
-
-        # 2. Score
-        scored = [(w, self._calculate_score(w, instance)) for w in candidates]
-
-        # 3. Select
-        best = max(scored, key=lambda x: x[1])
-        return PlacementResult.success(worker=best[0], score=best[1])
+@dataclass
+class SchedulingDecision:
+    action: Literal["assign", "scale_up", "wait"]
+    worker_id: str | None = None        # When action="assign"
+    worker_template: str | None = None   # When action="scale_up"
+    reason: str = ""
+    rejection_summary: dict[str, int] | None = None  # {"status": 2, "capacity": 3}
 ```
 
-## 5. Timeslot Management
+### Dry-Run Preview
 
-LabletInstances can have scheduled timeslots. The scheduler monitors approaching timeslots and triggers instantiation proactively:
+The `POST /api/scheduling/preview` endpoint runs the full placement algorithm without executing the decision, returning:
+
+- **Candidates**: Ranked list of eligible workers with scores
+- **Rejections**: Per-worker rejection details (why each worker was filtered out)
+- **Utilization Forecast**: Estimated CPU/memory/storage after placement
+
+## 6. Scale-Up Signaling
+
+When no workers can satisfy a placement request, the scheduler selects the best-fit worker template and signals the Control Plane API for provisioning:
 
 ```mermaid
-timeline
-    title Timeslot Instantiation Timeline
+sequenceDiagram
+    participant Scheduler as Resource Scheduler
+    participant CPA as Control Plane API
+    participant WC as Worker Controller
+    participant AWS
 
-    section Lead Time
-        T-35m : Scheduler detects approaching timeslot
-        T-30m : Worker scale-up request (if needed)
-        T-10m : Worker ready (EC2 running + CML licensed)
-        T-5m  : Lab import + start initiated
+    Scheduler->>Scheduler: Placement fails (no fit)
+    Scheduler->>Scheduler: Select best template<br/>(3-tier algorithm)
+    Scheduler->>CPA: POST /api/internal/scale-up<br/>(template, reason)
 
-    section Active
-        T-0   : User access enabled
-        T+Duration : Lab stop initiated
+    Note over WC: Observes worker spec change
 
-    section Cleanup
-        T+Duration+5m : Lab wiped
-        T+Duration+10m : Instance marked COMPLETED
+    WC->>CPA: Get worker specs
+    WC->>AWS: Launch EC2 instance
+    AWS-->>WC: Instance ID
+    WC->>CPA: Update worker (instance_id)
+
+    Note over Scheduler: Next reconciliation cycle
+
+    Scheduler->>Scheduler: Retry placement
+    Scheduler->>Scheduler: Placement succeeds
 ```
 
-### Lead Time Configuration
+### Template Selection (3-Tier Algorithm)
+
+1. **Exact match**: Template whose capacity exactly satisfies requirements
+2. **Smallest fit**: Smallest template that satisfies requirements (cost optimization)
+3. **Largest available**: Fallback to the largest template when requirements exceed all templates
+
+See [Worker Templates](./worker-templates.md) for the full capacity model.
+
+## 7. Retry and Escalation
+
+The scheduler tracks retry counts per session to prevent tight failure loops:
+
+| Retry Count | Behavior |
+|-------------|----------|
+| 1–4 | Normal requeue (next reconcile cycle, ~30s) |
+| 5 (max) | Extended backoff (5-minute delay), error logged |
+| Subsequent | Continues with 5-minute backoff until manual intervention |
+
+## 8. Cleanup Service
+
+The `CleanupHostedService` is a leader-elected background job (ADR-014) that periodically removes terminated worker records:
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `TIMESLOT_LEAD_TIME_MINUTES` | How far ahead to trigger instantiation | `35` |
-| `WORKER_BOOT_TIME_MINUTES` | Expected EC2 + CML boot duration | `25` |
-| `LAB_START_TIME_MINUTES` | Expected lab import + start duration | `5` |
+| `CLEANUP_ENABLED` | Enable/disable cleanup | `true` |
+| `CLEANUP_INTERVAL_SECONDS` | Cleanup frequency | `3600` (1 hour) |
+| `CLEANUP_RETENTION_DAYS` | Terminated worker retention (days) | `30` |
 
-## 6. Layer Architecture
-
-!!! note "No CQRS Pattern"
-    Resource-scheduler uses **Reconciliation Loops** via HostedServices, NOT CQRS commands/queries.
-    CQRS is implemented only in control-plane-api. Controllers interact with Control Plane API via REST.
+## 9. Layer Architecture
 
 ```
 resource-scheduler/
-├── api/                          # HTTP Layer (minimal - health/admin only)
-│   └── controllers/
-│       ├── health_controller.py  # /health, /ready, /info
-│       └── admin_controller.py   # /admin/trigger-reconcile, /admin/stats, /admin/leader-status
-│
-├── application/                  # Business Logic Layer
-│   ├── hosted_services/          # Reconciliation loops (NOT commands!)
-│   │   └── scheduler_hosted_service.py  # LeaderElectedHostedService
-│   ├── services/
-│   │   ├── scheduler_service.py  # Orchestrates scheduling workflow
-│   │   ├── placement_engine.py   # Filter → Score → Select algorithm
-│   │   └── timeslot_manager.py   # Timeslot monitoring
-│   ├── dtos/
-│   │   ├── scheduling_decision.py
-│   │   └── placement_result.py
-│   └── settings.py
-│
-├── integration/                  # External Service Adapters
+├── api/                              # HTTP Layer
+│   ├── controllers/
+│   │   ├── admin_controller.py       # /admin/trigger-reconcile, /admin/stats, /admin/leader-status, /admin/resign-leadership
+│   │   └── scheduling_controller.py  # /scheduling/preview (dry-run placement)
+│   ├── dependencies.py               # Auth dependencies (get_current_user, require_admin)
 │   └── services/
-│       └── control_plane_api_client.py  # From lcm_core
+│       ├── auth_service.py           # DualAuthService (cookie + JWT)
+│       └── openapi_config.py         # Swagger UI OAuth2 config
 │
-└── main.py                       # Neuroglia WebApplicationBuilder
+├── application/                      # Business Logic Layer
+│   ├── hosted_services/
+│   │   ├── scheduler_hosted_service.py  # WatchTriggeredHostedService (leader-elected)
+│   │   └── cleanup_hosted_service.py    # Periodic terminated worker cleanup
+│   ├── services/
+│   │   └── placement_engine.py          # Filter → Score → Select algorithm
+│   ├── commands/                        # (unused — stateless service)
+│   ├── queries/                         # (unused — stateless service)
+│   ├── dtos/                            # (unused — stateless service)
+│   └── settings.py                      # Configuration (Pydantic Settings)
+│
+├── domain/                           # (unused — stateless service, uses lcm-core models)
+│
+├── infrastructure/
+│   ├── observability/                # OTel metrics (counters, histograms)
+│   └── session_store.py              # In-memory/Redis session storage
+│
+├── integration/                      # (uses lcm-core clients directly)
+│
+├── ui/                               # Admin dashboard (minimal)
+│   └── controllers/
+│       └── ui_controller.py          # Serves static UI or placeholder
+│
+└── main.py                           # Neuroglia WebApplicationBuilder
 ```
 
-!!! info "Stateless Design"
-    Resource-scheduler is **stateless**. It reads state from Control Plane API and etcd,
-    makes placement decisions, and posts results back to Control Plane API.
-    No direct database access.
+git add . && git commit -m "Major update: LabletSession, LabRecord, CmlWorker, PipelineExecutor"! info "No CQRS Pattern"
+    Resource-scheduler uses **reconciliation loops** via `WatchTriggeredHostedService` for scheduling and `LeaderElectedHostedService` for cleanup. CQRS commands/queries are implemented only in control-plane-api. The `commands/`, `queries/`, `dtos/` directories exist as scaffold but are intentionally unused — this is a stateless decision-making service.
 
-## 7. State Machine
+## 10. State Machine
 
-The scheduler manages instance state transitions:
+The scheduler participates in LabletSession state transitions (see full lifecycle in [Lablet Session Lifecycle](../../lablet-session-lifecycle-flow.md)):
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING: User creates instance
+    [*] --> PENDING: User creates session
 
-    PENDING --> SCHEDULED: Placement successful
-    PENDING --> FAILED: No workers available
+    PENDING --> SCHEDULED: Placement successful<br/>(resource-scheduler)
+    PENDING --> PENDING: Wait/retry<br/>(no suitable workers)
 
-    SCHEDULED --> INSTANTIATING: Timeslot approaching
+    SCHEDULED --> INSTANTIATING: lablet-controller picks up
 
-    INSTANTIATING --> READY: Lab instantiated (awaiting external start)
-    INSTANTIATING --> RUNNING: Lab started (direct activation)
-    INSTANTIATING --> FAILED: Lab import/start failed
+    INSTANTIATING --> READY: Lab instantiated (LDS)
+    INSTANTIATING --> RUNNING: Lab started (direct)
+    INSTANTIATING --> FAILED: Pipeline failed
 
-    READY --> RUNNING: External trigger (LDS CloudEvent)
-    READY --> FAILED: Timeout waiting for trigger
+    READY --> RUNNING: LDS CloudEvent trigger
+    READY --> FAILED: Timeout
 
     RUNNING --> GRADED: Grading completed
-    RUNNING --> STOPPING: Timeslot ended / Manual stop
+    RUNNING --> STOPPING: Timeslot ended / manual stop
 
     GRADED --> STOPPING: Cleanup triggered
 
@@ -277,44 +364,39 @@ stateDiagram-v2
 
     STOPPED --> TERMINATED: Cleanup done
 
-    FAILED --> TERMINATED: Cleanup/Retry exhausted
+    FAILED --> TERMINATED: Cleanup/retry exhausted
     TERMINATED --> [*]
 ```
 
-!!! note "READY State (FR-2.2.1)"
-    The **READY** state was added to support Lab Delivery System (LDS) integration.
-    When a lablet instance is created for LDS-managed sessions, it enters READY state
-    after lab instantiation and waits for a CloudEvent (`com.cisco.lds.session.started`)
-    to trigger the transition to RUNNING. See [ADR-018: Lab Delivery System Integration](../../../architecture/decisions/ADR-018-lab-delivery-system-integration.md).
+git add . && git commit -m "Major update: LabletSession, LabRecord, CmlWorker, PipelineExecutor"! note "Scheduler Scope"
+    The resource-scheduler is responsible **only** for the `PENDING → SCHEDULED` transition. All subsequent transitions are managed by the lablet-controller.
 
-## 8. Scale-Up Signaling
+## 11. Observability
 
-When no workers can satisfy a placement request, the scheduler signals for scale-up:
+### OpenTelemetry Metrics
 
-```mermaid
-sequenceDiagram
-    participant Scheduler as Resource Scheduler
-    participant ControlPlane as Control Plane API
-    participant WorkerController as Worker Controller
-    participant AWS
+| Metric | Type | Labels | Purpose |
+|--------|------|--------|---------|
+| `lcm_scheduler_decisions_total` | Counter | `action` | Scheduling decision breakdown |
+| `lcm_scheduler_successes_total` | Counter | `worker_id` | Successful placements |
+| `lcm_scheduler_failures_total` | Counter | `error` | Failed placements |
+| `lcm_scheduler_decision_duration_seconds` | Histogram | `action` | Placement algorithm latency |
+| `lcm_scheduler_e2e_duration_seconds` | Histogram | — | End-to-end scheduling latency |
+| `lcm_scheduler_etcd_capacity_fetches_total` | Counter | `success` | etcd capacity fetch outcomes |
+| `lcm_scheduler_scale_up_requests_total` | Counter | `template` | Scale-up requests by template |
+| `lcm_scheduler_retries_total` | Counter | — | Scheduling retry count |
+| `lcm_scheduler_max_retries_total` | Counter | — | Max retries exhausted |
 
-    Scheduler->>Scheduler: Placement fails (no fit)
-    Scheduler->>ControlPlane: POST /workers (desired_count++)
+### Standard Endpoints
 
-    Note over WorkerController: Observes worker spec change
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/health` | Liveness probe |
+| `GET /api/ready` | Readiness probe (checks CPA connectivity) |
+| `GET /api/info` | Service info + leader status + stats |
+| `GET /api/metrics` | Prometheus-compatible metrics |
 
-    WorkerController->>ControlPlane: Get worker specs
-    WorkerController->>AWS: Launch EC2 instance
-    AWS-->>WorkerController: Instance ID
-    WorkerController->>ControlPlane: Update worker (instance_id)
-
-    Note over Scheduler: Next reconciliation loop
-
-    Scheduler->>Scheduler: Retry placement
-    Scheduler->>Scheduler: Placement succeeds
-```
-
-## 9. Configuration
+## 12. Configuration
 
 Key environment variables:
 
@@ -322,32 +404,38 @@ Key environment variables:
 |----------|-------------|---------|
 | `ETCD_HOST` | etcd server host | `localhost` |
 | `ETCD_PORT` | etcd server port | `2379` |
-| `CONTROL_PLANE_API_URL` | Control Plane API URL | `http://localhost:8080` |
-| `RESOURCE_SCHEDULER_INSTANCE_ID` | Unique instance ID | Auto-generated |
+| `ETCD_WATCH_ENABLED` | Enable etcd watch for reactive scheduling | `true` |
+| `CONTROL_PLANE_API_URL` | Control Plane API URL | `http://localhost:8020` |
+| `CONTROL_PLANE_API_KEY` | API key for internal auth | — |
 | `LEADER_LEASE_TTL` | Leader lease TTL (seconds) | `15` |
 | `RECONCILE_INTERVAL` | Reconciliation interval (seconds) | `30` |
+| `RECONCILE_POLLING_ENABLED` | Enable polling mode (fallback) | `true` |
 | `TIMESLOT_LEAD_TIME_MINUTES` | Instantiation lead time | `35` |
+| `CLEANUP_ENABLED` | Enable terminated worker cleanup | `true` |
+| `CLEANUP_INTERVAL_SECONDS` | Cleanup frequency (seconds) | `3600` |
+| `CLEANUP_RETENTION_DAYS` | Terminated worker retention (days) | `30` |
 
-## 10. Health Check
+## 13. API Endpoints
 
-The scheduler exposes a health endpoint:
+### Admin Endpoints (require admin role)
 
-```
-GET /health
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/admin/trigger-reconcile` | Trigger immediate reconciliation cycle |
+| `POST` | `/api/admin/resign-leadership` | Resign leadership (maintenance) |
+| `GET` | `/api/admin/leader-status` | Current leader election status |
+| `GET` | `/api/admin/stats` | Scheduling statistics |
 
-Response:
-{
-    "status": "healthy",
-    "is_leader": true,
-    "instance_id": "scheduler-abc123",
-    "last_reconciliation": "2026-01-17T10:30:00Z",
-    "pending_instances": 3
-}
-```
+### Scheduling Endpoints (all authenticated users)
 
-## 11. Related Documentation
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/scheduling/preview` | Dry-run placement preview |
 
-- [Lablet Resource Manager Architecture](../lablet-resource-manager-architecture.md)
-- [Background Scheduling](../background-scheduling.md)
-- [Worker Controller](../worker-controller/index.md) - Scale-up execution
-- [Lablet Controller](../lablet-controller/index.md) - Instance lifecycle
+## 14. Related Documentation
+
+- [Lablet Resource Manager Architecture](../../lablet-resource-manager-architecture.md) — system-wide design
+- [Worker Templates](./worker-templates.md) — capacity model
+- [Worker Controller](../worker-controller/) — scale-up execution
+- [Lablet Controller](../lablet-controller/) — session lifecycle management
+- [Architecture Overview](../../index.md) — microservice landscape

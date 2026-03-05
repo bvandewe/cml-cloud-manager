@@ -1,0 +1,18 @@
+// =============================================================================
+// COMPONENTS INDEX
+// Forward all component partials
+// =============================================================================
+
+// Core UI components
+@forward 'navbar';
+@forward 'cards';
+@forward 'tables';
+@forward 'buttons';
+@forward 'forms';
+@forward 'modals';
+@forward 'status';
+@forward 'toasts';
+@forward 'loading';
+
+// Feature-specific components
+@forward 'system';

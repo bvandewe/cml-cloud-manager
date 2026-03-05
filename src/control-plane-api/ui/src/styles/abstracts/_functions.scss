@@ -1,0 +1,126 @@
+// =============================================================================
+// FUNCTIONS
+// Utility functions for calculations and transformations
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Color Functions
+// -----------------------------------------------------------------------------
+
+/// Slightly lighten a color
+/// @param {Color} $color - color to lighten
+/// @param {Number} $percentage - percentage of white to add
+/// @return {Color}
+@function tint($color, $percentage) {
+    @return mix(white, $color, $percentage);
+}
+
+/// Slightly darken a color
+/// @param {Color} $color - color to darken
+/// @param {Number} $percentage - percentage of black to add
+/// @return {Color}
+@function shade($color, $percentage) {
+    @return mix(black, $color, $percentage);
+}
+
+/// Get contrasting text color (black or white)
+/// @param {Color} $color - background color
+/// @return {Color}
+@function contrast-color($color) {
+    $luminance: (red($color) * 0.299 + green($color) * 0.587 + blue($color) * 0.114) / 255;
+    @if $luminance > 0.5 {
+        @return #000000;
+    } @else {
+        @return #ffffff;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Spacing Functions
+// -----------------------------------------------------------------------------
+
+/// Convert pixel value to rem
+/// @param {Number} $pixels - pixel value
+/// @param {Number} $base - base font size (default 16px)
+/// @return {Number}
+@function px-to-rem($pixels, $base: 16) {
+    @return ($pixels / $base) * 1rem;
+}
+
+/// Calculate spacing based on spacing unit
+/// @param {Number} $multiplier - multiplier for spacing unit
+/// @return {Number}
+@function spacing($multiplier) {
+    @return $spacing-unit * $multiplier;
+}
+
+// -----------------------------------------------------------------------------
+// String Functions
+// -----------------------------------------------------------------------------
+
+/// Replace characters in a string
+/// @param {String} $string - Initial string
+/// @param {String} $search - Substring to replace
+/// @param {String} $replace - New value
+/// @return {String}
+@function str-replace($string, $search, $replace: '') {
+    $index: str-index($string, $search);
+
+    @if $index {
+        @return str-slice($string, 1, $index - 1) + $replace + str-replace(str-slice($string, $index + str-length($search)), $search, $replace);
+    }
+
+    @return $string;
+}
+
+// -----------------------------------------------------------------------------
+// Math Functions
+// -----------------------------------------------------------------------------
+
+/// Clamp a value between min and max
+/// @param {Number} $value - value to clamp
+/// @param {Number} $min - minimum value
+/// @param {Number} $max - maximum value
+/// @return {Number}
+@function clamp-value($value, $min, $max) {
+    @return if($value < $min, $min, if($value > $max, $max, $value));
+}
+
+/// Calculate percentage of a value
+/// @param {Number} $value - the part
+/// @param {Number} $total - the whole
+/// @return {Number}
+@function percentage-of($value, $total) {
+    @if $total == 0 {
+        @return 0%;
+    }
+    @return ($value / $total) * 100%;
+}
+
+// -----------------------------------------------------------------------------
+// Z-Index Function
+// -----------------------------------------------------------------------------
+
+/// Get z-index value from scale
+/// @param {String} $layer - layer name
+/// @return {Number}
+@function z($layer) {
+    $layers: (
+        'dropdown': $z-dropdown,
+        'sticky': $z-sticky,
+        'fixed': $z-fixed,
+        'modal-backdrop': $z-modal-backdrop,
+        'modal': $z-modal,
+        'popover': $z-popover,
+        'tooltip': $z-tooltip,
+        'toast': $z-toast,
+        'header': $z-header,
+    );
+
+    @if map-has-key($layers, $layer) {
+        @return map-get($layers, $layer);
+    }
+
+    @warn "Unknown layer `#{$layer}` in z-index function.";
+    @return null;
+}

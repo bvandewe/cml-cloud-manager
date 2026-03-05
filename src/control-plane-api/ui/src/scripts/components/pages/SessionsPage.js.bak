@@ -1,0 +1,559 @@
+/**
+ * SessionsPage — Phase 7J
+ *
+ * Session-centric view for monitoring LabletSession lifecycle.
+ * Provides a list view with session cards and drill-down to SessionDetailPage.
+ *
+ * Phase 7J: Migrated from LabletInstance+LabletRecordRun to LabletSession.
+ * Manual action buttons per AD-P7-06 (CloudEvent automation deferred).
+ *
+ * Features:
+ * - Session list with status badges, owner, worker, timeslot
+ * - Collapsible summary metrics (total, active, running, ended)
+ * - Filters: status, definition, search
+ * - Click-to-detail navigation (inline, replaces list)
+ * - Real-time SSE updates
+ *
+ * @module components/pages/SessionsPage
+ */
+
+import { BaseComponent } from '../../core/BaseComponent.js';
+import { EventTypes } from '../../core/EventBus.js';
+import * as sessionsApi from '../../api/sessions.js';
+import { showToast } from '../../ui/notifications.js';
+import '../core/LcmDataTable.js';
+import '../core/LcmStatusBadge.js';
+import '../core/LcmMetricCard.js';
+import '../core/LcmActionBar.js';
+import '../sessions/SessionDetailPage.js';
+
+const STORAGE_KEY_METRICS = 'lcm.sessions.metricsCollapsed';
+
+export class SessionsPage extends BaseComponent {
+    constructor() {
+        super();
+        this._currentUser = null;
+        this._sessions = [];
+        this._stats = this._emptyStats();
+        this._isLoading = true;
+        this._viewMode = 'list'; // 'list' or 'detail'
+        this._activeSessionId = null;
+        this._metricsCollapsed = localStorage.getItem(STORAGE_KEY_METRICS) === 'true';
+        this._filters = {
+            status: null,
+            definition_id: null,
+            include_terminal: false,
+            search: '',
+        };
+    }
+
+    _emptyStats() {
+        return {
+            total: 0,
+            active: 0,
+            scheduled: 0,
+            running: 0,
+            ready: 0,
+            terminated: 0,
+            error: 0,
+        };
+    }
+
+    /**
+     * Initialize the page with user context
+     * @param {Object} user - Current user object with roles
+     */
+    initialize(user) {
+        this._currentUser = user;
+        this.render();
+        this._setupEventListeners();
+        this._configureDataTable();
+
+        requestAnimationFrame(() => {
+            this._refreshSessions();
+        });
+    }
+
+    onMount() {
+        this.innerHTML = this._renderLoading();
+    }
+
+    // ===========================================================================
+    // Data Loading
+    // ===========================================================================
+
+    async _refreshSessions() {
+        this._isLoading = true;
+        this._updateLoadingState();
+
+        try {
+            const filters = {};
+            if (this._filters.status) filters.status = this._filters.status;
+            if (this._filters.definition_id) filters.definition_id = this._filters.definition_id;
+            if (this._filters.include_terminal) filters.include_terminal = true;
+
+            const sessions = await sessionsApi.listSessions(filters);
+            this._sessions = Array.isArray(sessions) ? sessions : sessions.items || sessions.data || [];
+            this._computeStats();
+            this._updateDataTable();
+            this._updateMetricCards();
+        } catch (error) {
+            console.error('[SessionsPage] Failed to load sessions:', error);
+            showToast('Failed to load sessions: ' + error.message, 'error');
+        } finally {
+            this._isLoading = false;
+            this._updateLoadingState();
+        }
+    }
+
+    _computeStats() {
+        const stats = this._emptyStats();
+        const runningStatuses = new Set(['running', 'ready', 'collecting', 'grading']);
+        const terminalStatuses = new Set(['terminated', 'archived', 'deleted']);
+
+        this._sessions.forEach(s => {
+            stats.total++;
+            const st = (s.status || '').toLowerCase();
+
+            if (st === 'scheduled') stats.scheduled++;
+            else if (st === 'terminated') stats.terminated++;
+            else if (st === 'error' || st === 'failed') stats.error++;
+            else if (runningStatuses.has(st)) stats.running++;
+            else if (st === 'ready') stats.ready++;
+
+            if (!terminalStatuses.has(st)) stats.active++;
+        });
+
+        this._stats = stats;
+    }
+
+    // ===========================================================================
+    // Event Listeners
+    // ===========================================================================
+
+    _setupEventListeners() {
+        this.subscribe(EventTypes.LABLET_SESSION_SNAPSHOT, data => {
+            this._handleSessionUpdate(data);
+        });
+
+        this.subscribe(EventTypes.LABLET_SESSION_CREATED, data => {
+            this._handleSessionUpdate(data);
+        });
+
+        this.subscribe(EventTypes.LABLET_SESSION_STATUS_CHANGED, data => {
+            const sessionId = data.session_id || data.id;
+            if (!sessionId) return;
+            const index = this._sessions.findIndex(s => s.id === sessionId);
+            if (index >= 0) {
+                this._sessions[index] = {
+                    ...this._sessions[index],
+                    status: data.status || data.new_status,
+                    updated_at: data.updated_at || new Date().toISOString(),
+                };
+                this._computeStats();
+                this._updateDataTable();
+                this._updateMetricCards();
+            }
+        });
+
+        this.subscribe(EventTypes.LABLET_SESSION_TERMINATED, data => {
+            const sessionId = data.session_id || data.id;
+            if (!sessionId) return;
+            const index = this._sessions.findIndex(s => s.id === sessionId);
+            if (index >= 0) {
+                this._sessions[index] = {
+                    ...this._sessions[index],
+                    status: 'terminated',
+                    terminated_at: data.terminated_at,
+                };
+                this._computeStats();
+                this._updateDataTable();
+                this._updateMetricCards();
+            }
+        });
+
+        this.subscribe(EventTypes.LABLET_SESSIONS_REFRESH_COMPLETED, () => {
+            this._refreshSessions();
+        });
+    }
+
+    _handleSessionUpdate(data) {
+        if (!data || !data.id) return;
+        const index = this._sessions.findIndex(s => s.id === data.id);
+        if (index >= 0) {
+            this._sessions[index] = { ...this._sessions[index], ...data };
+        } else {
+            this._sessions.push(data);
+        }
+        this._computeStats();
+        this._updateDataTable();
+        this._updateMetricCards();
+    }
+
+    // ===========================================================================
+    // Navigation
+    // ===========================================================================
+
+    _showSessionDetail(sessionId) {
+        this._viewMode = 'detail';
+        this._activeSessionId = sessionId;
+        this.render();
+
+        const detailPage = this.querySelector('session-detail-page');
+        if (detailPage) {
+            detailPage.loadSession(sessionId);
+            detailPage.addEventListener('session-back', () => {
+                this._showSessionList();
+            });
+        }
+    }
+
+    _showSessionList() {
+        this._viewMode = 'list';
+        this._activeSessionId = null;
+        this.render();
+        this._configureDataTable();
+        this._updateDataTable();
+        this._updateMetricCards();
+    }
+
+    // ===========================================================================
+    // Data Table
+    // ===========================================================================
+
+    _configureDataTable() {
+        const table = this.querySelector('#sessions-table');
+        if (!table) return;
+
+        table.setColumns([
+            {
+                field: 'definition_name',
+                label: 'Definition',
+                sortable: true,
+                render: (value, row) => {
+                    return `<span class="d-flex align-items-center gap-2">
+                        <i class="bi bi-easel text-muted"></i>
+                        <strong class="session-title-link" role="button" data-session-id="${row.id}">
+                            ${this._escapeHtml(value || row.definition_id || 'Unknown')}
+                        </strong>
+                    </span>`;
+                },
+            },
+            {
+                field: 'owner_id',
+                label: 'Candidate',
+                sortable: true,
+                render: value => `<span><i class="bi bi-person me-1"></i>${this._escapeHtml(value || 'Unknown')}</span>`,
+            },
+            {
+                field: 'status',
+                label: 'Status',
+                sortable: true,
+                render: value => `<lcm-status-badge status="${value || 'unknown'}" icon pill></lcm-status-badge>`,
+            },
+            {
+                field: 'worker_name',
+                label: 'Worker',
+                sortable: true,
+                render: (value, row) => value || (row.worker_id ? row.worker_id.substring(0, 12) + '…' : '—'),
+            },
+            {
+                field: 'timeslot_start',
+                label: 'Start',
+                sortable: true,
+                type: 'datetime',
+            },
+            {
+                field: 'timeslot_end',
+                label: 'End',
+                sortable: true,
+                type: 'datetime',
+            },
+            {
+                field: 'updated_at',
+                label: 'Updated',
+                sortable: true,
+                type: 'datetime',
+            },
+        ]);
+
+        // Handle row click -> open detail
+        table.addEventListener('row-click', e => {
+            const { row } = e.detail;
+            if (row?.id) {
+                this._showSessionDetail(row.id);
+            }
+        });
+    }
+
+    _updateDataTable() {
+        const table = this.querySelector('#sessions-table');
+        if (!table) return;
+
+        let data = [...this._sessions];
+
+        // Client-side search
+        if (this._filters.search) {
+            const term = this._filters.search.toLowerCase();
+            data = data.filter(
+                s =>
+                    (s.definition_name || '').toLowerCase().includes(term) ||
+                    (s.owner_id || '').toLowerCase().includes(term) ||
+                    (s.worker_name || '').toLowerCase().includes(term) ||
+                    (s.status || '').toLowerCase().includes(term) ||
+                    (s.id || '').toLowerCase().includes(term)
+            );
+        }
+
+        table.setData(data);
+    }
+
+    _updateLoadingState() {
+        const table = this.querySelector('#sessions-table');
+        if (table) {
+            if (this._isLoading) {
+                table.setAttribute('loading', '');
+            } else {
+                table.removeAttribute('loading');
+            }
+        }
+    }
+
+    // ===========================================================================
+    // Metric Cards
+    // ===========================================================================
+
+    _updateMetricCards() {
+        const s = this._stats;
+        this._setMetricValue('metric-sessions-total', s.total);
+        this._setMetricValue('metric-sessions-active', s.active);
+        this._setMetricValue('metric-sessions-running', s.running);
+        this._setMetricValue('metric-sessions-scheduled', s.scheduled);
+        this._setMetricValue('metric-sessions-terminated', s.terminated);
+        this._setMetricValue('metric-sessions-error', s.error);
+    }
+
+    _setMetricValue(id, value) {
+        const card = this.querySelector(`#${id}`);
+        if (card) card.setAttribute('value', String(value));
+    }
+
+    // ===========================================================================
+    // Filters
+    // ===========================================================================
+
+    _applyFilter(field, value) {
+        this._filters[field] = value === '' || value === 'all' ? null : value;
+        this._refreshSessions();
+    }
+
+    _clearFilters() {
+        this._filters = { status: null, definition_id: null, include_terminal: false, search: '' };
+        const statusFilter = this.querySelector('#sessions-status-filter');
+        const searchInput = this.querySelector('#sessions-search-input');
+        const terminalToggle = this.querySelector('#sessions-terminal-toggle');
+        if (statusFilter) statusFilter.value = 'all';
+        if (searchInput) searchInput.value = '';
+        if (terminalToggle) terminalToggle.checked = false;
+        this._refreshSessions();
+    }
+
+    // ===========================================================================
+    // Rendering
+    // ===========================================================================
+
+    _renderLoading() {
+        return `
+            <div class="d-flex justify-content-center align-items-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+        `;
+    }
+
+    render() {
+        if (this._viewMode === 'detail') {
+            this.innerHTML = `
+                <div class="sessions-page">
+                    <session-detail-page></session-detail-page>
+                </div>
+            `;
+            return;
+        }
+
+        const metricsCollapsed = this._metricsCollapsed;
+
+        this.innerHTML = `
+            <div class="sessions-page">
+                <!-- Page Header -->
+                <div class="page-header d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h2 class="mb-1">Sessions</h2>
+                        <p class="text-muted mb-0">Monitor lablet session lifecycle and state transitions</p>
+                    </div>
+                    <lcm-action-bar id="sessions-action-bar">
+                        <lcm-action-bar-secondary>
+                            <button class="btn btn-outline-secondary" data-action="refresh">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                            </button>
+                        </lcm-action-bar-secondary>
+                    </lcm-action-bar>
+                </div>
+
+                <!-- Metrics Summary (Collapsible) -->
+                <div class="mb-3">
+                    <button class="btn btn-sm btn-link text-decoration-none p-0 mb-2"
+                        id="sessions-metrics-toggle" type="button">
+                        <i class="bi bi-${metricsCollapsed ? 'chevron-right' : 'chevron-down'} me-1"></i>
+                        Summary
+                    </button>
+                    <div id="sessions-metrics-panel" class="${metricsCollapsed ? 'd-none' : ''}">
+                        <div class="row g-3 mb-3">
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <lcm-metric-card id="metric-sessions-total" title="Total Sessions"
+                                    value="${this._stats.total}" icon="bi-easel" color="primary">
+                                </lcm-metric-card>
+                            </div>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <lcm-metric-card id="metric-sessions-active" title="Active"
+                                    value="${this._stats.active}" icon="bi-lightning-charge" color="success">
+                                </lcm-metric-card>
+                            </div>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <lcm-metric-card id="metric-sessions-running" title="Running"
+                                    value="${this._stats.running}" icon="bi-play-circle" color="success">
+                                </lcm-metric-card>
+                            </div>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <lcm-metric-card id="metric-sessions-scheduled" title="Scheduled"
+                                    value="${this._stats.scheduled}" icon="bi-calendar-check" color="primary">
+                                </lcm-metric-card>
+                            </div>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <lcm-metric-card id="metric-sessions-terminated" title="Terminated"
+                                    value="${this._stats.terminated}" icon="bi-x-circle" color="secondary">
+                                </lcm-metric-card>
+                            </div>
+                            <div class="col-6 col-md-4 col-xl-2">
+                                <lcm-metric-card id="metric-sessions-error" title="Errors"
+                                    value="${this._stats.error}" icon="bi-exclamation-triangle" color="danger">
+                                </lcm-metric-card>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Table with Filters -->
+                <div class="card shadow-sm no-hover-lift">
+                    <div class="card-header d-flex align-items-center bg-white py-2 gap-2">
+                        <span class="fw-medium text-muted small">Sessions</span>
+                        <div class="d-flex align-items-center gap-2 ms-auto">
+                            <div class="input-group input-group-sm" style="width: 250px;">
+                                <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control" id="sessions-search-input"
+                                    placeholder="Search sessions..." value="${this._filters.search || ''}">
+                            </div>
+                            <select class="form-select form-select-sm" id="sessions-status-filter" style="width: 160px;">
+                                <option value="all">All Statuses</option>
+                                <option value="pending">Pending</option>
+                                <option value="scheduled">Scheduled</option>
+                                <option value="instantiating">Instantiating</option>
+                                <option value="ready">Ready</option>
+                                <option value="running">Running</option>
+                                <option value="collecting">Collecting</option>
+                                <option value="grading">Grading</option>
+                                <option value="stopping">Stopping</option>
+                                <option value="stopped">Stopped</option>
+                                <option value="archived">Archived</option>
+                                <option value="terminated">Terminated</option>
+                            </select>
+                            <div class="form-check form-switch ms-1" style="white-space: nowrap;">
+                                <input class="form-check-input" type="checkbox" id="sessions-terminal-toggle"
+                                    ${this._filters.include_terminal ? 'checked' : ''}>
+                                <label class="form-check-label small" for="sessions-terminal-toggle">Incl. Terminated</label>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary" id="sessions-clear-filters" title="Clear all filters">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <lcm-data-table id="sessions-table"
+                            page-size="25"
+                            no-toolbar
+                            panel-mode
+                            empty-message="No sessions found. Sessions appear here when lablet instances are created."
+                            ${this._isLoading ? 'loading' : ''}>
+                        </lcm-data-table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        this._bindInteractions();
+        this._configureDataTable();
+    }
+
+    _bindInteractions() {
+        // Action bar
+        const actionBar = this.querySelector('#sessions-action-bar');
+        if (actionBar) {
+            actionBar.addEventListener('click', e => {
+                const action = e.target.closest('[data-action]')?.dataset.action;
+                if (action === 'refresh') this._refreshSessions();
+            });
+        }
+
+        // Metrics toggle
+        this.querySelector('#sessions-metrics-toggle')?.addEventListener('click', () => {
+            this._metricsCollapsed = !this._metricsCollapsed;
+            localStorage.setItem(STORAGE_KEY_METRICS, String(this._metricsCollapsed));
+            const panel = this.querySelector('#sessions-metrics-panel');
+            const icon = this.querySelector('#sessions-metrics-toggle i');
+            if (panel) panel.classList.toggle('d-none', this._metricsCollapsed);
+            if (icon) {
+                icon.className = `bi bi-${this._metricsCollapsed ? 'chevron-right' : 'chevron-down'} me-1`;
+            }
+        });
+
+        // Search (debounced)
+        const searchInput = this.querySelector('#sessions-search-input');
+        let searchTimeout;
+        searchInput?.addEventListener('input', e => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                this._filters.search = e.target.value;
+                this._updateDataTable();
+            }, 300);
+        });
+
+        // Status filter
+        this.querySelector('#sessions-status-filter')?.addEventListener('change', e => {
+            this._applyFilter('status', e.target.value);
+        });
+
+        // Terminal toggle
+        this.querySelector('#sessions-terminal-toggle')?.addEventListener('change', e => {
+            this._filters.include_terminal = e.target.checked;
+            this._refreshSessions();
+        });
+
+        // Clear filters
+        this.querySelector('#sessions-clear-filters')?.addEventListener('click', () => {
+            this._clearFilters();
+        });
+    }
+
+    _escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+}
+
+if (!customElements.get('sessions-page')) {
+    customElements.define('sessions-page', SessionsPage);
+}
+
+export default SessionsPage;

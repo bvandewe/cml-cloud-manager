@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title | default('Resource Scheduler') }}</title>
+    <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="../styles/main.scss">
+    <script src="../scripts/main.js" type="module" defer></script>
+</head>
+
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <span>{{ serviceEmoji | default('📅') }}</span>
+                <span>{{ title | default('Resource Scheduler') }}</span>
+                <span class="version-badge" id="version-badge">loading...</span>
+            </a>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs" id="mainTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="home-tab" data-bs-toggle="tab" data-bs-target="#home" type="button"
+                    role="tab" aria-controls="home" aria-selected="true">
+                    <i class="bi bi-house-door me-1"></i> Home
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="status-tab" data-bs-toggle="tab" data-bs-target="#status" type="button"
+                    role="tab" aria-controls="status" aria-selected="false">
+                    <i class="bi bi-activity me-1"></i> Status
+                </button>
+            </li>
+        </ul>
+
+        <!-- Tab Content -->
+        <div class="tab-content" id="mainTabContent">
+            <!-- Home Tab -->
+            <div class="tab-pane fade show active" id="home" role="tabpanel" aria-labelledby="home-tab">
+                <div class="content-section">
+                    <!-- Service Info Card -->
+                    <info-card theme-color="{{ themeColor | default('#667eea') }}"></info-card>
+
+                    <!-- Leader Election & Stats Card -->
+                    <leader-card theme-color="{{ themeColor | default('#667eea') }}"
+                        refresh-interval="30000"></leader-card>
+
+                    <!-- Quick Links -->
+                    <service-links theme-color="{{ themeColor | default('#667eea') }}"></service-links>
+                </div>
+            </div>
+
+            <!-- Status Tab -->
+            <div class="tab-pane fade" id="status" role="tabpanel" aria-labelledby="status-tab">
+                <div class="content-section">
+                    <div class="status-grid">
+                        <!-- Health Card -->
+                        <status-card endpoint="/api/health" title="🏥 Health Check"
+                            theme-color="{{ themeColor | default('#667eea') }}" refresh-interval="30000">
+                        </status-card>
+
+                        <!-- Ready Card -->
+                        <status-card endpoint="/api/ready" title="✅ Readiness Check"
+                            theme-color="{{ themeColor | default('#667eea') }}" refresh-interval="30000">
+                        </status-card>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="mt-5 py-3 text-center text-muted">
+        <small>{{ title | default('Resource Scheduler') }} &copy; 2026</small>
+    </footer>
+</body>
+
+</html>

@@ -1,0 +1,138 @@
+// =============================================================================
+// FORMS COMPONENT
+// Form controls, inputs, and validation
+// =============================================================================
+
+// Form control enhancements
+.form-control,
+.form-select {
+    @include form-input;
+}
+
+// Form labels
+.form-label {
+    font-weight: $font-weight-semibold;
+    font-size: $font-size-sm;
+    margin-bottom: $spacing-2;
+    color: var(--color-text-primary, $color-text-primary);
+}
+
+// Form text / help text
+.form-text {
+    font-size: $font-size-sm;
+    color: var(--color-text-muted, $color-text-muted);
+    margin-top: $spacing-1;
+}
+
+// Filters section
+.filters-section {
+    background-color: var(--color-bg-primary, $color-bg-primary);
+    border-radius: $border-radius-md;
+    padding: $spacing-4;
+    margin-bottom: $spacing-4;
+    box-shadow: var(--shadow-card, $shadow-card);
+
+    .form-label {
+        font-weight: $font-weight-semibold;
+        font-size: $font-size-sm;
+        margin-bottom: $spacing-2;
+    }
+}
+
+// Input groups
+.input-group {
+    .form-control,
+    .form-select {
+        &:focus {
+            z-index: 3;
+        }
+    }
+
+    .input-group-text {
+        background-color: var(--color-bg-secondary, $color-bg-secondary);
+        border-color: var(--color-border, $color-border);
+        color: var(--color-text-secondary, $color-text-secondary);
+    }
+}
+
+// Floating labels
+.form-floating {
+    .form-control,
+    .form-select {
+        height: calc(3.5rem + 2px);
+    }
+
+    label {
+        color: var(--color-text-muted, $color-text-muted);
+    }
+}
+
+// Checkbox and radio enhancements
+.form-check {
+    .form-check-input {
+        border-color: var(--color-border, $color-border);
+
+        &:checked {
+            background-color: var(--color-primary, $color-primary);
+            border-color: var(--color-primary, $color-primary);
+        }
+
+        &:focus {
+            box-shadow: 0 0 0 0.25rem rgba($color-primary, 0.15);
+        }
+    }
+
+    .form-check-label {
+        font-size: $font-size-sm;
+    }
+}
+
+// Switch style
+.form-switch {
+    .form-check-input {
+        width: 2.5rem;
+        height: 1.25rem;
+    }
+}
+
+// Validation states
+.is-invalid {
+    border-color: $color-danger !important;
+
+    &:focus {
+        box-shadow: 0 0 0 0.25rem rgba($color-danger, 0.15) !important;
+    }
+}
+
+.invalid-feedback {
+    font-size: $font-size-sm;
+    color: $color-danger;
+}
+
+.is-valid {
+    border-color: $color-success !important;
+
+    &:focus {
+        box-shadow: 0 0 0 0.25rem rgba($color-success, 0.15) !important;
+    }
+}
+
+.valid-feedback {
+    font-size: $font-size-sm;
+    color: $color-success;
+}
+
+// Textarea auto-grow
+textarea.form-control {
+    min-height: 100px;
+    resize: vertical;
+}
+
+// Search input
+.search-input {
+    padding-left: 2.5rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%236c757d' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 0.75rem center;
+    background-size: 1rem;
+}

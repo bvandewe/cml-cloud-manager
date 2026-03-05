@@ -1,0 +1,23 @@
+{
+    "name": "resource-scheduler-ui",
+    "version": "1.0.0",
+    "description": "Frontend UI for Resource Scheduler service",
+    "scripts": {
+        "prebuild": "node build-template.js",
+        "build": "npm run prebuild && parcel build src/tmp_build/index.html --dist-dir ../static --public-url /static",
+        "predev": "node build-template.js",
+        "dev": "npm run predev && parcel src/tmp_build/index.html",
+        "watch": "node build-template.js && parcel watch src/tmp_build/index.html --dist-dir ../static --public-url /static",
+        "render": "node build-template.js"
+    },
+    "devDependencies": {
+        "@parcel/transformer-sass": "^2.12.0",
+        "nunjucks": "^3.2.4",
+        "parcel": "^2.12.0",
+        "sass": "^1.69.0"
+    },
+    "dependencies": {
+        "bootstrap": "^5.3.2",
+        "bootstrap-icons": "^1.11.1"
+    }
+}

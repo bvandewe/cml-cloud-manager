@@ -1,0 +1,151 @@
+// =============================================================================
+// BADGES & STATUS COMPONENT
+// Status indicators, badges, and tags
+// =============================================================================
+
+// Badge base enhancements
+.badge {
+    padding: $spacing-1 $spacing-2;
+    font-size: $font-size-xs;
+    font-weight: $font-weight-semibold;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    border-radius: $border-radius-sm;
+}
+
+// Pill badges
+.badge.rounded-pill {
+    border-radius: $border-radius-pill;
+    padding: $spacing-1 $spacing-3;
+}
+
+// Status badge with dot indicator
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: $spacing-1;
+    padding: $spacing-1 $spacing-2;
+    font-size: $font-size-xs;
+    font-weight: $font-weight-semibold;
+    border-radius: $border-radius-sm;
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    // Status variants
+    &.status-running,
+    &.status-active {
+        background-color: rgba($color-success, 0.1);
+        color: $color-success;
+
+        .status-dot {
+            background-color: $color-success;
+            animation: pulse 2s infinite;
+        }
+    }
+
+    &.status-stopped,
+    &.status-inactive {
+        background-color: rgba($color-secondary, 0.1);
+        color: $color-secondary;
+
+        .status-dot {
+            background-color: $color-secondary;
+        }
+    }
+
+    &.status-pending,
+    &.status-provisioning {
+        background-color: rgba($color-warning, 0.1);
+        color: darken($color-warning, 15%);
+
+        .status-dot {
+            background-color: $color-warning;
+            animation: pulse 1s infinite;
+        }
+    }
+
+    &.status-error,
+    &.status-failed {
+        background-color: rgba($color-danger, 0.1);
+        color: $color-danger;
+
+        .status-dot {
+            background-color: $color-danger;
+        }
+    }
+
+    &.status-info {
+        background-color: rgba($color-info, 0.1);
+        color: darken($color-info, 15%);
+
+        .status-dot {
+            background-color: $color-info;
+        }
+    }
+}
+
+// Pulse animation for active states
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+// Worker status colors
+.badge-running {
+    @include status-badge($color-success);
+}
+.badge-stopped {
+    @include status-badge($color-secondary);
+}
+.badge-provisioning {
+    @include status-badge($color-warning);
+}
+.badge-error {
+    @include status-badge($color-danger);
+}
+
+// Tag style badges
+.tag {
+    display: inline-flex;
+    align-items: center;
+    gap: $spacing-1;
+    padding: $spacing-1 $spacing-2;
+    font-size: $font-size-xs;
+    background-color: var(--color-bg-tertiary, $color-bg-tertiary);
+    color: var(--color-text-secondary, $color-text-secondary);
+    border-radius: $border-radius-sm;
+
+    .tag-remove {
+        cursor: pointer;
+        opacity: 0.7;
+
+        &:hover {
+            opacity: 1;
+        }
+    }
+}
+
+// Count badges
+.count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0 $spacing-1;
+    font-size: $font-size-xs;
+    font-weight: $font-weight-bold;
+    border-radius: $border-radius-circle;
+    background-color: var(--color-primary, $color-primary);
+    color: var(--color-text-inverse, $color-text-inverse);
+}

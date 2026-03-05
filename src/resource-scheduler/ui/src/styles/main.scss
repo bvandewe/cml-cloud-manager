@@ -1,0 +1,83 @@
+/* Main application styles for Resource Scheduler */
+@import 'bootstrap/scss/bootstrap';
+
+:root {
+    --theme-color: #667eea;
+    --theme-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: #f8f9fa;
+    min-height: 100vh;
+}
+
+.navbar {
+    background: var(--theme-gradient) !important;
+}
+
+.navbar-brand {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.nav-tabs .nav-link {
+    color: #495057;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.75rem 1.25rem;
+}
+
+.nav-tabs .nav-link:hover {
+    border-color: var(--theme-color);
+    color: var(--theme-color);
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--theme-color);
+    border-color: var(--theme-color);
+    background: transparent;
+}
+
+.tab-content {
+    padding-top: 1.5rem;
+}
+
+.content-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+}
+
+.version-badge {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* Dark theme support */
+[data-bs-theme='dark'] {
+    body {
+        background-color: #121212;
+        color: #fff;
+    }
+
+    .nav-tabs .nav-link {
+        color: #adb5bd;
+    }
+
+    .nav-tabs .nav-link:hover,
+    .nav-tabs .nav-link.active {
+        color: var(--theme-color);
+    }
+}

@@ -1,0 +1,119 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
+<grading-rules xmlns='http://www.w3.org/2009/grading'>
+    <lab title='ccie-test-des-lab11' version='1.1' reportClass='Reports::CCIEReport'/>
+    <!-- Section 0 : Concurrent Statements -->
+     <section index='0' mode='sequential' >
+        <subsection index='1' description='LDS Collect'>
+                <verify subject='lds_collect' device='LDS' out='WEB_ITEM_CONTENT' set='LDS.COLLECT.OK'/>
+         </subsection>
+    </section>
+     <!-- Content -->
+     <section index='1' points='29' description='Content'>
+        <!-- Question - 1: Introduction -->
+         <subsection index='1' ft='false' uuid='65f04df27d79d05797e11f55' points='0' description='1: Introduction' domain=''/>
+        <!-- Question - 2: MCSA Simple -->
+         <subsection index='2' ft='false' uuid='65f053d67d79d05797e12003' points='1' description='2: MCSA Simple' domain=''>
+                    <verify subject='lds_grade' device='LDS' siq='1.2.1' answer='{1}' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 3: MCSA HTML: Unscored Parent -->
+         <subsection index='3' ft='false' uuid='65f053d67d79d05797e12004' points='0' description='3: MCSA HTML: Unscored Parent' domain='' type='parent'>
+                    <verify subject='lds_grade' device='LDS' siq='1.3.1' answer='{1}' points='0'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.3.1' answer='{2}'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - MCSA Dropdown: 2pts Child -->
+         <subsection index='4' ft='false' uuid='65f053d67d79d05797e12005' points='2' description='MCSA Dropdown: 2pts Child' domain='' type='child'>
+                    <verify subject='lds_grade' device='LDS' siq='1.4.1' answer='{1}' points='2'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - MCSA HTML: 1pt Child -->
+         <subsection index='5' ft='false' uuid='673c5da9976cc9733a23ed0a' points='1' description='MCSA HTML: 1pt Child' domain='' type='child'>
+                    <verify subject='lds_grade' device='LDS' siq='1.5.1' answer='{1,2}' points='1'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.5.1' answer='{1,3}' points='1'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.5.1' answer='{1,4}' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 4: MCMA Simple -->
+         <subsection index='6' ft='false' uuid='65f053d67d79d05797e12006' points='2' description='4: MCMA Simple' domain='1.0 Domain 1'>
+                    <verify subject='lds_grade' device='LDS' siq='1.6.1' answer='{1,2}' points='2'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.6.1' answer='{1}' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 5: 2x MCxA -->
+         <subsection index='7' ft='false' uuid='65f053d67d79d05797e12007' points='2' description='5: 2x MCxA' domain=''>
+                    <verify subject='lds_grade' device='LDS' siq='1.7.1' answer='{1}' points='1'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.7.2' answer='{1,2}' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 6: MCSA Matrix: with alternate solutions -->
+         <subsection index='8' ft='false' uuid='65f053d67d79d05797e12008' points='3' description='6: MCSA Matrix: with alternate solutions' domain=''>
+                    <verify subject='lds_grade' device='LDS' siq='1.8.1' answer='[1,2,3,4]' points='3'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.8.1' answer='[1,2,3,3]' points='2'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 7: MCMA Matrix: partial scoring per column -->
+         <subsection index='9' ft='false' uuid='65f053d67d79d05797e12009' points='4' description='7: MCMA Matrix: partial scoring per column' domain='1.0 Domain 1'>
+                    <verify subject='aggregatePoints' device='LDS'/>
+<verify device='LDS' subject='lds_grade' siq='1.9.1' answer='[1,*,*,*][0,*,*,*][0,*,*,*][0,*,*,*]' gid='1.9.1_col1' points='1'/>
+<verify device='LDS' subject='lds_grade' siq='1.9.1' answer='[*,2,*,*][*,2,*,*][*,0,*,*][*,0,*,*]' gid='1.9.1_col2' points='1'/>
+<verify device='LDS' subject='lds_grade' siq='1.9.1' answer='[*,*,3,*][*,*,3,*][*,*,3,*][*,*,0,*]' gid='1.9.1_col3' points='1'/>
+<verify device='LDS' subject='lds_grade' siq='1.9.1' answer='[*,*,*,4][*,*,*,4][*,*,*,4][*,*,*,4]' gid='1.9.1_col4' points='1'/>
+<verify device='LDS' subject='aggregatePoints'/>
+        </subsection>
+        <!-- Question - 8: Dropdowns (simple + range) -->
+         <subsection index='10' ft='false' uuid='65f053d67d79d05797e1200a' points='2' description='8: Dropdowns (simple + range)' domain=''>
+                    <verify subject='lds_grade' device='LDS' siq='1.10.1' answer='{1}' points='1'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.10.2' answer='{8}' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 9: Dropdown Row -->
+         <subsection index='11' ft='false' uuid='65f053d67d79d05797e1200b' points='1' description='9: Dropdown Row' domain=''>
+                    <verify subject='lds_grade' device='LDS' siq='1.11.1' answer='[1,1,1,1]' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 10: DnD Simple -->
+         <subsection index='12' ft='false' uuid='65f053d67d79d05797e1200c' points='1' description='10: DnD Simple' domain=''>
+                    <verify subject='lds_grade' device='LDS' siq='1.12.1' answer='[4,3,2,1]' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 11: DnD Category with both ordered and unordered answers -->
+         <subsection index='13' ft='false' uuid='65f053d67d79d05797e1200d' points='1' description='11: DnD Category with both ordered and unordered answers' domain=''>
+                    <verify subject='lds_grade' device='LDS' siq='1.13.1' answer='[1,2]{3,4}' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 12: DnD Graphical -->
+         <subsection index='14' ft='false' uuid='65f053d67d79d05797e1200e' points='1' description='12: DnD Graphical' domain=''>
+                    <verify subject='lds_grade' device='LDS' siq='1.14.1' answer='[5,5,4,4,4]' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 13: [FT] Hotspot -->
+         <subsection index='15' ft='true' uuid='65f053d67d79d05797e1200f' points='1' description='13: [FT] Hotspot' domain=''>
+                    <verify subject='lds_grade' device='LDS' siq='1.15.1' answer='{1}' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 14: MCSA Scored Parent -->
+         <subsection index='16' ft='false' uuid='673b43de976cc9733a23ec8a' points='1' description='14: MCSA Scored Parent' domain='' type='parent'>
+                    <verify subject='lds_grade' device='LDS' siq='1.16.1' answer='{1}' points='1'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.16.1' answer='{2}' points='0'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - MCSA Matrix with logical grading -->
+         <subsection index='17' ft='false' uuid='673b43de976cc9733a23ec8b' points='2' description='MCSA Matrix with logical grading' domain='' type='child'>
+                    <verify subject='lds_grade' device='LDS' siq='1.17.1' answer='{1}{2}' points='2'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.17.1' answer='{1}{}' points='1'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.17.1' answer='{}{2}' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - MCSA Simple with 3 alternate solutions -->
+         <subsection index='18' ft='false' uuid='673c5da9976cc9733a23ed09' points='4' description='MCSA Simple with 3 alternate solutions' domain='' type='child'>
+                    <verify subject='lds_grade' device='LDS' siq='1.18.1' answer='{1}' points='4'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.18.1' answer='{2}' points='3'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.18.1' answer='{3}' points='2'/>
+                    <verify subject='lds_grade' device='LDS' siq='1.18.1' answer='{4}' points='1'/>
+                    <verify subject='aggregatePoints' device='LDS'/>
+        </subsection>
+        <!-- Question - 15: The End -->
+         <subsection index='19' ft='false' uuid='65f053e37d79d05797e1202b' points='0' description='15: The End' domain=''/>
+    </section>
+</grading-rules>

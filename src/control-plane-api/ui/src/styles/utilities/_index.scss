@@ -1,0 +1,306 @@
+// =============================================================================
+// UTILITY CLASSES
+// Single-purpose utility classes for quick styling
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Spacing Utilities
+// -----------------------------------------------------------------------------
+
+// Margin utilities
+.m-0 {
+    margin: 0 !important;
+}
+.m-1 {
+    margin: $spacing-1 !important;
+}
+.m-2 {
+    margin: $spacing-2 !important;
+}
+.m-3 {
+    margin: $spacing-3 !important;
+}
+.m-4 {
+    margin: $spacing-4 !important;
+}
+.m-5 {
+    margin: $spacing-5 !important;
+}
+
+.mt-0 {
+    margin-top: 0 !important;
+}
+.mt-1 {
+    margin-top: $spacing-1 !important;
+}
+.mt-2 {
+    margin-top: $spacing-2 !important;
+}
+.mt-3 {
+    margin-top: $spacing-3 !important;
+}
+.mt-4 {
+    margin-top: $spacing-4 !important;
+}
+.mt-5 {
+    margin-top: $spacing-5 !important;
+}
+
+.mb-0 {
+    margin-bottom: 0 !important;
+}
+.mb-1 {
+    margin-bottom: $spacing-1 !important;
+}
+.mb-2 {
+    margin-bottom: $spacing-2 !important;
+}
+.mb-3 {
+    margin-bottom: $spacing-3 !important;
+}
+.mb-4 {
+    margin-bottom: $spacing-4 !important;
+}
+.mb-5 {
+    margin-bottom: $spacing-5 !important;
+}
+
+// Padding utilities
+.p-0 {
+    padding: 0 !important;
+}
+.p-1 {
+    padding: $spacing-1 !important;
+}
+.p-2 {
+    padding: $spacing-2 !important;
+}
+.p-3 {
+    padding: $spacing-3 !important;
+}
+.p-4 {
+    padding: $spacing-4 !important;
+}
+.p-5 {
+    padding: $spacing-5 !important;
+}
+
+// -----------------------------------------------------------------------------
+// Display Utilities
+// -----------------------------------------------------------------------------
+.d-none {
+    display: none !important;
+}
+.d-block {
+    display: block !important;
+}
+.d-inline {
+    display: inline !important;
+}
+.d-inline-block {
+    display: inline-block !important;
+}
+.d-flex {
+    display: flex !important;
+}
+.d-inline-flex {
+    display: inline-flex !important;
+}
+.d-grid {
+    display: grid !important;
+}
+
+// Visibility
+.visible {
+    visibility: visible !important;
+}
+.invisible {
+    visibility: hidden !important;
+}
+
+// -----------------------------------------------------------------------------
+// Position Utilities
+// -----------------------------------------------------------------------------
+.position-relative {
+    position: relative !important;
+}
+.position-absolute {
+    position: absolute !important;
+}
+.position-fixed {
+    position: fixed !important;
+}
+.position-sticky {
+    position: sticky !important;
+}
+
+// -----------------------------------------------------------------------------
+// Cursor Utilities
+// -----------------------------------------------------------------------------
+.cursor-pointer {
+    cursor: pointer !important;
+}
+.cursor-default {
+    cursor: default !important;
+}
+.cursor-not-allowed {
+    cursor: not-allowed !important;
+}
+.cursor-grab {
+    cursor: grab !important;
+}
+.cursor-grabbing {
+    cursor: grabbing !important;
+}
+
+// -----------------------------------------------------------------------------
+// Text Utilities
+// -----------------------------------------------------------------------------
+.text-truncate {
+    @include text-truncate;
+}
+
+.text-truncate-2 {
+    @include text-truncate-lines(2);
+}
+
+.text-truncate-3 {
+    @include text-truncate-lines(3);
+}
+
+.text-nowrap {
+    white-space: nowrap !important;
+}
+.text-break {
+    word-wrap: break-word !important;
+    word-break: break-word !important;
+}
+
+// -----------------------------------------------------------------------------
+// Border Utilities
+// -----------------------------------------------------------------------------
+.border {
+    border: 1px solid var(--color-border, $color-border) !important;
+}
+.border-0 {
+    border: 0 !important;
+}
+.border-top {
+    border-top: 1px solid var(--color-border, $color-border) !important;
+}
+.border-bottom {
+    border-bottom: 1px solid var(--color-border, $color-border) !important;
+}
+
+.rounded {
+    border-radius: $border-radius-md !important;
+}
+.rounded-sm {
+    border-radius: $border-radius-sm !important;
+}
+.rounded-lg {
+    border-radius: $border-radius-lg !important;
+}
+.rounded-pill {
+    border-radius: $border-radius-pill !important;
+}
+.rounded-circle {
+    border-radius: $border-radius-circle !important;
+}
+
+// -----------------------------------------------------------------------------
+// Shadow Utilities
+// -----------------------------------------------------------------------------
+.shadow-none {
+    box-shadow: none !important;
+}
+.shadow-sm {
+    box-shadow: $shadow-sm !important;
+}
+.shadow {
+    box-shadow: $shadow-md !important;
+}
+.shadow-lg {
+    box-shadow: $shadow-lg !important;
+}
+
+// -----------------------------------------------------------------------------
+// Overflow Utilities
+// -----------------------------------------------------------------------------
+.overflow-auto {
+    overflow: auto !important;
+}
+.overflow-hidden {
+    overflow: hidden !important;
+}
+.overflow-visible {
+    overflow: visible !important;
+}
+.overflow-scroll {
+    overflow: scroll !important;
+}
+
+// -----------------------------------------------------------------------------
+// Width & Height Utilities
+// -----------------------------------------------------------------------------
+.w-25 {
+    width: 25% !important;
+}
+.w-50 {
+    width: 50% !important;
+}
+.w-75 {
+    width: 75% !important;
+}
+.w-100 {
+    width: 100% !important;
+}
+.w-auto {
+    width: auto !important;
+}
+
+.h-100 {
+    height: 100% !important;
+}
+.h-auto {
+    height: auto !important;
+}
+
+.mw-100 {
+    max-width: 100% !important;
+}
+.mh-100 {
+    max-height: 100% !important;
+}
+
+// -----------------------------------------------------------------------------
+// Opacity Utilities
+// -----------------------------------------------------------------------------
+.opacity-0 {
+    opacity: 0 !important;
+}
+.opacity-25 {
+    opacity: 0.25 !important;
+}
+.opacity-50 {
+    opacity: 0.5 !important;
+}
+.opacity-75 {
+    opacity: 0.75 !important;
+}
+.opacity-100 {
+    opacity: 1 !important;
+}
+
+// -----------------------------------------------------------------------------
+// User Select Utilities
+// -----------------------------------------------------------------------------
+.user-select-none {
+    user-select: none !important;
+}
+.user-select-all {
+    user-select: all !important;
+}
+.user-select-auto {
+    user-select: auto !important;
+}

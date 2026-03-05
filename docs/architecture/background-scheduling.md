@@ -1,317 +1,226 @@
 # Background Task Scheduling
 
-The Lablet Cloud Manager implements a distributed background task scheduling system using APScheduler, integrated with the Neuroglia framework's dependency injection and service provider patterns.
+**Version:** 2.0.0 (March 2026)
+**Status:** Current Implementation
+
+!!! warning "APScheduler Removed (ADR-011)"
+    APScheduler was removed in January 2026 per [ADR-011](./adr/ADR-011-apscheduler-removal.md).
+    All background operations now use **reconciliation loops** via Neuroglia `HostedService` pattern.
 
 ## Overview
 
-The background scheduling system provides:
+The Lablet Cloud Manager implements background task scheduling through **HostedService reconciliation loops** — a pattern inspired by Kubernetes controllers. Each background operation runs as a leader-elected hosted service that:
 
-- **Distributed Job Management**: Redis/MongoDB-backed persistence for jobs that survive application restarts
-- **Reactive Streams**: Integration with Neuroglia's reactive programming patterns
-- **Dependency Injection**: Automatic resolution of service dependencies for deserialized jobs
-- **Worker Monitoring**: Automated metrics collection and health monitoring for CML Workers
+- Watches etcd for state changes (reactive)
+- Periodically polls the Control Plane API (fallback)
+- Reconciles desired state vs. actual state
+- Reports results back via the Control Plane API
 
 ## Architecture
 
 ```mermaid
-graph TB
+graph TD
     subgraph "Application Startup"
-        A[main.py] --> B[BackgroundTaskScheduler.configure]
-        B --> C[Scan for @backgroundjob classes]
-        C --> D[Register as HostedService]
+        A[WebApplicationBuilder] --> B[Register HostedServices]
+        B --> C[build_app_with_lifespan]
+        C --> D[Auto-start all HostedServices]
     end
 
-    subgraph "Job Scheduling"
-        E[WorkerMonitoringScheduler] --> F[BackgroundTasksBus]
-        F --> G[BackgroundTaskScheduler]
-        G --> H{Job Type}
-        H -->|Scheduled| I[One-time execution]
-        H -->|Recurrent| J[Periodic execution]
+    subgraph "HostedService Lifecycle"
+        D --> E{Leader Election}
+        E -->|Won| F[Run Reconciliation Loop]
+        E -->|Lost| G[Watch for Leader Failure]
+        G -->|Leader Failed| E
     end
 
-    subgraph "Job Persistence"
-        G --> K[(Redis/MongoDB)]
-        K --> L[Job Recovery on Restart]
-    end
-
-    subgraph "Job Execution"
-        I --> M[run_at method]
-        J --> N[run_every method]
-        M --> O[Dependency Injection]
-        N --> O
+    subgraph "Reconciliation Loop"
+        F --> H[list_resources / on_watch_event]
+        H --> I[reconcile per resource]
+        I --> J{Result}
+        J -->|SUCCESS| K[Done]
+        J -->|REQUEUE| H
+        J -->|FAILED| L[Log + Retry]
     end
 ```
 
-## Key Components
+## HostedService Hierarchy
 
-### BackgroundTaskScheduler
+All background services extend from `lcm-core` base classes:
 
-The core scheduler service that manages job lifecycle:
+```
+HostedService (Neuroglia)
+└── ReconciliationHostedService[T] (lcm-core)
+    ├── LeaderElectedHostedService[T] (lcm-core)
+    │   ├── CleanupHostedService (resource-scheduler)
+    │   ├── LabRecordReconciler (lablet-controller)
+    │   └── ContentSyncService (lablet-controller)
+    └── WatchTriggeredHostedService[T] (lcm-core)
+        ├── SchedulerHostedService (resource-scheduler)
+        ├── LabletReconciler (lablet-controller)
+        └── WorkerReconciler (worker-controller)
+```
+
+### Base Class Features
+
+| Base Class | Features |
+|-----------|----------|
+| `ReconciliationHostedService[T]` | Polling loop, per-resource `reconcile()`, metrics, stats |
+| `LeaderElectedHostedService[T]` | + etcd leader election, only leader runs loop |
+| `WatchTriggeredHostedService[T]` | + etcd watch for reactive triggering, debounce, dual-mode |
+
+## Service Inventory
+
+### Resource Scheduler
+
+| Service | Base Class | Purpose | Interval |
+|---------|-----------|---------|----------|
+| `SchedulerHostedService` | `WatchTriggeredHostedService` | Schedule PENDING sessions to workers | 30s poll + watch |
+| `CleanupHostedService` | `LeaderElectedHostedService` | Remove terminated worker records | 3600s (1 hour) |
+
+### Worker Controller
+
+| Service | Base Class | Purpose | Interval |
+|---------|-----------|---------|----------|
+| `WorkerReconciler` | `WatchTriggeredHostedService` | Reconcile CML workers vs EC2 | 60s poll + watch |
+
+### Lablet Controller
+
+| Service | Base Class | Purpose | Interval |
+|---------|-----------|---------|----------|
+| `LabletReconciler` | `WatchTriggeredHostedService` | Reconcile session lifecycle (pipeline execution) | 30s poll + watch |
+| `LabRecordReconciler` | `LeaderElectedHostedService` | Sync lab records from CML | 1800s (30 min) |
+| `ContentSyncService` | `LeaderElectedHostedService` | Sync content packages from upstream sources | On-demand |
+
+## Configuration Pattern
+
+Each hosted service is registered in `main.py` via a `configure()` static method:
 
 ```python
-from application.services import BackgroundTaskScheduler
+# In main.py::create_app()
+SchedulerHostedService.configure(builder.services, settings)
 
-# Configured automatically during application startup
-BackgroundTaskScheduler.configure(
-    builder,
-    modules=["application.services"]  # Scans for @backgroundjob classes
+# Register as HostedService for automatic lifecycle management
+def scheduler_factory(sp) -> HostedService:
+    return sp.get_required_service(SchedulerHostedService)
+
+builder.services.add_singleton(HostedService, implementation_factory=scheduler_factory)
+```
+
+### ReconciliationConfig
+
+```python
+ReconciliationConfig(
+    interval_seconds=30,           # Polling interval
+    initial_delay_seconds=5.0,     # Delay before first poll
+    polling_enabled=True,          # Enable/disable polling mode
+    max_concurrent_reconciles=10,  # Parallel reconciliation limit
+    service_name="resource-scheduler",
 )
 ```
 
-**Features**:
-
-- Automatic job discovery via `@backgroundjob` decorator
-- Redis or MongoDB job store for persistence
-- Graceful startup and shutdown
-- Service provider integration for dependency injection
-
-### BackgroundTasksBus
-
-Message bus for scheduling tasks:
+### LeaderElectionConfig
 
 ```python
-from application.services import BackgroundTasksBus, RecurrentTaskDescriptor
-
-# Schedule a recurrent job
-task_descriptor = RecurrentTaskDescriptor(
-    id="unique-job-id",
-    name="WorkerMetricsCollectionJob",
-    data={"worker_id": "worker-123"},
-    interval=300  # seconds
+LeaderElectionConfig(
+    etcd_endpoints=["localhost:2379"],
+    lease_ttl_seconds=15,
+    service_name="resource-scheduler",
 )
-
-background_task_bus.schedule_task(task_descriptor)
 ```
 
-### Job Types
-
-#### Recurrent Background Job
-
-For periodic execution:
+### WatchConfig
 
 ```python
-from application.services import RecurrentBackgroundJob, backgroundjob
-
-@backgroundjob(task_type="recurrent")
-class MyPeriodicJob(RecurrentBackgroundJob):
-    def __init__(self, resource_id: str):
-        self.resource_id = resource_id
-
-    def configure(self, service_provider=None, **kwargs):
-        """Called after deserialization to inject dependencies"""
-        if service_provider:
-            self.repository = service_provider.get_required_service(MyRepository)
-
-    async def run_every(self, *args, **kwargs):
-        """Executed at each interval"""
-        # Job logic here
-        pass
-```
-
-#### Scheduled Background Job
-
-For one-time execution:
-
-```python
-from application.services import ScheduledBackgroundJob, backgroundjob
-
-@backgroundjob(task_type="scheduled")
-class MyScheduledJob(ScheduledBackgroundJob):
-    async def run_at(self, *args, **kwargs):
-        """Executed at scheduled time"""
-        # Job logic here
-        pass
-```
-
-## Configuration
-
-### Application Settings
-
-```python
-# src/application/settings.py
-
-class Settings(ApplicationSettings):
-    # Background Job Store Configuration
-    background_job_store: dict[str, Any] = {
-        # Redis configuration (recommended for production)
-        "redis_host": "redis",
-        "redis_port": 6379,
-        "redis_db": 1,  # Separate from session storage (DB 0)
-
-        # Alternative: MongoDB configuration
-        # "mongo_uri": "mongodb://root:pass@mongodb:27017/?authSource=admin",  # pragma: allowlist secret
-        # "mongo_db": "lablet_cloud_manager",
-        # "mongo_collection": "background_jobs",
-    }
-```
-
-### Dependencies
-
-APScheduler with Redis support:
-
-```toml
-[tool.poetry.dependencies]
-apscheduler = "^3.11.1"
-redis = ">=7.0.1,<8.0.0"
-```
-
-## Job Serialization Pattern
-
-The system uses a serialization pattern that stores only minimal data, with dependencies re-injected on deserialization:
-
-1. **Serialization**: Only business data is stored (IDs, configuration)
-2. **Deserialization**: Service provider re-injects dependencies via `configure()` method
-3. **Execution**: Job runs with full dependencies available
-
-**Example**:
-
-```python
-# When scheduling
-task_descriptor = RecurrentTaskDescriptor(
-    id="job-123",
-    name="WorkerMetricsCollectionJob",
-    data={"worker_id": "worker-456"},  # Only ID serialized
-    interval=300
+WatchConfig(
+    enabled=True,
+    prefix="/sessions/",    # etcd key prefix to watch
+    debounce_seconds=0.5,   # Debounce rapid events
 )
-
-# On deserialization
-task = deserialize_task(task_type, task_descriptor)
-task.configure(service_provider=service_provider)  # Dependencies injected
 ```
 
-## Worker Monitoring Use Case
+## ReconciliationResult
 
-The background scheduling system is used to implement worker monitoring:
+Each `reconcile()` call returns a structured result:
 
 ```python
-# WorkerMonitoringScheduler starts monitoring jobs
-await scheduler.start_monitoring_worker_async(worker_id)
+class ReconciliationResult:
+    status: ReconciliationStatus  # SUCCESS, REQUEUE, FAILED
+    message: str
+    exception: Exception | None
+    after_seconds: float | None   # Delay before requeue
 
-# Creates and schedules WorkerMetricsCollectionJob
-job = WorkerMetricsCollectionJob(
-    worker_id=worker_id,
-    # Dependencies injected via configure()
-)
+    @staticmethod
+    def success(message: str) -> ReconciliationResult: ...
 
-# Job runs every 5 minutes (default)
-# - Polls AWS EC2 for instance status
-# - Collects CloudWatch metrics
-# - Updates worker state
-# - Emits events to observers
+    @staticmethod
+    def requeue(message: str, after_seconds: float = None) -> ReconciliationResult: ...
+
+    @staticmethod
+    def failed(message: str, exception: Exception = None) -> ReconciliationResult: ...
 ```
 
 ## Lifecycle Management
 
 ### Startup
 
-1. `BackgroundTaskScheduler.configure()` scans for `@backgroundjob` classes
-2. Scheduler registered as `HostedService` (auto-starts)
-3. Jobs persisted in Redis/MongoDB are restored
-4. Worker monitoring discovers active workers and schedules jobs
+1. `WebApplicationBuilder` registers hosted services as singletons
+2. `build_app_with_lifespan()` creates ASGI lifespan that starts all `HostedService` instances
+3. Each service campaigns for leadership via etcd
+4. Leader starts reconciliation loop; standbys watch for leader failure
 
 ### Shutdown
 
-1. `HostedService` shutdown hook triggered
-2. Scheduler gracefully stops (waits for running jobs)
-3. Job state persisted to Redis/MongoDB
-4. Clean shutdown completed
+1. ASGI lifespan shutdown signal received
+2. Each `HostedService.stop_async()` called
+3. Running reconciliations complete gracefully
+4. etcd leases revoked (leadership released)
+5. Clean shutdown completed
 
-### Job Recovery
+### Failover
 
-Jobs automatically resume after application restart:
+1. Leader's etcd lease expires (TTL, typically 15s)
+2. Standbys receive watch notification (key deleted)
+3. First standby to campaign wins leadership
+4. New leader starts reconciliation loop
+5. Failover time: ~TTL/3 to TTL seconds
 
-1. Scheduler starts and connects to Redis/MongoDB
-2. Previously scheduled jobs are restored
-3. Missed executions handled according to `misfire_grace_time`
-4. Normal execution resumes
+## Observability
 
-## Error Handling
+Each hosted service inherits metrics from the base classes:
 
-### Job Failures
+| Metric | Description |
+|--------|-------------|
+| Reconciliation count | Total `reconcile()` calls |
+| Success/failure counts | Per-resource outcomes |
+| Reconciliation duration | Time spent in `reconcile()` |
+| Leader status | Is this instance the leader? |
+| Watch events processed | etcd watch events handled |
 
-Jobs that raise exceptions are logged but don't stop the scheduler:
+Services add custom metrics via `infrastructure/observability/` (OpenTelemetry).
 
-```python
-async def run_every(self, *args, **kwargs):
-    try:
-        # Job logic
-        pass
-    except Exception as e:
-        logger.error(f"Job failed: {e}")
-        raise  # APScheduler handles retry logic
-```
+## Migration from APScheduler (Historical)
 
-### Worker Termination
+Per [ADR-011](./adr/ADR-011-apscheduler-removal.md), the original APScheduler-based system was replaced:
 
-Jobs check for worker state and terminate gracefully:
+| Original (APScheduler) | Current (HostedService) |
+|------------------------|------------------------|
+| `AutoImportWorkersJob` | `WorkerReconciler._run_discovery_loop()` |
+| `WorkerMetricsCollectionJob` | `WorkerReconciler._collect_and_report_metrics()` |
+| `ActivityDetectionJob` | `WorkerReconciler._detect_activity()` |
+| `LabsRefreshJob` | `LabRecordReconciler` |
+| `LicenseRegistrationJob` | `RegisterWorkerLicenseCommand` (on-demand) |
+| `OnDemandWorkerDataRefreshJob` | `RefreshWorkerDataCommand` (on-demand) |
 
-```python
-async def run_every(self, *args, **kwargs):
-    worker = await self.worker_repository.get_by_id_async(self.worker_id)
+### Benefits of Migration
 
-    if not worker or worker.state.status == CMLWorkerStatus.TERMINATED:
-        raise Exception(f"Worker terminated - stopping job")
-```
+- **Single paradigm**: All continuous operations use reconciliation loops
+- **ADR-001 compliance**: Controllers never access repositories directly
+- **Simplified deployment**: No separate background worker process
+- **Better observability**: Consistent logging/tracing through reconcilers
 
-## Best Practices
+## Related Documentation
 
-1. **Minimal Serialization**: Store only IDs and configuration, not service instances
-2. **Dependency Injection**: Use `configure()` method for service resolution
-3. **Graceful Termination**: Check for resource existence before processing
-4. **Error Handling**: Let jobs fail cleanly to enable retry logic
-5. **Observability**: Use OpenTelemetry spans in job execution
-
-## Monitoring
-
-### Job Status
-
-Check scheduled jobs:
-
-```python
-jobs = background_task_scheduler.list_tasks()
-for job in jobs:
-    print(f"Job: {job.id}, Next run: {job.next_run_time}")
-```
-
-### Metrics
-
-The system emits OpenTelemetry metrics:
-
-- Job execution duration
-- Job success/failure counts
-- Active job count
-
-## Troubleshooting
-
-### Jobs Not Persisting
-
-Check Redis/MongoDB connection:
-
-```bash
-# Redis
-redis-cli ping
-
-# Check job keys
-redis-cli KEYS "apscheduler.*"
-```
-
-### Jobs Not Resuming After Restart
-
-1. Verify job store configuration in settings
-2. Check Redis/MongoDB connectivity
-3. Review scheduler startup logs
-
-### High Memory Usage
-
-Monitor job count and interval:
-
-```python
-# Adjust poll interval
-worker_metrics_poll_interval: int = 600  # 10 minutes instead of 5
-```
-
-## References
-
-- [APScheduler Documentation](https://apscheduler.readthedocs.io/)
-- [Neuroglia Background Tasks](https://bvandewe.github.io/pyneuro/features/background-task-scheduling/)
-- [Worker Monitoring Architecture](worker-monitoring.md)
+- [Resource Scheduler Architecture](./components/resource-scheduler/index.md)
+- [Worker Controller](./components/worker-controller/) — worker reconciliation
+- [Lablet Controller](./components/lablet-controller/) — session lifecycle reconciliation
+- [ADR-011: APScheduler Removal](./adr/ADR-011-apscheduler-removal.md)

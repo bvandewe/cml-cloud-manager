@@ -1,0 +1,89 @@
+// =============================================================================
+// ERROR PAGES COMPONENT
+// Error page and permission-related styling
+// =============================================================================
+
+// Insufficient Permissions Error Page
+#insufficient-permissions-section {
+    .badge-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: $spacing-2;
+    }
+
+    .card-header {
+        h4 {
+            margin: 0;
+        }
+    }
+
+    ul {
+        padding-left: $spacing-5;
+    }
+
+    .bi-exclamation-triangle-fill {
+        font-size: $font-size-lg;
+    }
+}
+
+// Dark theme adjustments for error page
+[data-bs-theme='dark'] {
+    #insufficient-permissions-section {
+        .card {
+            background-color: var(--color-bg-primary);
+            border-color: $color-warning;
+        }
+
+        .card-header {
+            background-color: darken($color-warning, 35%);
+            border-color: $color-warning;
+            color: var(--color-text-inverse);
+        }
+    }
+}
+
+// Generic error states
+.error-page {
+    @include flex-center;
+    flex-direction: column;
+    min-height: 50vh;
+    text-align: center;
+    padding: $spacing-8;
+
+    .error-icon {
+        font-size: 5rem;
+        color: $color-danger;
+        margin-bottom: $spacing-4;
+    }
+
+    .error-title {
+        font-size: $font-size-xxl;
+        font-weight: $font-weight-bold;
+        margin-bottom: $spacing-2;
+    }
+
+    .error-message {
+        font-size: $font-size-lg;
+        color: var(--color-text-secondary, $color-text-secondary);
+        max-width: 500px;
+        margin-bottom: $spacing-4;
+    }
+}
+
+// 404 Page
+.not-found-page {
+    .error-code {
+        font-size: 8rem;
+        font-weight: $font-weight-bold;
+        color: var(--color-text-muted, $color-text-muted);
+        line-height: 1;
+        margin-bottom: $spacing-4;
+    }
+}
+
+// Maintenance page
+.maintenance-page {
+    .error-icon {
+        color: $color-warning;
+    }
+}

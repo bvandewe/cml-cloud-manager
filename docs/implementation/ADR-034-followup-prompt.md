@@ -1,18 +1,25 @@
 # ADR-034 Implementation — Follow-Up Session Prompt
 
-> **Purpose:** Copy-paste this prompt to bootstrap a fresh AI agent session for implementing ADR-034 Phase 2 (PipelineExecutor).
+> **Purpose:** This file contained the Sprint A+B bootstrap prompt. Sprints A, B, and C are now complete.
 >
-> **Prerequisites completed:**
+> **Current sprint:** Sprint D — see `docs/implementation/ADR-034-sprint-d-prompt.md`
 >
-> - ADR-034 fully documented (726 lines)
-> - `pipelines: dict | None` added to CPA domain entity, event, DTO, seeder
-> - Two seed files have pipeline definitions
-> - Integration tests fixed (911 passing)
-> - Concurrency model decided (per-session asyncio.Lock)
+> **Completed sprints:**
+>
+> - **Sprint A** ✅ — Foundation (LabletDefinitionReadModel.pipelines, simpleeval)
+> - **Sprint B** ✅ — PipelineExecutor, PipelineContext, PipelineResult (58 tests)
+> - **Sprint C** ✅ — LifecyclePhaseHandler, reconciler integration, fire-and-check (126 total tests)
+> - **Sprint C bonus** ✅ — graphlib refactor (AD-PIPELINE-010)
 
 ---
 
-## The Prompt
+## Sprint D Prompt
+
+See [ADR-034-sprint-d-prompt.md](ADR-034-sprint-d-prompt.md) for the full Sprint D session prompt.
+
+---
+
+## Historical Sprint A+B Prompt (archived)
 
 ```
 I need to implement ADR-034 Sprint A + Sprint B for the Lablet Cloud Manager project.

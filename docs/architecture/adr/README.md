@@ -39,6 +39,8 @@ This directory contains Architecture Decision Records (ADRs) for the Lablet Clou
 | [ADR-031](./ADR-031-checkpoint-instantiation-pipeline.md) | Checkpoint-Based Instantiation Pipeline | Accepted | 2026-03-02 |
 | [ADR-032](./ADR-032-port-allocation-labrecord-topology.md) | Port Allocation as LabRecord Topology Concern | Accepted | 2026-03-02 |
 | [ADR-033](./ADR-033-cml-node-tag-sync.md) | CML Node Tag Sync with Allocated Ports | Accepted | 2026-03-02 |
+| [ADR-034](./ADR-034-pipeline-executor-lifecycle-handlers.md) | Pipeline Executor & Lifecycle Phase Handlers | Proposed | 2026-03-02 |
+| [ADR-035](./ADR-035-legacy-scheduler-service-removal.md) | Legacy SchedulerService Removal | Accepted | 2026-03-04 |
 
 ## Status Definitions
 

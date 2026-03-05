@@ -1,0 +1,36 @@
+# AWS Region Configuration for Worker Controller
+#
+# Per-region infrastructure settings for EC2 instance provisioning.
+# Worker-controller loads this at startup and uses it during provisioning
+# to resolve the correct VPC networking config per region.
+#
+# ADR-018: Infrastructure config comes from YAML files per region,
+# following the same pattern as control-plane-api's worker_templates.yaml.
+#
+# In Docker: mounted at /app/config/aws_regions.yaml
+# Locally: ./config/aws_regions.yaml (relative to worker-controller root)
+
+regions:
+    us-east-1:
+        # VPC Networking (default VPC — vpc-5fa2dd25)
+        security_group_ids:
+            - 'sg-0c509ac3094df5a77'
+        subnet_id: 'subnet-1f765943'
+        # SSH Key Pair (optional - for debug access)
+        key_name: 'cml_worker_key_pair'
+        # Default tags applied to all instances in this region
+        default_tags:
+            Environment: 'dev'
+            ApplicationName: 'CML-Cloud-Manager'
+            ManagedBy: 'lablet-cloud-manager'
+
+    # us-west-2:
+    #     # Placeholder — uncomment and configure when deploying to us-west-2
+    #     security_group_ids:
+    #         - 'sg-REPLACE_ME'
+    #     subnet_id: 'subnet-REPLACE_ME'
+    #     key_name: 'cml_worker_key_pair'
+    #     default_tags:
+    #         Environment: 'dev'
+    #         ApplicationName: 'CML-Cloud-Manager'
+    #         ManagedBy: 'lablet-cloud-manager'

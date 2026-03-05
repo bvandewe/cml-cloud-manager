@@ -1,0 +1,104 @@
+// =============================================================================
+// MAIN CONTENT AREA
+// Main content container and layout patterns
+// =============================================================================
+
+// Main layout wrapper
+.main-wrapper {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+// Dashboard layout
+.dashboard-content {
+    flex: 1;
+    padding: $spacing-4;
+    overflow-y: auto;
+    @include custom-scrollbar;
+}
+
+// Content section
+.content-section {
+    margin-bottom: $spacing-6;
+}
+
+// Page header
+.page-header {
+    margin-bottom: $spacing-6;
+
+    .page-title {
+        font-size: $font-size-xxl;
+        font-weight: $font-weight-bold;
+        margin-bottom: $spacing-2;
+        display: flex;
+        align-items: center;
+        gap: $spacing-3;
+
+        i {
+            color: var(--color-primary, $color-primary);
+        }
+    }
+
+    .page-subtitle {
+        color: var(--color-text-secondary, $color-text-secondary);
+        font-size: $font-size-lg;
+    }
+}
+
+// Section headers
+.section-header {
+    @include flex-between;
+    margin-bottom: $spacing-4;
+
+    .section-title {
+        font-size: $font-size-lg;
+        font-weight: $font-weight-semibold;
+        margin: 0;
+    }
+}
+
+// Content Panel
+.content-panel {
+    background-color: var(--color-bg-primary, $color-bg-primary);
+    border-radius: $border-radius-md;
+    box-shadow: var(--shadow-card, $shadow-card);
+    padding: $spacing-4;
+    margin-bottom: $spacing-4;
+}
+
+// Empty state
+.empty-state {
+    @include flex-center;
+    flex-direction: column;
+    padding: $spacing-12;
+    text-align: center;
+
+    .empty-icon,
+    i {
+        font-size: 4rem;
+        color: var(--color-text-muted, $color-text-muted);
+        margin-bottom: $spacing-4;
+    }
+
+    .empty-title,
+    h5 {
+        font-size: $font-size-lg;
+        font-weight: $font-weight-semibold;
+        color: var(--color-text-secondary, $color-text-secondary);
+        margin-bottom: $spacing-2;
+    }
+
+    .empty-description,
+    p {
+        color: var(--color-text-muted, $color-text-muted);
+        max-width: 400px;
+    }
+}
+
+// Loading state
+.loading-state {
+    @include flex-center;
+    padding: $spacing-8;
+    color: var(--color-text-secondary, $color-text-secondary);
+}

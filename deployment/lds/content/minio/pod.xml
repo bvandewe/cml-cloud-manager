@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<lab id='ALL'>
+  <templates id='LABLETS'>
+    <unit-template pattern='vmanage-mock' class='Unix' continue='1'>
+      <connector class='Telnet' timeout='5' username='cisco' password='cisco'
+        prompt='vmanage-mock:~$' />
+    </unit-template>
+  </templates>
+</lab>

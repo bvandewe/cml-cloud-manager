@@ -1,0 +1,203 @@
+# Lablet Definition: Exam CCNP Test v1.0 LAB 1.1
+# A multi-node enterprise lab WITHOUT LDS integration
+#
+# Lab Topology:
+#   [Router1] ── [Router2]
+#
+# This definition demonstrates:
+#   - No LDS (form_qualified_name is null) → lds_provision step skipped
+#   - No content sync → content_sync step skipped
+#   - Port template present → ports_alloc + tags_sync active
+#   - Custom pipeline with fewer active steps
+
+id: exam-ccnp-test-v1.0-lab-1.1-v1.0.0
+name: exam-ccnp-test-v1.0-lab-1.1
+version: '1.0.0'
+description: >-
+    A 2-node test network lab with dual routers, switches, a firewall,
+    and two Ubuntu servers. Tests routing, switching, and security skills.
+    No LDS integration — standalone lab with console-only access.
+
+# No LDS integration — this definition uses direct console access only
+form_qualified_name: 'Exam CCNP TEST v1 LAB 1.1'
+
+# Artifact references
+lab_yaml_hash: ''
+grading_rules_uri: null
+
+# Resource requirements (2 nodes)
+# - iosv ×2: ~1 vCPU, 512MB RAM each
+resource_requirements:
+    cpu_cores: 2
+    memory_gb: 2
+    storage_gb: 15
+    nested_virt: true
+    ami_requirements:
+        - cml_version_min: '2.7.0'
+          node_definitions_required:
+              - iosv
+
+# Lab metadata
+node_count: 2
+license_affinity:
+    - personal
+
+# Port template — serial consoles for all network devices + servers
+port_template:
+    ports:
+        - name: router1_serial
+          protocol: tcp
+          description: Serial console for Router1 (IOSv)
+        - name: router2_serial
+          protocol: tcp
+          description: Serial console for Router2 (IOSv)
+
+# Session configuration
+max_duration_minutes: 120 # 2 hours max session time
+warm_pool_depth: 0
+
+# Ownership and notifications
+owner_notification:
+    email: lab-admin@example.com
+    notify_on_start: true
+    notify_on_complete: true
+    notify_on_error: true
+
+created_by: seeder
+
+# ─────────────────────────────────────────────────────────────
+# Pipeline Definitions (AD-PIPELINE-002)
+#
+# Effective instantiate pipeline (after skip evaluation):
+#   lab_resolve → ports_alloc → tags_sync → lab_binding → lab_start → mark_ready
+#   (content_sync: skipped, variables: skipped, lds_provision: skipped)
+# ─────────────────────────────────────────────────────────────
+pipelines:
+    # ── INSTANTIATE ──────────────────────────────────────────
+    # Same pipeline structure as exam-associate, but skip_when
+    # conditions will prune LDS and content sync steps.
+    instantiate:
+        description: >-
+            Prepare the lab environment — import topology, allocate ports,
+            start lab. No LDS provisioning for this definition.
+        trigger: on_status:instantiating
+        max_retries: 3
+        retry_backoff: 30
+        steps:
+            - name: content_sync
+              handler: content_sync
+              description: Verify definition content is synced
+              skip_when: 'not $DEFINITION.form_qualified_name'
+              timeout_seconds: 120
+              retry:
+                  max_attempts: 3
+                  delay_seconds: 30
+
+            - name: variables
+              handler: variables
+              description: Resolve session variables from definition defaults
+              optional: true
+
+            - name: lab_resolve
+              handler: lab_resolve
+              description: Import or reuse a CML lab on the assigned worker
+              needs: [content_sync, variables]
+              timeout_seconds: 120
+              retry:
+                  max_attempts: 2
+                  delay_seconds: 10
+
+            - name: ports_alloc
+              handler: ports_alloc
+              description: Allocate real ports from worker pool
+              needs: [lab_resolve]
+              skip_when: 'not $DEFINITION.port_template'
+              timeout_seconds: 30
+
+            - name: tags_sync
+              handler: tags_sync
+              description: Write protocol:port tags to CML nodes
+              needs: [ports_alloc]
+              skip_when: 'not $DEFINITION.port_template'
+              timeout_seconds: 30
+
+            - name: lab_binding
+              handler: lab_binding
+              description: Bind LabRecord to session
+              needs: [lab_resolve, tags_sync]
+              timeout_seconds: 30
+
+            - name: lab_start
+              handler: lab_start
+              description: Start the CML lab and wait for BOOTED
+              needs: [lab_binding]
+              timeout_seconds: 300
+              retry:
+                  max_attempts: 5
+                  delay_seconds: 15
+
+            - name: lds_provision
+              handler: lds_provision
+              description: Create LDS session (skipped — no FQN)
+              needs: [lab_start]
+              skip_when: 'not $DEFINITION.form_qualified_name'
+              timeout_seconds: 60
+
+            - name: mark_ready
+              handler: mark_ready
+              description: Atomic transition to READY status
+              needs: [lab_start, lds_provision]
+              timeout_seconds: 10
+
+        outputs:
+            cml_lab_id: '$STEPS.lab_resolve.cml_lab_id'
+            lab_record_id: '$STEPS.lab_resolve.lab_record_id'
+
+    # ── COLLECT EVIDENCE ─────────────────────────────────────
+    # Without LDS, evidence collection focuses on device configs only.
+    collect_evidence:
+        description: >-
+            Capture device configurations from all network nodes.
+            No screenshots or pcaps for this lab type.
+        trigger: on_status:collecting
+        steps:
+            - name: capture_configs
+              handler: capture_configs
+              description: Export running-config from all managed devices
+              timeout_seconds: 180 # 7 nodes, longer timeout
+
+            - name: package_evidence
+              handler: package_evidence
+              description: Bundle configs into evidence package
+              needs: [capture_configs]
+              timeout_seconds: 30
+
+        outputs:
+            evidence_uri: '$STEPS.package_evidence.evidence_uri'
+
+    # ── TEARDOWN ─────────────────────────────────────────────
+    # Simpler teardown — no LDS deregistration needed.
+    teardown:
+        description: >-
+            Stop and wipe the lab, archive session.
+        trigger: on_status:stopping
+        steps:
+            - name: stop_lab
+              handler: stop_lab
+              description: Stop the CML lab
+              timeout_seconds: 120
+
+            - name: wipe_lab
+              handler: wipe_lab
+              description: Wipe lab state
+              needs: [stop_lab]
+              timeout_seconds: 120
+
+            - name: archive
+              handler: archive
+              description: Archive session record
+              needs: [wipe_lab]
+              timeout_seconds: 10
+
+        outputs:
+            archived_at: '$STEPS.archive.archived_at'

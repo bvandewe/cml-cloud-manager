@@ -1,5 +1,9 @@
 # TODO
 
+
+- [ ] Complete LifecyclePhase manager with PipelineExecutor and WorkflowExecutor (with synapse' serverless workflow syntax)
+- [ ]
+
 - [ ] Add use-cases to CPA:Sessions:
   - [ ] `Restart LabletSession` must terminate the current Session(s) (local, LDS, POD/Grading) and recreate a new one with timeslot starting (now(), unless future_timeslot selected). The original POD is probably still running, so just reassign it to the new session (`no Wipe`!)
   - [ ] `Reset POD and LabletSession` must wipe and restart the CML LabRecord in addition to `Restart LabletSession` (could be an option in confirmation dialog when `Restart Session`?)

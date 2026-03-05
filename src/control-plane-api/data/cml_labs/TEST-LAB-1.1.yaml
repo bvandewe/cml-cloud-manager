@@ -1,0 +1,241 @@
+nodes:
+    - boot_disk_size: null
+      configuration: []
+      cpu_limit: null
+      cpus: null
+      data_volume: null
+      hide_links: false
+      id: n0
+      image_definition: null
+      label: PC
+      node_definition: ubuntu-desktop-24-04-v2
+      parameters: {}
+      ram: null
+      tags:
+          - serial:4567
+          - vnc:4568
+      x: -400
+      y: 0
+      interfaces:
+          - id: i0
+            label: ens3
+            mac_address: null
+            type: physical
+            slot: 0
+          - id: i1
+            label: ens4
+            mac_address: null
+            type: physical
+            slot: 1
+          - id: i2
+            label: ens5
+            mac_address: null
+            type: physical
+            slot: 2
+          - id: i3
+            label: ens6
+            mac_address: null
+            type: physical
+            slot: 3
+    - boot_disk_size: null
+      configuration:
+          - name: ios_config.txt
+            content: |-
+                version 15.9
+                service timestamps debug datetime msec
+                service timestamps log datetime msec
+                no service password-encryption
+                !
+                hostname gateway
+                !
+                boot-start-marker
+                boot-end-marker
+                !
+                !
+                no logging console
+                !
+                no aaa new-model
+                !
+                !
+                !
+                mmi polling-interval 60
+                no mmi auto-configure
+                no mmi pvc
+                mmi snmp-timeout 180
+                !
+                !
+                !
+                !
+                !
+                !
+                !
+                !
+                ip dhcp excluded-address 192.168.0.254
+                ip dhcp excluded-address 192.168.10.254
+                !
+                ip dhcp pool LAN_POOL
+                 network 192.168.0.0 255.255.255.0
+                 default-router 192.168.0.254
+                 dns-server 192.168.255.1
+                !
+                ip dhcp pool SVC_POOL
+                 network 192.168.10.0 255.255.255.0
+                 default-router 192.168.10.254
+                 dns-server 192.168.255.1
+                !
+                ip cef
+                no ipv6 cef
+                !
+                multilink bundle-name authenticated
+                !
+                redundancy
+                !
+                interface GigabitEthernet0/0
+                 ip address 192.168.0.254 255.255.255.0
+                 duplex auto
+                 speed auto
+                 media-type rj45
+                !
+                interface GigabitEthernet0/1
+                 ip address 192.168.10.254 255.255.255.0
+                 duplex auto
+                 speed auto
+                 media-type rj45
+                !
+                interface GigabitEthernet0/2
+                 no ip address
+                 shutdown
+                 duplex auto
+                 speed auto
+                 media-type rj45
+                !
+                interface GigabitEthernet0/3
+                 no ip address
+                 shutdown
+                 duplex auto
+                 speed auto
+                 media-type rj45
+                !
+                ip forward-protocol nd
+                !
+                no ip http server
+                no ip http secure-server
+                !
+                ipv6 ioam timestamp
+                !
+                control-plane
+                !
+                line con 0
+                 exec-timeout 0 0
+                line aux 0
+                line vty 0 4
+                 exec-timeout 0 0
+                 login
+                 transport input none
+                !
+                no scheduler allocate
+                !
+                end
+      cpu_limit: null
+      cpus: null
+      data_volume: null
+      hide_links: false
+      id: n1
+      image_definition: null
+      label: iosv-0
+      node_definition: iosv
+      parameters: {}
+      ram: null
+      tags:
+          - serial:4566
+      x: -200
+      y: 0
+      interfaces:
+          - id: i0
+            label: Loopback0
+            mac_address: null
+            type: loopback
+          - id: i1
+            label: GigabitEthernet0/0
+            mac_address: null
+            type: physical
+            slot: 0
+          - id: i2
+            label: GigabitEthernet0/1
+            mac_address: null
+            type: physical
+            slot: 1
+          - id: i3
+            label: GigabitEthernet0/2
+            mac_address: null
+            type: physical
+            slot: 2
+          - id: i4
+            label: GigabitEthernet0/3
+            mac_address: null
+            type: physical
+            slot: 3
+    - boot_disk_size: null
+      configuration:
+          - name: node.cfg
+            content: |-
+                # this is a shell script which will be sourced at boot
+                sudo hostname vManageMockAPI
+
+                sudo tee /etc/network/interfaces > /dev/null <<EOF
+                auto lo
+                iface lo inet loopback
+
+                auto eth0
+                iface eth0 inet static
+                    address 192.168.10.1/24
+                    gateway 192.168.10.254
+                    dns-nameservers 192.168.255.1
+                EOF
+
+                # configurable user account
+                USERNAME=cisco
+                PASSWORD=cisco
+
+                # Start vManage Mock API service
+                sudo -u cisco /home/cisco/.local/bin/mockctl start vmanage >> /home/cisco/vmanage-mock.log 2>&1 &
+      cpu_limit: null
+      cpus: null
+      data_volume: null
+      hide_links: false
+      id: n2
+      image_definition: null
+      label: vManageMockAPI
+      node_definition: vmanagemock
+      parameters: {}
+      ram: null
+      tags:
+          - serial:4569
+      x: 0
+      y: 0
+      interfaces:
+          - id: i0
+            label: eth0
+            mac_address: null
+            type: physical
+            slot: 0
+links:
+    - id: l0
+      n1: n0
+      n2: n1
+      i1: i0
+      i2: i1
+      conditioning: {}
+      label: ubuntu-desktop-0-ens3<->iosv-0-GigabitEthernet0/0
+    - id: l1
+      n1: n1
+      n2: n2
+      i1: i2
+      i2: i0
+      conditioning: {}
+      label: iosv-0-GigabitEthernet0/1<->mock-0-eth0
+lab:
+    description: ''
+    notes: ''
+    title: Lab at Wed 19:40 PM
+    version: 0.3.0

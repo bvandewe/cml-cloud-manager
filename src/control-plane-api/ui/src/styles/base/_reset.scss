@@ -1,0 +1,128 @@
+// =============================================================================
+// RESET / NORMALIZE
+// Browser reset and baseline styles
+// =============================================================================
+
+// Box sizing reset
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+// Remove default margin and padding
+html,
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+ul,
+ol,
+figure,
+blockquote,
+dl,
+dd {
+    margin: 0;
+    padding: 0;
+}
+
+// Set core root defaults
+html {
+    scroll-behavior: smooth;
+    text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+// Set core body defaults
+// Note: We let Bootstrap handle body background-color via --bs-body-bg
+// which automatically responds to [data-bs-theme="dark"]
+body {
+    min-height: 100vh;
+    line-height: $line-height-normal;
+    font-family: $font-family-base;
+    color: var(--bs-body-color, var(--color-text-primary, $color-text-primary));
+    // Don't set background-color here - Bootstrap handles it via --bs-body-bg
+    // background-color: var(--color-bg-secondary, $color-bg-secondary);
+}
+
+// Remove list styles on ul, ol elements with a list role
+ul[role='list'],
+ol[role='list'] {
+    list-style: none;
+}
+
+// Links
+a {
+    color: $color-primary;
+    text-decoration: none;
+
+    &:hover {
+        text-decoration: underline;
+    }
+}
+
+// Images
+img,
+picture,
+video,
+canvas,
+svg {
+    display: block;
+    max-width: 100%;
+}
+
+// Inherit fonts for form elements
+input,
+button,
+textarea,
+select {
+    font: inherit;
+}
+
+// Remove all animations and transitions for reduced motion preference
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+// Focus visible for accessibility
+:focus-visible {
+    outline: 2px solid $color-primary;
+    outline-offset: 2px;
+}
+
+// Remove outline for non-keyboard focus
+:focus:not(:focus-visible) {
+    outline: none;
+}
+
+// Table reset
+table {
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+
+// Button reset
+button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+}
+
+// Text selection
+::selection {
+    background-color: rgba($color-primary, 0.2);
+    color: $color-text-primary;
+}

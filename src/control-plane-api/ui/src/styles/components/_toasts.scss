@@ -1,0 +1,128 @@
+// =============================================================================
+// TOASTS COMPONENT
+// Toast notifications and alerts
+// =============================================================================
+
+// Toast container positioning
+.toast-container {
+    z-index: z('toast');
+}
+
+// Toast base
+.toast {
+    border-radius: $border-radius-md;
+    box-shadow: var(--shadow-lg, $shadow-lg);
+    min-width: 300px;
+    max-width: 400px;
+    border: none;
+
+    .toast-header {
+        border-radius: $border-radius-md $border-radius-md 0 0;
+        font-weight: $font-weight-semibold;
+        padding: $spacing-3 $spacing-4;
+        border-bottom: 1px solid var(--color-border, $color-border);
+
+        .btn-close-white {
+            filter: brightness(0) invert(1);
+        }
+
+        strong {
+            display: flex;
+            align-items: center;
+            gap: $spacing-2;
+
+            i {
+                font-size: $font-size-lg;
+            }
+        }
+    }
+
+    .toast-body {
+        padding: $spacing-3 $spacing-4;
+        font-size: $font-size-sm;
+    }
+}
+
+// Toast variants
+.toast-success {
+    .toast-header {
+        background-color: $color-success;
+        color: $color-text-inverse;
+    }
+}
+
+.toast-danger,
+.toast-error {
+    .toast-header {
+        background-color: $color-danger;
+        color: $color-text-inverse;
+    }
+}
+
+.toast-warning {
+    .toast-header {
+        background-color: $color-warning;
+        color: $color-text-primary;
+    }
+}
+
+.toast-info {
+    .toast-header {
+        background-color: $color-info;
+        color: $color-text-primary;
+    }
+}
+
+// Inline alerts
+.alert {
+    border-radius: $border-radius-md;
+    padding: $spacing-3 $spacing-4;
+    border: none;
+    display: flex;
+    align-items: flex-start;
+    gap: $spacing-3;
+
+    .alert-icon {
+        font-size: $font-size-xl;
+        flex-shrink: 0;
+    }
+
+    .alert-content {
+        flex: 1;
+
+        .alert-title {
+            font-weight: $font-weight-semibold;
+            margin-bottom: $spacing-1;
+        }
+
+        .alert-message {
+            font-size: $font-size-sm;
+            opacity: 0.9;
+        }
+    }
+
+    .btn-close {
+        padding: $spacing-2;
+    }
+}
+
+// Alert variants with subtle backgrounds
+.alert-success {
+    background-color: rgba($color-success, 0.1);
+    color: darken($color-success, 10%);
+}
+
+.alert-danger {
+    background-color: rgba($color-danger, 0.1);
+    color: darken($color-danger, 10%);
+}
+
+.alert-warning {
+    background-color: rgba($color-warning, 0.15);
+    color: darken($color-warning, 25%);
+}
+
+.alert-info {
+    background-color: rgba($color-info, 0.1);
+    color: darken($color-info, 15%);
+}

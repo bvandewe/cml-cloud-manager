@@ -1,0 +1,24 @@
+# LDS Deployment Configuration - Docker Environment
+#
+# Used when lablet-controller runs inside Docker Compose.
+# LDS backend is reachable at lds-backend:4000 (internal Docker network).
+#
+# Mount via docker-compose.shared.yml:
+#   LDS_DEPLOYMENTS_CONFIG_PATH=/app/config/lds_deployments.docker.yaml
+
+deployments:
+    us-east-1:
+        base_url: 'http://lds-backend:4000'
+        username: 'testuser1'
+        password: 'testpass1'
+        timeout_seconds: 30
+        label: 'LDS US East (Primary - Docker)'
+
+    us-west-2:
+        base_url: 'http://lds-backend:4000'
+        username: 'testuser1'
+        password: 'testpass1'
+        timeout_seconds: 30
+        label: 'LDS US West (Docker)'
+
+default_region: 'us-east-1'

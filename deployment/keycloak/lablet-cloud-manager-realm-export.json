@@ -1,0 +1,396 @@
+{
+    "realm": "lablet-cloud-manager",
+    "displayName": "Lablet Cloud Manager",
+    "enabled": true,
+    "sslRequired": "none",
+    "registrationAllowed": true,
+    "loginWithEmailAllowed": true,
+    "duplicateEmailsAllowed": false,
+    "resetPasswordAllowed": true,
+    "editUsernameAllowed": false,
+    "bruteForceProtected": false,
+    "rememberMe": true,
+    "verifyEmail": false,
+    "loginTheme": "keycloak",
+    "adminTheme": "keycloak",
+    "emailTheme": "keycloak",
+    "accessTokenLifespan": 1500,
+    "ssoSessionIdleTimeout": 1800,
+    "ssoSessionMaxLifespan": 36000,
+    "offlineSessionIdleTimeout": 2592000,
+    "offlineSessionMaxLifespanEnabled": false,
+    "offlineSessionMaxLifespan": 5184000,
+    "internationalizationEnabled": true,
+    "roles": {
+        "realm": [
+            {
+                "name": "admin",
+                "description": "Administrator role with full access to all applications"
+            },
+            {
+                "name": "architect",
+                "description": "Architect role with design and configuration privileges"
+            },
+            {
+                "name": "manager",
+                "description": "Manager role with elevated privileges"
+            },
+            {
+                "name": "vendor",
+                "description": "Vendor role with access to vendor-specific features"
+            },
+            {
+                "name": "developer",
+                "description": "Developer role with access to development tools"
+            },
+            {
+                "name": "user",
+                "description": "Standard user role for general application access"
+            }
+        ]
+    },
+    "groups": [
+        {
+            "name": "Admins",
+            "path": "/Admins",
+            "realmRoles": ["admin", "manager"]
+        },
+        {
+            "name": "Managers",
+            "path": "/Managers",
+            "realmRoles": ["manager"]
+        },
+        {
+            "name": "Architects",
+            "path": "/Architects",
+            "realmRoles": ["architect"]
+        },
+        {
+            "name": "Vendors",
+            "path": "/Vendors",
+            "realmRoles": ["vendor"]
+        },
+        {
+            "name": "Developers",
+            "path": "/Developers",
+            "realmRoles": ["developer"]
+        },
+        {
+            "name": "Users",
+            "path": "/Users",
+            "realmRoles": ["user"]
+        }
+    ],
+    "users": [
+        {
+            "username": "admin",
+            "email": "admin@system.io",
+            "firstName": "System",
+            "lastName": "Administrator",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "test",
+                    "temporary": false
+                }
+            ],
+            "groups": ["/Admins"]
+        },
+        {
+            "username": "manager",
+            "email": "manager@system.io",
+            "firstName": "System",
+            "lastName": "Manager",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "test",
+                    "temporary": false
+                }
+            ],
+            "groups": ["/Managers"]
+        },
+        {
+            "username": "architect",
+            "email": "architect@system.io",
+            "firstName": "System",
+            "lastName": "Architect",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "test",
+                    "temporary": false
+                }
+            ],
+            "groups": ["/Architects"]
+        },
+        {
+            "username": "vendor",
+            "email": "vendor@system.io",
+            "firstName": "System",
+            "lastName": "Vendor",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "test",
+                    "temporary": false
+                }
+            ],
+            "groups": ["/Vendors"]
+        },
+        {
+            "username": "developer",
+            "email": "developer@system.io",
+            "firstName": "System",
+            "lastName": "Developer",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "test",
+                    "temporary": false
+                }
+            ],
+            "groups": ["/Developers"]
+        },
+        {
+            "username": "user",
+            "email": "user@system.io",
+            "firstName": "User",
+            "lastName": "Doe",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "test",
+                    "temporary": false
+                }
+            ],
+            "groups": ["/Users"]
+        },
+        {
+            "username": "guest",
+            "email": "guest@system.io",
+            "firstName": "Guest",
+            "lastName": "User",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [
+                {
+                    "type": "password",
+                    "value": "test",
+                    "temporary": false
+                }
+            ]
+        }
+    ],
+    "clients": [
+        {
+            "clientId": "lablet-cloud-manager-backend",
+            "name": "Lablet Cloud Manager Backend (Confidential)",
+            "description": "Confidential backend client for secure token exchange",
+            "enabled": true,
+            "publicClient": false,
+            "secret": "lablet-cloud-manager-backend-secret-change-in-production",
+            "protocol": "openid-connect",
+            "redirectUris": ["https://www.system.io/*", "http://localhost:8030/*", "http://localhost:8034/*", "http://localhost:1234/*", "http://localhost:8030/api/docs/oauth2-redirect"],
+            "webOrigins": ["https://www.system.io", "http://localhost:8030", "http://localhost:8034", "http://localhost:1234"],
+            "standardFlowEnabled": true,
+            "directAccessGrantsEnabled": true,
+            "serviceAccountsEnabled": false,
+            "fullScopeAllowed": true,
+            "protocolMappers": [
+                {
+                    "name": "realm-roles",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-realm-role-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "multivalued": "true",
+                        "userinfo.token.claim": "true",
+                        "id.token.claim": "true",
+                        "access.token.claim": "true",
+                        "claim.name": "roles",
+                        "jsonType.label": "String"
+                    }
+                },
+                {
+                    "name": "username",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-property-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "userinfo.token.claim": "true",
+                        "user.attribute": "username",
+                        "id.token.claim": "true",
+                        "access.token.claim": "true",
+                        "claim.name": "preferred_username",
+                        "jsonType.label": "String"
+                    }
+                },
+                {
+                    "name": "email",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-property-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "userinfo.token.claim": "true",
+                        "user.attribute": "email",
+                        "id.token.claim": "true",
+                        "access.token.claim": "true",
+                        "claim.name": "email",
+                        "jsonType.label": "String"
+                    }
+                },
+                {
+                    "name": "full-name",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-full-name-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "userinfo.token.claim": "true",
+                        "id.token.claim": "true",
+                        "access.token.claim": "true"
+                    }
+                },
+                {
+                    "name": "audience-mapper",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-audience-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "included.client.audience": "lablet-cloud-manager",
+                        "id.token.claim": "false",
+                        "access.token.claim": "true"
+                    }
+                }
+            ]
+        },
+        {
+            "clientId": "partner-app",
+            "name": "Partner Application",
+            "enabled": true,
+            "publicClient": false,
+            "secret": "partner-app-123",
+            "redirectUris": ["http://localhost:8030/*", "http://localhost:8034/*", "http://localhost:1234/*"],
+            "webOrigins": ["http://localhost:8030", "http://localhost:8034", "http://localhost:1234"],
+            "standardFlowEnabled": true,
+            "directAccessGrantsEnabled": true,
+            "serviceAccountsEnabled": true,
+            "protocolMappers": [
+                {
+                    "name": "audience-mapper",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-audience-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "included.client.audience": "lablet-cloud-manager",
+                        "id.token.claim": "false",
+                        "access.token.claim": "true"
+                    }
+                }
+            ]
+        },
+        {
+            "clientId": "lablet-cloud-manager-public",
+            "name": "Lablet Cloud Manager Portal",
+            "enabled": true,
+            "publicClient": true,
+            "protocol": "openid-connect",
+            "redirectUris": ["https://admin.ciscolablets.com/*", "https://www.system.io/*", "http://localhost:8030/*", "http://localhost:8034/*", "http://localhost:1234/*", "http://localhost/*", "http://localhost:80/*"],
+            "webOrigins": ["https://admin.ciscolablets.com", "https://www.system.io", "http://localhost:8030", "http://localhost:8034", "http://localhost:1234", "http://localhost", "http://localhost:80"],
+            "standardFlowEnabled": true,
+            "implicitFlowEnabled": false,
+            "directAccessGrantsEnabled": true,
+            "fullScopeAllowed": true,
+            "protocolMappers": [
+                {
+                    "name": "audience-mapper",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-audience-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "included.client.audience": "lablet-cloud-manager",
+                        "id.token.claim": "false",
+                        "access.token.claim": "true"
+                    }
+                },
+                {
+                    "name": "audience-mapper-events-player",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-audience-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "included.client.audience": "events-player-web",
+                        "id.token.claim": "false",
+                        "access.token.claim": "true"
+                    }
+                },
+                {
+                    "name": "realm-roles",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-realm-role-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "multivalued": "true",
+                        "userinfo.token.claim": "true",
+                        "id.token.claim": "true",
+                        "access.token.claim": "true",
+                        "claim.name": "roles",
+                        "jsonType.label": "String"
+                    }
+                }
+            ]
+        },
+        {
+            "clientId": "grafana",
+            "name": "Grafana",
+            "enabled": true,
+            "publicClient": false,
+            "secret": "grafana-client-secret-123",
+            "redirectUris": ["https://www.system.io/grafana/login/generic_oauth"],
+            "webOrigins": ["https://www.system.io"],
+            "standardFlowEnabled": true,
+            "directAccessGrantsEnabled": true,
+            "serviceAccountsEnabled": true,
+            "protocolMappers": [
+                {
+                    "name": "audience-mapper",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-audience-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "included.client.audience": "grafana",
+                        "id.token.claim": "false",
+                        "access.token.claim": "true"
+                    }
+                },
+                {
+                    "name": "realm roles",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-realm-role-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "user.attribute": "roles",
+                        "claim.name": "roles",
+                        "jsonType.label": "String",
+                        "id.token.claim": "true",
+                        "access.token.claim": "true",
+                        "userinfo.token.claim": "true",
+                        "multivalued": "true"
+                    }
+                }
+            ]
+        }
+    ]
+}

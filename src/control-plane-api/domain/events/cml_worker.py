@@ -3,10 +3,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from domain.enums import CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 from neuroglia.data.abstractions import DomainEvent
 from neuroglia.eventing.cloud_events.decorators import cloudevent
-
-from domain.enums import CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 
 
 @cloudevent("cml_worker.created.v1")
@@ -859,3 +858,45 @@ class LabletSessionRemovedDomainEvent(DomainEvent):
         self.released_storage_gb = released_storage_gb
         self.released_nodes = released_nodes
         self.removed_at = removed_at
+
+
+@cloudevent("cml_worker.capacity.recalculated.v1")
+@dataclass
+class AllocatedCapacityRecalculatedDomainEvent(DomainEvent):
+    """Event raised when a worker's allocated capacity is recalculated.
+
+    Used as a repair mechanism when allocated_capacity has drifted due to
+    bugs in session lifecycle handlers (e.g., expired/terminated sessions
+    that failed to release capacity). Directly replaces allocated_capacity
+    and session_ids with recomputed values.
+    """
+
+    aggregate_id: str
+    recalculated_cpu_cores: int
+    recalculated_memory_gb: int
+    recalculated_storage_gb: int
+    recalculated_max_nodes: int | None
+    active_session_ids: list[str]
+    stale_session_ids: list[str]
+    recalculated_at: datetime
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        recalculated_cpu_cores: int,
+        recalculated_memory_gb: int,
+        recalculated_storage_gb: int,
+        recalculated_max_nodes: int | None,
+        active_session_ids: list[str],
+        stale_session_ids: list[str],
+        recalculated_at: datetime,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.recalculated_cpu_cores = recalculated_cpu_cores
+        self.recalculated_memory_gb = recalculated_memory_gb
+        self.recalculated_storage_gb = recalculated_storage_gb
+        self.recalculated_max_nodes = recalculated_max_nodes
+        self.active_session_ids = active_session_ids
+        self.stale_session_ids = stale_session_ids
+        self.recalculated_at = recalculated_at

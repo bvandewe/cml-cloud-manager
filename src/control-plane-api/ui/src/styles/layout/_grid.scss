@@ -1,0 +1,137 @@
+// =============================================================================
+// GRID & LAYOUT UTILITIES
+// Flexbox layouts and container patterns
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// App Layout Structure
+// -----------------------------------------------------------------------------
+
+// App Container - root layout wrapper
+.app-container {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+// Main Content Area
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-bg-secondary, $color-bg-secondary);
+}
+
+// -----------------------------------------------------------------------------
+// Flex Utilities
+// -----------------------------------------------------------------------------
+.flex {
+    display: flex;
+}
+
+.flex-column {
+    flex-direction: column;
+}
+
+.flex-wrap {
+    flex-wrap: wrap;
+}
+
+.flex-center {
+    @include flex-center;
+}
+
+.flex-between {
+    @include flex-between;
+}
+
+.flex-1 {
+    flex: 1;
+}
+
+.flex-grow {
+    flex-grow: 1;
+}
+
+.flex-shrink-0 {
+    flex-shrink: 0;
+}
+
+// -----------------------------------------------------------------------------
+// Gap Utilities
+// -----------------------------------------------------------------------------
+.gap-1 {
+    gap: $spacing-1;
+}
+.gap-2 {
+    gap: $spacing-2;
+}
+.gap-3 {
+    gap: $spacing-3;
+}
+.gap-4 {
+    gap: $spacing-4;
+}
+.gap-5 {
+    gap: $spacing-5;
+}
+.gap-6 {
+    gap: $spacing-6;
+}
+
+// -----------------------------------------------------------------------------
+// Container Variants
+// -----------------------------------------------------------------------------
+.container-narrow {
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.container-wide {
+    max-width: 1400px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+// -----------------------------------------------------------------------------
+// Responsive Grid
+// -----------------------------------------------------------------------------
+.grid {
+    display: grid;
+    gap: $spacing-4;
+}
+
+.grid-cols-1 {
+    grid-template-columns: repeat(1, 1fr);
+}
+.grid-cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+.grid-cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+}
+.grid-cols-4 {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+@include respond-to('md') {
+    .md\:grid-cols-2 {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .md\:grid-cols-3 {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    .md\:grid-cols-4 {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+@include respond-to('lg') {
+    .lg\:grid-cols-3 {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    .lg\:grid-cols-4 {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}

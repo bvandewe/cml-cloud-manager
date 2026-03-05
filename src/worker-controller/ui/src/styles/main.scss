@@ -1,0 +1,73 @@
+// Bootstrap and custom styles for Worker Controller UI
+
+// Bootstrap imports
+@import 'bootstrap/scss/bootstrap';
+
+// Theme variables
+:root {
+    --theme-primary: #f39c12;
+    --theme-primary-dark: #e67e22;
+    --theme-gradient: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+}
+
+// Custom styles
+body {
+    background-color: #f5f5f5;
+    min-height: 100vh;
+}
+
+.navbar {
+    background: var(--theme-gradient) !important;
+}
+
+.navbar-brand {
+    font-weight: 600;
+}
+
+.version-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.nav-tabs .nav-link {
+    color: #495057;
+    font-weight: 500;
+    border: none;
+    padding: 0.75rem 1.25rem;
+    transition: all 0.2s ease;
+}
+
+.nav-tabs .nav-link:hover {
+    color: var(--theme-primary);
+    border-color: transparent;
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--theme-primary);
+    background-color: transparent;
+    border-bottom: 3px solid var(--theme-primary);
+}
+
+.tab-content {
+    padding-top: 1.5rem;
+}
+
+.content-section {
+    margin-bottom: 1.5rem;
+}
+
+.section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #212529;
+    margin-bottom: 1rem;
+}
+
+// Status grid for health and ready cards
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+}

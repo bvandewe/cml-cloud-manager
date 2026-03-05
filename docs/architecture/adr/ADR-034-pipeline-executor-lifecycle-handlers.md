@@ -7,7 +7,14 @@
 | **Deciders** | Architecture Team |
 | **Supersedes** | Partially supersedes [ADR-031](./ADR-031-checkpoint-instantiation-pipeline.md) §execution-model |
 | **Related ADRs** | [ADR-011](./ADR-011-apscheduler-removal.md) (APScheduler Removal), [ADR-031](./ADR-031-checkpoint-instantiation-pipeline.md) (Checkpoint Pipeline), [ADR-030](./ADR-030-resource-observation-learn-from-live.md) (Resource Observation), [ADR-020](./ADR-020-session-entity-model.md) (Session Entity Model), [ADR-019](./ADR-019-labrecord-independent-aggregate.md) (LabRecord Aggregate) |
-| **Related Decisions** | AD-PIPELINE-002, AD-PIPELINE-003, AD-PIPELINE-004 |
+| **Related Decisions** | AD-PIPELINE-002, AD-PIPELINE-003, AD-PIPELINE-004, AD-PIPELINE-007, AD-PIPELINE-008, AD-PIPELINE-009 |
+
+> **Errata (Sprint C):**
+>
+> - `fail_session()` referenced in §3 pseudocode is replaced by `terminate_session()` per AD-PIPELINE-008 (internal terminate endpoint)
+> - Backward compatibility fallback (definitions without pipelines) is removed per AD-PIPELINE-009 — all definitions MUST have pipelines
+> - Pipeline failures do NOT auto-trigger teardown per AD-PIPELINE-007 — reconciler retries with resumability, then terminates after max_retries exhausted
+> - See `docs/implementation/ADR-034-sprint-c-prompt.md` for the authoritative implementation spec
 
 ## Context
 
@@ -73,7 +80,7 @@ reconcile(session_id)
 | **DAG resolution** | Topological sort of steps by `needs` + skip evaluation |
 | **Skip evaluation** | `simpleeval` library — safe Python expression evaluation, zero dependencies |
 | **Step dispatch** | Handler lookup via `_step_{handler}()` naming convention |
-| **Progress persistence** | After each step, persist to CPA via `update_instantiation_progress()` |
+| **Progress persistence** | After each step, persist to CPA via `update_pipeline_progress()` |
 | **Retry** | Per-step `retry.max_attempts` and `retry.delay_seconds` |
 | **Timeout** | Per-step `timeout_seconds` via `asyncio.wait_for()` |
 | **Optional steps** | `optional: true` — failure doesn't block downstream steps |

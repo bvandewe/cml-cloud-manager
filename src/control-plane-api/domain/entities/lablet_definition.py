@@ -1,0 +1,776 @@
+"""LabletDefinition aggregate definition using the AggregateState pattern.
+
+A LabletDefinition represents a versioned template for creating lab instances.
+It defines the topology artifact, resource requirements, and configuration
+for lab instantiation on CML workers.
+
+LabletDefinitions are immutable per version - creating a new version creates
+a new aggregate instance while maintaining version history linkage.
+"""
+
+from datetime import datetime, timezone
+from typing import Any, cast
+from uuid import uuid4
+
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot, AggregateState
+
+from domain.enums import LabletDefinitionStatus, LicenseType
+from domain.events.lablet_definition_events import (
+    LabletDefinitionArtifactSyncedDomainEvent,
+    LabletDefinitionContentSyncedDomainEvent,
+    LabletDefinitionCreatedDomainEvent,
+    LabletDefinitionDeprecatedDomainEvent,
+    LabletDefinitionSyncRequestedDomainEvent,
+    LabletDefinitionUpdatedDomainEvent,
+    LabletDefinitionVersionCreatedDomainEvent,
+    LabletDefinitionWarmPoolUpdatedDomainEvent,
+)
+from domain.utils import slugify_fqn
+from domain.value_objects.port_template import PortTemplate
+from domain.value_objects.resource_requirements import ResourceRequirements
+
+
+class NotificationConfig:
+    """Configuration for owner notifications."""
+
+    def __init__(
+        self,
+        email: str | None = None,
+        webhook_url: str | None = None,
+        notify_on_start: bool = True,
+        notify_on_complete: bool = True,
+        notify_on_error: bool = True,
+    ) -> None:
+        self.email = email
+        self.webhook_url = webhook_url
+        self.notify_on_start = notify_on_start
+        self.notify_on_complete = notify_on_complete
+        self.notify_on_error = notify_on_error
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "email": self.email,
+            "webhook_url": self.webhook_url,
+            "notify_on_start": self.notify_on_start,
+            "notify_on_complete": self.notify_on_complete,
+            "notify_on_error": self.notify_on_error,
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "NotificationConfig":
+        """Create from dictionary."""
+        return NotificationConfig(
+            email=data.get("email"),
+            webhook_url=data.get("webhook_url"),
+            notify_on_start=data.get("notify_on_start", True),
+            notify_on_complete=data.get("notify_on_complete", True),
+            notify_on_error=data.get("notify_on_error", True),
+        )
+
+
+class LabletDefinitionState(AggregateState[str]):
+    """Encapsulates the persisted state for the LabletDefinition aggregate.
+
+    A LabletDefinition is immutable once created - modifications require
+    creating a new version which gets a new aggregate ID.
+    """
+
+    id: str
+    name: str
+    version: str  # Semantic version (e.g., "1.0.0", "2.1.3")
+
+    # Artifact reference
+    lab_artifact_uri: str  # S3/MinIO path to lab topology YAML
+    lab_yaml_hash: str  # SHA-256 hash for change detection
+    lab_yaml_cached: str | None  # Cached YAML content (optional)
+
+    # Resource requirements
+    resource_requirements: ResourceRequirements
+    license_affinity: list[LicenseType]  # Preferred/required license types
+    node_count: int  # Number of nodes in the lab topology
+
+    # Port configuration
+    port_template: PortTemplate  # Template with port placeholders
+
+    # Assessment integration
+    grading_rules_uri: str | None  # S3/MinIO path to grading rules
+    max_duration_minutes: int  # Maximum duration for lab session
+
+    # LDS integration
+    form_qualified_name: str | None  # FQN: "{trackType} {trackLevel} {trackAcronym} {examVersion} {moduleAcronym} {formName}"
+
+    # Content identification (derived from form_qualified_name)
+    bucket_name: str  # Slugified FQN, used as S3 bucket name
+
+    # Package configuration (user-configurable, with defaults)
+    user_session_package_name: str  # Filename in bucket for LDS (default: "SVN.zip")
+    grading_ruleset_package_name: str  # Filename for grading rules (default: "SVN.zip")
+
+    # User session type
+    user_session_type: str  # "LDS" (default), extensible for future types
+    user_session_default_region: str | None  # Default LDS region (e.g., "us-east-1"), None = use global default
+
+    # Warm pool
+    warm_pool_depth: int  # Number of pre-instantiated instances to maintain
+
+    # Status and versioning
+    status: LabletDefinitionStatus
+    previous_version_id: str | None  # Reference to previous version's aggregate ID
+
+    # Ownership and notification
+    owner_notification: NotificationConfig | None
+    created_by: str
+
+    # Deprecation tracking
+    deprecated_by: str | None
+    deprecated_at: datetime | None
+    deprecation_reason: str | None
+    replacement_version: str | None
+
+    # Lifecycle timestamps
+    created_at: datetime
+    updated_at: datetime
+
+    # Artifact sync status
+    last_synced_at: datetime | None
+    sync_status: str | None  # "success" | "failed" | "sync_requested" | None
+
+    # Content metadata (populated by content sync job — ADR-025)
+    content_package_hash: str | None  # SHA-256 hash of the entire downloaded zip
+    upstream_version: str | None  # "Version" field from mosaic_meta.json
+    upstream_date_published: str | None  # "DatePublished" from mosaic_meta.json
+    upstream_instance_name: str | None  # "InstanceName" from mosaic_meta.json
+    upstream_form_id: str | None  # "FormId" from mosaic_meta.json
+    grade_xml_path: str | None  # Relative path to grade.xml in the package
+    cml_yaml_path: str | None  # Relative path to cml.yml/cml.yaml in the package
+    cml_yaml_content: str | None  # Cached CML YAML content (for lab import)
+    devices_json: str | None  # Cached devices.json content (serialized JSON string)
+    upstream_sync_status: dict | None  # Per-service sync status
+
+    # Pipeline definitions (ADR-034)
+    pipelines: dict | None  # Optional pipeline DAGs keyed by name (e.g., "instantiate", "teardown")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.id = ""
+        self.name = ""
+        self.version = ""
+
+        self.lab_artifact_uri = ""
+        self.lab_yaml_hash = ""
+        self.lab_yaml_cached = None
+
+        self.resource_requirements = ResourceRequirements(cpu_cores=1, memory_gb=1, storage_gb=1)
+        self.license_affinity = []
+        self.node_count = 0
+
+        self.port_template = PortTemplate.empty()
+
+        self.grading_rules_uri = None
+        self.max_duration_minutes = 60  # Default 1 hour
+
+        self.form_qualified_name = None  # FQN content ref
+
+        # Content identification
+        self.bucket_name = ""
+
+        # Package configuration
+        self.user_session_package_name = "SVN.zip"
+        self.grading_ruleset_package_name = "SVN.zip"
+
+        # User session type
+        self.user_session_type = "LDS"
+        self.user_session_default_region: str | None = None
+
+        self.warm_pool_depth = 0
+
+        self.status = LabletDefinitionStatus.ACTIVE
+        self.previous_version_id = None
+
+        self.owner_notification = None
+        self.created_by = ""
+
+        self.deprecated_by = None
+        self.deprecated_at = None
+        self.deprecation_reason = None
+        self.replacement_version = None
+
+        now = datetime.now(timezone.utc)
+        self.created_at = now
+        self.updated_at = now
+
+        self.last_synced_at = None
+        self.sync_status = None
+
+        # Content metadata (populated by sync)
+        self.content_package_hash: str | None = None
+        self.upstream_version: str | None = None
+        self.upstream_date_published: str | None = None
+        self.upstream_instance_name: str | None = None
+        self.upstream_form_id: str | None = None
+        self.grade_xml_path: str | None = None
+        self.cml_yaml_path: str | None = None
+        self.cml_yaml_content: str | None = None
+        self.devices_json: str | None = None
+        self.upstream_sync_status: dict | None = None
+
+        # Pipeline definitions (ADR-034)
+        self.pipelines: dict | None = None  # Optional pipeline DAGs from definition YAML
+
+        # Lab binding options (Phase 7)
+        self.lab_reuse_enabled: bool = False  # Allow labs to be reused across timeslots
+        self.multi_lab_enabled: bool = False  # Allow multiple labs per lablet instance
+
+        # Instantiation timing (AD-P10-01)
+        self.boot_lead_time_minutes: int | None = None  # Per-definition override, None = use global setting
+
+    @dispatch(LabletDefinitionCreatedDomainEvent)
+    def on(self, event: LabletDefinitionCreatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the creation event to the state."""
+        self.id = event.aggregate_id
+        self.name = event.name
+        self.version = event.version
+        self.lab_artifact_uri = event.lab_artifact_uri
+        self.lab_yaml_hash = event.lab_yaml_hash
+        self.lab_yaml_cached = event.lab_yaml_cached
+        self.resource_requirements = ResourceRequirements.from_dict(event.resource_requirements)
+        self.license_affinity = [LicenseType(lt) for lt in event.license_affinity]
+        self.node_count = event.node_count
+        self.port_template = PortTemplate.from_dict(event.port_template)
+        self.grading_rules_uri = event.grading_rules_uri
+        self.max_duration_minutes = event.max_duration_minutes
+        self.warm_pool_depth = event.warm_pool_depth
+        self.owner_notification = NotificationConfig.from_dict(event.owner_notification) if event.owner_notification else None
+        self.created_by = event.created_by
+        self.created_at = event.created_at
+        self.updated_at = event.created_at
+        self.form_qualified_name = event.form_qualified_name
+        self.status = LabletDefinitionStatus.PENDING_SYNC  # ADR-028
+
+        # Content sync fields (ADR-025)
+        self.bucket_name = event.bucket_name
+        self.user_session_package_name = event.user_session_package_name
+        self.grading_ruleset_package_name = event.grading_ruleset_package_name
+        self.user_session_type = event.user_session_type
+        self.user_session_default_region = event.user_session_default_region
+
+        # Instantiation timing (AD-P10-01)
+        self.boot_lead_time_minutes = event.boot_lead_time_minutes
+
+        # Pipeline definitions (ADR-034)
+        self.pipelines = getattr(event, "pipelines", None)
+
+    @dispatch(LabletDefinitionVersionCreatedDomainEvent)
+    def on(self, event: LabletDefinitionVersionCreatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the version creation event to the state.
+
+        Note: This creates a NEW aggregate with a new ID, linking to the previous version.
+        """
+        self.id = event.aggregate_id
+        self.name = event.name
+        self.version = event.version
+        self.lab_artifact_uri = event.lab_artifact_uri
+        self.lab_yaml_hash = event.lab_yaml_hash
+        self.resource_requirements = ResourceRequirements.from_dict(event.resource_requirements)
+        self.node_count = event.node_count
+        self.port_template = PortTemplate.from_dict(event.port_template)
+        self.created_by = event.created_by
+        self.created_at = event.created_at
+        self.updated_at = event.created_at
+        self.status = LabletDefinitionStatus.ACTIVE
+        # Note: previous_version_id would be set via separate tracking
+
+    @dispatch(LabletDefinitionDeprecatedDomainEvent)
+    def on(self, event: LabletDefinitionDeprecatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the deprecation event to the state."""
+        self.status = LabletDefinitionStatus.DEPRECATED
+        self.deprecated_by = event.deprecated_by
+        self.deprecated_at = event.deprecated_at
+        self.deprecation_reason = event.deprecation_reason
+        self.replacement_version = event.replacement_version
+        self.updated_at = event.deprecated_at
+
+    @dispatch(LabletDefinitionArtifactSyncedDomainEvent)
+    def on(self, event: LabletDefinitionArtifactSyncedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the artifact sync event to the state (legacy)."""
+        self.last_synced_at = event.synced_at
+        self.sync_status = event.sync_status
+        self.lab_yaml_hash = event.lab_yaml_hash
+        self.updated_at = event.synced_at
+
+    @dispatch(LabletDefinitionSyncRequestedDomainEvent)
+    def on(self, event: LabletDefinitionSyncRequestedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the sync requested event to the state."""
+        self.sync_status = "sync_requested"
+        self.updated_at = datetime.fromisoformat(event.requested_at)
+
+    @dispatch(LabletDefinitionContentSyncedDomainEvent)
+    def on(self, event: LabletDefinitionContentSyncedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the content sync event to the state (ADR-025)."""
+        self.last_synced_at = event.synced_at
+        self.sync_status = event.sync_status
+        self.lab_yaml_hash = event.lab_yaml_hash
+        self.updated_at = event.synced_at
+
+        # Content metadata
+        if event.content_package_hash is not None:
+            self.content_package_hash = event.content_package_hash
+        if event.upstream_version is not None:
+            self.upstream_version = event.upstream_version
+        if event.upstream_date_published is not None:
+            self.upstream_date_published = event.upstream_date_published
+        if event.upstream_instance_name is not None:
+            self.upstream_instance_name = event.upstream_instance_name
+        if event.upstream_form_id is not None:
+            self.upstream_form_id = event.upstream_form_id
+        if event.grade_xml_path is not None:
+            self.grade_xml_path = event.grade_xml_path
+        if event.cml_yaml_path is not None:
+            self.cml_yaml_path = event.cml_yaml_path
+        if event.cml_yaml_content is not None:
+            self.cml_yaml_content = event.cml_yaml_content
+        if event.devices_json is not None:
+            self.devices_json = event.devices_json
+        if event.upstream_sync_status is not None:
+            self.upstream_sync_status = event.upstream_sync_status
+        if event.port_template is not None:
+            self.port_template = PortTemplate.from_dict(event.port_template)
+
+        # Transition from PENDING_SYNC to ACTIVE on successful sync (ADR-028)
+        if event.sync_status == "success" and self.status == LabletDefinitionStatus.PENDING_SYNC:
+            self.status = LabletDefinitionStatus.ACTIVE
+
+    @dispatch(LabletDefinitionWarmPoolUpdatedDomainEvent)
+    def on(self, event: LabletDefinitionWarmPoolUpdatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the warm pool update event to the state."""
+        self.warm_pool_depth = event.new_warm_pool_depth
+        self.updated_at = event.updated_at
+
+    @dispatch(LabletDefinitionUpdatedDomainEvent)
+    def on(self, event: LabletDefinitionUpdatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the update event to the state.
+
+        Supports updating mutable fields: resource_requirements, license_affinity,
+        node_count, max_duration_minutes, warm_pool_depth, grading_rules_uri,
+        lab_artifact_uri, lab_yaml_hash.
+        """
+        changes = event.changes
+        if "resource_requirements" in changes:
+            self.resource_requirements = ResourceRequirements.from_dict(changes["resource_requirements"])
+        if "license_affinity" in changes:
+            self.license_affinity = [LicenseType(lt) for lt in changes["license_affinity"]]
+        if "node_count" in changes:
+            self.node_count = changes["node_count"]
+        if "max_duration_minutes" in changes:
+            self.max_duration_minutes = changes["max_duration_minutes"]
+        if "warm_pool_depth" in changes:
+            self.warm_pool_depth = changes["warm_pool_depth"]
+        if "grading_rules_uri" in changes:
+            self.grading_rules_uri = changes["grading_rules_uri"]
+        if "lab_artifact_uri" in changes:
+            self.lab_artifact_uri = changes["lab_artifact_uri"]
+        if "lab_yaml_hash" in changes:
+            self.lab_yaml_hash = changes["lab_yaml_hash"]
+        # Content identification and sync settings
+        if "form_qualified_name" in changes:
+            self.form_qualified_name = changes["form_qualified_name"]
+        if "bucket_name" in changes:
+            self.bucket_name = changes["bucket_name"]
+        if "user_session_package_name" in changes:
+            self.user_session_package_name = changes["user_session_package_name"]
+        if "grading_ruleset_package_name" in changes:
+            self.grading_ruleset_package_name = changes["grading_ruleset_package_name"]
+        if "user_session_type" in changes:
+            self.user_session_type = changes["user_session_type"]
+        if "user_session_default_region" in changes:
+            self.user_session_default_region = changes["user_session_default_region"]
+        if "boot_lead_time_minutes" in changes:
+            self.boot_lead_time_minutes = changes["boot_lead_time_minutes"]
+        self.updated_at = event.updated_at
+
+
+class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
+    """LabletDefinition aggregate - immutable per version.
+
+    Represents a versioned template for lab instantiation. Each version
+    is a separate aggregate instance to maintain immutability.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def id(self) -> str:
+        """Return the aggregate identifier with a precise type."""
+        aggregate_id = super().id()
+        if aggregate_id is None:
+            raise ValueError("LabletDefinition aggregate identifier has not been initialized")
+        return cast(str, aggregate_id)
+
+    @staticmethod
+    def create(
+        name: str,
+        version: str,
+        form_qualified_name: str,
+        resource_requirements: ResourceRequirements,
+        license_affinity: list[LicenseType],
+        node_count: int,
+        port_template: PortTemplate,
+        created_by: str,
+        # Optional content config
+        user_session_package_name: str = "SVN.zip",
+        grading_ruleset_package_name: str = "SVN.zip",
+        user_session_type: str = "LDS",
+        user_session_default_region: str | None = None,
+        # Optional lab config (may be populated later by sync)
+        lab_yaml_hash: str = "",
+        lab_yaml_cached: str | None = None,
+        grading_rules_uri: str | None = None,
+        max_duration_minutes: int = 60,
+        warm_pool_depth: int = 0,
+        owner_notification: NotificationConfig | None = None,
+        boot_lead_time_minutes: int | None = None,
+        pipelines: dict | None = None,
+    ) -> "LabletDefinition":
+        """Create a new LabletDefinition in PENDING_SYNC status (ADR-028).
+
+        The bucket_name is auto-derived by slugifying the form_qualified_name.
+        The lab_artifact_uri is auto-derived from bucket_name + package name.
+
+        Args:
+            name: Unique name for the definition (e.g., "ccna-basic-routing")
+            version: Semantic version string (e.g., "1.0.0")
+            form_qualified_name: FQN string (6 space-separated components)
+            resource_requirements: Compute resource requirements
+            license_affinity: List of acceptable license types
+            node_count: Number of nodes in the topology
+            port_template: Template defining required ports
+            created_by: User ID or system identifier
+            user_session_package_name: Filename in bucket for LDS (default: "SVN.zip")
+            grading_ruleset_package_name: Filename for grading rules (default: "SVN.zip")
+            user_session_type: Session type (default: "LDS")
+            user_session_default_region: Default LDS region (None = use global default)
+            lab_yaml_hash: SHA-256 hash (empty until sync populates it)
+            lab_yaml_cached: Optional cached YAML content
+            grading_rules_uri: Optional path to grading rules
+            max_duration_minutes: Maximum session duration (default 60)
+            warm_pool_depth: Number of pre-instantiated instances (default 0)
+            owner_notification: Optional notification configuration
+            boot_lead_time_minutes: Minutes before session to start boot (None = global default)
+
+        Returns:
+            A new LabletDefinition aggregate in PENDING_SYNC status
+        """
+        bucket_name = slugify_fqn(form_qualified_name)
+        lab_artifact_uri = f"s3://{bucket_name}/{user_session_package_name}"
+
+        definition = LabletDefinition()
+        definition.state.on(
+            definition.register_event(  # type: ignore
+                LabletDefinitionCreatedDomainEvent(
+                    aggregate_id=str(uuid4()),
+                    name=name,
+                    version=version,
+                    lab_artifact_uri=lab_artifact_uri,
+                    lab_yaml_hash=lab_yaml_hash,
+                    lab_yaml_cached=lab_yaml_cached,
+                    resource_requirements=resource_requirements.to_dict(),
+                    license_affinity=[lt.value for lt in license_affinity],
+                    node_count=node_count,
+                    port_template=port_template.to_dict(),
+                    grading_rules_uri=grading_rules_uri,
+                    max_duration_minutes=max_duration_minutes,
+                    warm_pool_depth=warm_pool_depth,
+                    owner_notification=owner_notification.to_dict() if owner_notification else None,
+                    created_by=created_by,
+                    created_at=datetime.now(timezone.utc),
+                    form_qualified_name=form_qualified_name,
+                    bucket_name=bucket_name,
+                    user_session_package_name=user_session_package_name,
+                    grading_ruleset_package_name=grading_ruleset_package_name,
+                    user_session_type=user_session_type,
+                    user_session_default_region=user_session_default_region,
+                    boot_lead_time_minutes=boot_lead_time_minutes,
+                    pipelines=pipelines,
+                )
+            )
+        )
+        return definition
+
+    @staticmethod
+    def create_version(
+        name: str,
+        version: str,
+        previous_version: str,
+        lab_artifact_uri: str,
+        lab_yaml_hash: str,
+        resource_requirements: ResourceRequirements,
+        node_count: int,
+        port_template: PortTemplate,
+        created_by: str,
+    ) -> "LabletDefinition":
+        """Create a new version of an existing LabletDefinition.
+
+        Args:
+            name: Name of the definition (must match existing)
+            version: New version string (must be greater than previous)
+            previous_version: Previous version string for linking
+            lab_artifact_uri: S3/MinIO path to updated topology YAML
+            lab_yaml_hash: SHA-256 hash of the new YAML content
+            resource_requirements: Updated resource requirements
+            node_count: Number of nodes in the updated topology
+            port_template: Updated port template
+            created_by: User ID or system identifier
+
+        Returns:
+            A new LabletDefinition aggregate with version creation event
+        """
+        definition = LabletDefinition()
+        definition.state.on(
+            definition.register_event(  # type: ignore
+                LabletDefinitionVersionCreatedDomainEvent(
+                    aggregate_id=str(uuid4()),
+                    name=name,
+                    version=version,
+                    previous_version=previous_version,
+                    lab_artifact_uri=lab_artifact_uri,
+                    lab_yaml_hash=lab_yaml_hash,
+                    resource_requirements=resource_requirements.to_dict(),
+                    node_count=node_count,
+                    port_template=port_template.to_dict(),
+                    created_by=created_by,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+        return definition
+
+    def deprecate(
+        self,
+        deprecated_by: str,
+        deprecation_reason: str | None = None,
+        replacement_version: str | None = None,
+    ) -> None:
+        """Mark this definition as deprecated.
+
+        Deprecated definitions cannot be used for new instances,
+        but existing instances continue to work.
+
+        Args:
+            deprecated_by: User ID or system identifier
+            deprecation_reason: Optional reason for deprecation
+            replacement_version: Optional suggested replacement version
+        """
+        if self.state.status == LabletDefinitionStatus.DEPRECATED:
+            return  # Already deprecated, no-op
+
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionDeprecatedDomainEvent(
+                    aggregate_id=self.id(),
+                    name=self.state.name,
+                    version=self.state.version,
+                    deprecated_by=deprecated_by,
+                    deprecated_at=datetime.now(timezone.utc),
+                    deprecation_reason=deprecation_reason,
+                    replacement_version=replacement_version,
+                )
+            )
+        )
+
+    def record_artifact_sync(
+        self,
+        lab_yaml_hash: str,
+        sync_status: str,
+        error_message: str | None = None,
+    ) -> None:
+        """Record the result of an artifact sync operation (legacy).
+
+        .. deprecated:: Use record_content_sync() for content sync pipeline.
+
+        Args:
+            lab_yaml_hash: Current hash of the artifact
+            sync_status: "success" or "failed"
+            error_message: Error details if sync failed
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionArtifactSyncedDomainEvent(
+                    aggregate_id=self.id(),
+                    lab_artifact_uri=self.state.lab_artifact_uri,
+                    lab_yaml_hash=lab_yaml_hash,
+                    synced_at=datetime.now(timezone.utc),
+                    sync_status=sync_status,
+                    error_message=error_message,
+                )
+            )
+        )
+
+    def request_sync(self, requested_by: str = "") -> None:
+        """Request content synchronization.
+
+        Emits LabletDefinitionSyncRequestedDomainEvent, which triggers the
+        ContentSyncRequestedEtcdProjector to write an etcd key (AD-CS-001).
+        The lablet-controller's ContentSyncService watches for this key.
+
+        Args:
+            requested_by: User ID or system identifier requesting the sync.
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionSyncRequestedDomainEvent(
+                    aggregate_id=self.id(),
+                    form_qualified_name=self.state.form_qualified_name or "",
+                    bucket_name=self.state.bucket_name,
+                    user_session_package_name=self.state.user_session_package_name or "SVN.zip",
+                    requested_by=requested_by,
+                    requested_at=datetime.now(timezone.utc).isoformat(),
+                )
+            )
+        )
+
+    def record_content_sync(
+        self,
+        lab_yaml_hash: str,
+        sync_status: str,
+        content_package_hash: str | None = None,
+        upstream_version: str | None = None,
+        upstream_date_published: str | None = None,
+        upstream_instance_name: str | None = None,
+        upstream_form_id: str | None = None,
+        grade_xml_path: str | None = None,
+        cml_yaml_path: str | None = None,
+        cml_yaml_content: str | None = None,
+        devices_json: str | None = None,
+        upstream_sync_status: dict | None = None,
+        error_message: str | None = None,
+        port_template: PortTemplate | None = None,
+    ) -> None:
+        """Record the result of a content synchronization operation.
+
+        On success, transitions the definition from PENDING_SYNC to ACTIVE.
+
+        Args:
+            lab_yaml_hash: SHA-256 hash of the lab topology YAML.
+            sync_status: "success" or "failed".
+            content_package_hash: SHA-256 hash of the entire downloaded zip.
+            upstream_version: Version from mosaic_meta.json.
+            upstream_date_published: DatePublished from mosaic_meta.json.
+            upstream_instance_name: InstanceName from mosaic_meta.json.
+            upstream_form_id: FormId from mosaic_meta.json.
+            grade_xml_path: Relative path to grade.xml in the package.
+            cml_yaml_path: Relative path to cml.yml/cml.yaml in the package.
+            cml_yaml_content: Cached CML YAML content for lab import.
+            devices_json: Cached devices.json content (serialized JSON string).
+            upstream_sync_status: Per-service sync status dict.
+            error_message: Error details if sync failed.
+            port_template: PortTemplate extracted from CML YAML node tags.
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionContentSyncedDomainEvent(
+                    aggregate_id=self.id(),
+                    lab_artifact_uri=self.state.lab_artifact_uri,
+                    lab_yaml_hash=lab_yaml_hash,
+                    synced_at=datetime.now(timezone.utc),
+                    sync_status=sync_status,
+                    error_message=error_message,
+                    content_package_hash=content_package_hash,
+                    upstream_version=upstream_version,
+                    upstream_date_published=upstream_date_published,
+                    upstream_instance_name=upstream_instance_name,
+                    upstream_form_id=upstream_form_id,
+                    grade_xml_path=grade_xml_path,
+                    cml_yaml_path=cml_yaml_path,
+                    cml_yaml_content=cml_yaml_content,
+                    devices_json=devices_json,
+                    upstream_sync_status=upstream_sync_status,
+                    port_template=port_template.to_dict() if port_template else None,
+                )
+            )
+        )
+
+    def update_warm_pool_depth(self, new_depth: int, updated_by: str) -> None:
+        """Update the warm pool depth for this definition.
+
+        This is one of the few mutable properties on a LabletDefinition.
+
+        Args:
+            new_depth: New warm pool depth (0 for no warm pool)
+            updated_by: User ID or system identifier
+        """
+        if new_depth < 0:
+            raise ValueError("Warm pool depth cannot be negative")
+
+        if new_depth == self.state.warm_pool_depth:
+            return  # No change, no-op
+
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionWarmPoolUpdatedDomainEvent(
+                    aggregate_id=self.id(),
+                    old_warm_pool_depth=self.state.warm_pool_depth,
+                    new_warm_pool_depth=new_depth,
+                    updated_by=updated_by,
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+
+    def update(self, changes: dict[str, Any], updated_by: str) -> None:
+        """Update mutable fields on this definition.
+
+        Supports updating resource requirements, license affinity, node count,
+        max duration, warm pool depth, grading rules URI, artifact URI, and hash.
+
+        Args:
+            changes: Dictionary of field name → new value
+            updated_by: User ID or system identifier
+
+        Raises:
+            ValueError: If definition is deprecated
+        """
+        if self.state.status == LabletDefinitionStatus.DEPRECATED:
+            raise ValueError("Cannot update a deprecated definition")
+
+        if not changes:
+            return  # No changes, no-op
+
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionUpdatedDomainEvent(
+                    aggregate_id=self.id(),
+                    changes=changes,
+                    updated_by=updated_by,
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+
+    # --- Computed Properties ---
+
+    @property
+    def is_active(self) -> bool:
+        """Check if this definition is active and can be used for new instances."""
+        return self.state.status == LabletDefinitionStatus.ACTIVE
+
+    @property
+    def is_pending_sync(self) -> bool:
+        """Check if this definition is pending content synchronization."""
+        return self.state.status == LabletDefinitionStatus.PENDING_SYNC
+
+    @property
+    def is_deprecated(self) -> bool:
+        """Check if this definition is deprecated."""
+        return self.state.status == LabletDefinitionStatus.DEPRECATED
+
+    @property
+    def port_count(self) -> int:
+        """Return the number of ports required by this definition."""
+        return self.state.port_template.port_count
+
+    @property
+    def unique_key(self) -> str:
+        """Return a unique key combining name and version."""
+        return f"{self.state.name}:{self.state.version}"

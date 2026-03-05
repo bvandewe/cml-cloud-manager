@@ -1,5 +1,6 @@
 from .cloudwatch_monitoring_updated_domain_event import CloudWatchMonitoringUpdatedDomainEvent
 from .cml_worker import (  # CMLWorkerLicenseDeregisteredDomainEvent,
+    AllocatedCapacityRecalculatedDomainEvent,
     CMLServiceStatusUpdatedDomainEvent,
     CMLWorkerCreatedDomainEvent,
     CMLWorkerEndpointUpdatedDomainEvent,
@@ -87,6 +88,7 @@ __all__ = [
     "CloudWatchMetricsUpdatedDomainEvent",
     "CMLMetricsUpdatedDomainEvent",
     "CMLServiceStatusUpdatedDomainEvent",
+    "AllocatedCapacityRecalculatedDomainEvent",
     "CMLWorkerCreatedDomainEvent",
     "CMLWorkerEndpointUpdatedDomainEvent",
     "CMLWorkerInstanceAssignedDomainEvent",

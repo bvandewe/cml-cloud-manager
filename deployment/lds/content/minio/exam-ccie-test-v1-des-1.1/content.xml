@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab_content version="3">
+    <title>Design module</title>
+    <timing>
+        <min_length_minutes>0</min_length_minutes>
+        <max_length_minutes>180</max_length_minutes>
+        <warning_minutes>15</warning_minutes>
+        <warning_message>Time is running out. There are only 15 minutes left.</warning_message>
+    </timing>
+    <intro_message>Welcome to the Design environment!</intro_message>
+    <css></css>
+    <main_page>
+        <text>This is the main page text that should never be seen in Design!</text>
+        <alert></alert>
+        <progress_indicator>true</progress_indicator>
+    </main_page>
+    <background_file wrap="true" start_here="true" title="Guidelines">resources/guidelines.html</background_file>
+    <sections item_title_visible="false" score_visible="false" backward_nav="false" content_popup="false" editor="false">
+        <section>content/section_01.xml</section>
+    </sections>
+    <resources>
+        <resource file="resources/00_01_01.html" title="Main Topology" category="Diagrams"/>
+        <resource file="resources/00_02_02.html" title="VPN Topology" category="Diagrams"/>
+        <resource file="resources/00_03_03.html" title="Company Introduction" category="Documents"/>
+        <resource file="resources/00_04_04.html" title="Staff Introduction" category="Documents"/>
+        <resource file="resources/00_05_05.html" title="Devices Access Info" category="Documents"/>
+        <resource file="resources/00_06_06.html" title="Sample Table" category="Documents"/>
+    </resources>
+    <variables>
+        <variable name="company_name" default_value="Texla"/>
+        <variable name="ceo_name" default_value="Ejon Busk"/>
+        <variable name="plan" default_value="plan"/>
+        <variable name="plan_capitalized" default_value="Plan"/>
+        <variable name="test" default_value="Test"/>
+        <variable name="test_capitalized" default_value="Test"/>
+    </variables>
+    <device/>
+    <feedback enabled="true">
+        <prompt>Please provide any relevant feedback or comment about this item. This will be useful to maintain the content but note that it will not be taken into account before scoring your exam.</prompt>
+    </feedback>
+</lab_content>

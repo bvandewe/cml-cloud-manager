@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<section id="1">
+    <title>Content</title>
+    <item id="1" scored="false">
+        <title>1: Introduction</title>
+        <text><![CDATA[<h2 style="text-align: center;">Welcome to&nbsp;${ .variables.company_name} .</h2><p style="text-align: center;">Make sure to read all available resources as you progress through the lab scenario!!!!</p><p style="text-align: center;">Guidelines are always available on the top menu.</p><p style="text-align: center;">----</p><p style="text-align: center;">${ .variables.ceo_name}<br></p><p style="text-align: center;"></p><p style="text-align: center;">2024</p><p></p>]]></text>
+        <resources>
+            <resource file="resources/01_01_01.html" title="Email 1" category="Emails"/>
+            <resource file="resources/01_01_02.html" title="Objectives" category="Documents"/>
+        </resources>
+    </item>
+    <item id="2" scored="true" points="1">
+        <title>2: MCSA Simple</title>
+        <question id="1" type="mcsa" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Which option is the only possible solution?</p>
+
+]]></prompt>
+            <options>
+                <option id="1"><![CDATA[Option 1]]></option>
+                <option id="2"><![CDATA[Option 2]]></option>
+                <option id="3"><![CDATA[Option 3]]></option>
+                <option id="4"><![CDATA[Option 4]]></option>
+            </options>
+        </question>
+        <resources>
+            <resource file="resources/01_02_01.html" title="Email 2" category="Emails"/>
+            <resource file="resources/01_02_02.html" title="Functional Requirements" category="Documents"/>
+            <resource url="http://150.101.0.21/captures/3a8fd1a878f7" title="Traffic Capture 1" category="Traffic Captures"/>
+            <resource url="/static/docs/DEMO/test.pdf" title="Test PDF" category="Documents"/>
+        </resources>
+    </item>
+    <item id="3" scored="true" points="0">
+        <title>3: MCSA HTML: Unscored Parent</title>
+        <question id="1" type="mcsa" random_order="true" allow_skip="false" require_selected="1">
+            <follow_up_items>
+                <case options="1" item_id="4"/>
+                <case options="2" item_id="5"/>
+            </follow_up_items>
+            <prompt><![CDATA[<p>How you like to see the next question?<br></p>]]></prompt>
+            <options>
+                <option id="1"><![CDATA[<p><b><font style="background-color: rgb(255, 255, 255);" color="#6ba54a">In dropdown format, worth 2 points</font></b></p>]]></option>
+                <option id="2"><![CDATA[<p><font style="background-color: rgb(255, 255, 255);" color="#ce0000">In MCSA format, worth 1point</font></p>]]></option>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="4" scored="true" points="2" is_follow_up="true">
+        <title>MCSA Dropdown: 2pts Child</title>
+        <question id="1" type="dropdown" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Which option is the only possible solution?<br></p>]]></prompt>
+            <options id="1" prompt="">
+                <option id="1"><![CDATA[Option 1]]></option>
+                <option id="2"><![CDATA[Option 2]]></option>
+                <option id="3"><![CDATA[Option 3]]></option>
+                <option id="4"><![CDATA[Option 4]]></option>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="5" scored="true" points="1" is_follow_up="true">
+        <title>MCSA HTML: 1pt Child</title>
+        <question id="1" type="mcma" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Which two options are usually the best answers to any question? Select two.</p>]]></prompt>
+            <options>
+                <option id="1"><![CDATA[<p><b>Option 1</b></p>]]></option>
+                <option id="2"><![CDATA[<p>Option 2</p>]]></option>
+                <option id="3"><![CDATA[<p>Option 3</p>]]></option>
+                <option id="4"><![CDATA[<p>Option 4</p>]]></option>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="6" scored="true" points="2">
+        <title>4: MCMA Simple</title>
+        <question id="1" type="mcma" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Which option are applicable for the use-case? Select at least one</p>]]></prompt>
+            <options>
+                <option id="1"><![CDATA[Option 1]]></option>
+                <option id="2"><![CDATA[Option 2]]></option>
+                <option id="3"><![CDATA[Option 3]]></option>
+                <option id="4"><![CDATA[Option 4]]></option>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="7" scored="true" points="2">
+        <title>5: 2x MCxA</title>
+        <question id="1" type="mcsa_tabbed" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Which topology option meets the customer's requirements?</p>]]></prompt>
+            <options>
+                <option id="1" title="Option 1"><![CDATA[<p>Exhibit 1</p><p><img src="../images/Slide1.png"><br></p>]]></option>
+                <option id="2" title="Option 2"><![CDATA[<p>Exhibit 2</p><p><img src="../images/Slide2.png"><br></p>]]></option>
+                <option id="3" title="Option 3"><![CDATA[<p>Exhibit 3</p><p><img src="../images/Slide3.png"><br></p>]]></option>
+                <option id="4" title="Option 4"><![CDATA[<p>Exhibit 4</p><p><img src="../images/Slide4.png"><br></p>]]></option>
+            </options>
+        </question>
+        <question id="2" type="mcma" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Which two options are viable alternatives for the customer?</p>]]></prompt>
+            <options>
+                <option id="1"><![CDATA[<p><span style="background-color: rgb(255, 255, 255);"><font color="#ff0000">Option 1</font></span></p>]]></option>
+                <option id="2"><![CDATA[<p><span style="background-color: rgb(255, 255, 255);"><font color="#00ff00">Option 2</font></span></p>]]></option>
+                <option id="3"><![CDATA[<p><span style="background-color: rgb(255, 255, 255);"><font color="#00ffff">Option 3</font></span></p>]]></option>
+                <option id="4"><![CDATA[<p><span style="background-color: rgb(255, 255, 255);"><font color="#ff00ff">Option 4</font></span></p>]]></option>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="8" scored="true" points="3">
+        <title>6: MCSA Matrix: with alternate solutions</title>
+        <question id="1" type="mcsa_matrix" random_order="true" allow_skip="false" require_selected="4">
+            <prompt><![CDATA[<p>Which option is applicable for each sub-item?</p><p>Select all that apply.</p>]]></prompt>
+            <options type="rows" label="My Custom Row Header">
+                <option id="1"><![CDATA[Sub-Stem 1]]></option>
+                <option id="2"><![CDATA[Sub-Stem 2]]></option>
+                <option id="3"><![CDATA[Sub-Stem 3]]></option>
+                <option id="4"><![CDATA[Sub-Stem 4]]></option>
+            </options>
+            <options type="cols" label="My Custom Column Header">
+                <option id="1"><![CDATA[<p>Option 1 Column</p>]]></option>
+                <option id="2"><![CDATA[<p>Option 2 Column</p>]]></option>
+                <option id="3"><![CDATA[<p>Option 3 Column</p>]]></option>
+                <option id="4"><![CDATA[<p>Option 4 Column</p>]]></option>
+            </options>
+        </question>
+        <resources>
+            <resource file="resources/01_08_01.html" title="Email 3" category="Emails"/>
+        </resources>
+    </item>
+    <item id="9" scored="true" points="4">
+        <title>7: MCMA Matrix: partial scoring per column</title>
+        <question id="1" type="mcma_matrix" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Which option(s) apply to each sub-item? Choose any.</p><p><br></p><p><i>Points may be granted partially, that is, any column that has the correct selection will be granted one point.</i></p><p><br></p>]]></prompt>
+            <options type="rows" label="My Custom Row Header">
+                <option id="1"><![CDATA[Sub-Stem 1]]></option>
+                <option id="2"><![CDATA[Sub-Stem 2]]></option>
+                <option id="3"><![CDATA[Sub-Stem 3]]></option>
+                <option id="4"><![CDATA[Sub-Stem 4]]></option>
+            </options>
+            <options type="cols" label="My Custom Column Header">
+                <option id="1"><![CDATA[Option 1]]></option>
+                <option id="2"><![CDATA[Option 2]]></option>
+                <option id="3"><![CDATA[Option 3]]></option>
+                <option id="4"><![CDATA[Option 4]]></option>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="10" scored="true" points="2">
+        <title>8: Dropdowns (simple + range)</title>
+        <text><![CDATA[<p><i>This item contains two separate questions. Together they are worth 2 points.</i></p><p><i><br></i></p>]]></text>
+        <question id="1" type="dropdown" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p><i>Dropdown simple (each option is created manually)</i><br></p><p>Which option is the only possible solution?</p>]]></prompt>
+            <options id="1" prompt="">
+                <option id="1"><![CDATA[Option 1]]></option>
+                <option id="2"><![CDATA[Option 2]]></option>
+                <option id="3"><![CDATA[Option 3]]></option>
+                <option id="4"><![CDATA[Option 4]]></option>
+            </options>
+        </question>
+        <question id="2" type="dropdown_range" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p><i>Dropdown-range: options are automated</i></p><p>Which frame number contains value of the required field for XYZ?<br></p>]]></prompt>
+            <options prompt="Select a frame id" min="1" max="100"/>
+        </question>
+        <resources/>
+    </item>
+    <item id="11" scored="true" points="1">
+        <title>9: Dropdown Row</title>
+        <question id="1" type="dropdown" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>What is the solution to the reported problem?</p>]]></prompt>
+            <options id="1" prompt="Verb">
+                <option id="1"><![CDATA[Add]]></option>
+                <option id="2"><![CDATA[Change]]></option>
+                <option id="3"><![CDATA[Remove]]></option>
+            </options>
+            <text><![CDATA[the]]></text>
+            <options id="2" prompt="Object">
+                <option id="1"><![CDATA[policy]]></option>
+                <option id="2"><![CDATA[process]]></option>
+                <option id="3"><![CDATA[procedure]]></option>
+            </options>
+            <text><![CDATA[to]]></text>
+            <options id="3" prompt="Verb">
+                <option id="1"><![CDATA[deploy]]></option>
+                <option id="2"><![CDATA[monitor]]></option>
+                <option id="3"><![CDATA[optimize]]></option>
+            </options>
+            <text><![CDATA[new]]></text>
+            <options id="4" prompt="Object">
+                <option id="1"><![CDATA[hardware]]></option>
+                <option id="2"><![CDATA[virtual]]></option>
+            </options>
+            <text><![CDATA[appliances]]></text>
+        </question>
+        <resources/>
+    </item>
+    <item id="12" scored="true" points="1">
+        <title>10: DnD Simple</title>
+        <question id="1" type="drag_and_drop" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Drag and drop each option on the left onto a corresponding target on the right.</p>]]></prompt>
+            <options>
+                <option id="1"><![CDATA[Option 1]]></option>
+                <option id="2"><![CDATA[Option 2]]></option>
+                <option id="3"><![CDATA[Option 3]]></option>
+                <option id="4"><![CDATA[Option 4]]></option>
+            </options>
+            <drop_zones>
+                <label id="1">Target 1</label>
+                <label id="2">Target 2</label>
+                <label id="3">Target 3</label>
+                <label id="4">Target 4</label>
+            </drop_zones>
+        </question>
+        <resources/>
+    </item>
+    <item id="13" scored="true" points="1">
+        <title>11: DnD Category with both ordered and unordered answers</title>
+        <question id="1" type="category_drag_and_drop" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Drag and drop options on the left onto their corresponding category on the right.</p>]]></prompt>
+            <options>
+                <option id="1"><![CDATA[Option 1]]></option>
+                <option id="2"><![CDATA[Option 2]]></option>
+                <option id="3"><![CDATA[Option 3]]></option>
+                <option id="4"><![CDATA[Option 4]]></option>
+            </options>
+            <drop_zones>
+                <category id="1" label="My Ordered Category">
+                    <label id="1">First</label>
+                    <label id="2">Second</label>
+                </category>
+                <category id="2" label="My Unordered Category">
+                    <label id="1">Third</label>
+                    <label id="2">Forth</label>
+                </category>
+            </drop_zones>
+        </question>
+        <resources/>
+    </item>
+    <item id="14" scored="true" points="1">
+        <title>12: DnD Graphical</title>
+        <question id="1" type="graphical_drag_and_drop" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Drag any option(s) on the right onto your recommended target area.</p>]]></prompt>
+            <image_file>../images/graph_dnd_topo.png</image_file>
+            <options>
+                <option id="1" image_file="../images/l2_switch.png"><![CDATA[L2 Switch]]></option>
+                <option id="2" image_file="../images/l3_switch.png"><![CDATA[L3 Switch]]></option>
+                <option id="3" image_file="../images/router.png"><![CDATA[Router]]></option>
+                <option id="4" image_file="../images/AP.png"><![CDATA[AP]]></option>
+                <option id="5" image_file="../images/wlan_controller.png"><![CDATA[WLAN Controller]]></option>
+            </options>
+            <drop_zones>
+                <area id="1" shape="rect" coords="150,215,249,314,"/>
+                <area id="2" shape="rect" coords="1082,219,1181,318,"/>
+                <area id="3" shape="rect" coords="308,780,407,879,"/>
+                <area id="4" shape="rect" coords="770,781,869,880,"/>
+                <area id="5" shape="rect" coords="1008,781,1107,880,"/>
+            </drop_zones>
+        </question>
+        <resources>
+            <resource file="resources/01_14_01.html" title="Email 6" category="Emails"/>
+        </resources>
+    </item>
+    <item id="15" scored="true" points="1">
+        <title>13: [FT] Hotspot</title>
+        <question id="1" type="hotspot" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Select the node that must be replaced.</p>]]></prompt>
+            <image_file>../images/main_topo_sm_hotspot.png</image_file>
+            <options>
+                <option id="1" label="R10" shape="circle" coords="420,316,49"/>
+                <option id="2" label="R11" shape="circle" coords="282,316,49"/>
+                <option id="3" label="R20" shape="circle" coords="858,318,49"/>
+                <option id="4" label="R21" shape="circle" coords="720,317,49"/>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="16" scored="true" points="1">
+        <title>14: MCSA Scored Parent</title>
+        <question id="1" type="mcsa" random_order="true" allow_skip="false" require_selected="1">
+            <follow_up_items>
+                <case options="1" item_id="17"/>
+                <case options="2" item_id="18"/>
+            </follow_up_items>
+            <prompt><![CDATA[<p>If you havent seen all Matrix movies, would you want another example of a matrix?</p>]]></prompt>
+            <options>
+                <option id="1"><![CDATA[yes, please]]></option>
+                <option id="2"><![CDATA[no, thanks]]></option>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="17" scored="true" points="2" is_follow_up="true">
+        <title>MCSA Matrix with logical grading</title>
+        <question id="1" type="mcma_matrix" random_order="true" allow_skip="false" require_selected="2">
+            <prompt><![CDATA[<p>Select the column that corresponds to each row number. Select two options only.</p>]]></prompt>
+            <options type="rows" label="Rows Header">
+                <option id="1"><![CDATA[<p>Row 1</p>]]></option>
+                <option id="2"><![CDATA[<p>Row 2</p>]]></option>
+            </options>
+            <options type="cols" label="Columns Header">
+                <option id="1"><![CDATA[<p>Column 1</p>]]></option>
+                <option id="2"><![CDATA[<p>Column 2</p>]]></option>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="18" scored="true" points="4" is_follow_up="true">
+        <title>MCSA Simple with 3 alternate solutions</title>
+        <question id="1" type="mcsa" random_order="true" allow_skip="false" require_selected="1">
+            <prompt><![CDATA[<p>Okay, well this is too bad. Do you regret it now?</p>]]></prompt>
+            <options>
+                <option id="1"><![CDATA[yes, and i feel regret of commission]]></option>
+                <option id="2"><![CDATA[yes, and i feel regret of ommission]]></option>
+                <option id="3"><![CDATA[no, i saw all Matrix movies already!]]></option>
+                <option id="4"><![CDATA[no, i just want to move on]]></option>
+            </options>
+        </question>
+        <resources/>
+    </item>
+    <item id="19" scored="false">
+        <title>15: The End</title>
+        <text><![CDATA[<p style="text-align: center;">Well done, you reached the end of the module.</p><p style="text-align: center;"></p><hr><p></p><p style="text-align: center;">Click the button on the top right corner and confirm to proceed to the next module.</p><p style="text-align: center;"><br></p><p style="text-align: center;">Thanks for your business with&nbsp;${ .variables.company_name},</p><p style="text-align: center;">${ .variables.ceo_name}<br></p>]]></text>
+        <resources/>
+    </item>
+</section>

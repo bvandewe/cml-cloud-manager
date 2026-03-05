@@ -1,0 +1,62 @@
+{
+    "variables": [
+        {
+            "name": "company_name",
+            "type": "content_variable",
+            "value_generator": "company_name",
+            "device_labels": [],
+            "default_value": "Texla",
+            "values": [],
+            "properties": []
+        },
+        {
+            "name": "ceo_name",
+            "type": "content_variable",
+            "value_generator": "person_name",
+            "device_labels": [],
+            "default_value": "Ejon Busk",
+            "values": [],
+            "properties": []
+        },
+        {
+            "name": "plan",
+            "type": "content_variable",
+            "value_generator": "one_of",
+            "group": "plan",
+            "device_labels": [],
+            "default_value": "plan",
+            "values": ["plan", "come up with a plan"],
+            "properties": []
+        },
+        {
+            "name": "plan_capitalized",
+            "type": "content_variable",
+            "value_generator": "one_of",
+            "group": "plan",
+            "device_labels": [],
+            "default_value": "Plan",
+            "values": ["Plan", "Come up with a plan"],
+            "properties": []
+        },
+        {
+            "name": "test",
+            "type": "content_variable",
+            "value_generator": "one_of",
+            "group": "test",
+            "device_labels": [],
+            "default_value": "Test",
+            "values": ["Test", "Verify"],
+            "properties": []
+        },
+        {
+            "name": "test_capitalized",
+            "type": "content_variable",
+            "value_generator": "one_of",
+            "group": "test",
+            "device_labels": [],
+            "default_value": "Test",
+            "values": ["Test", "Verify"],
+            "properties": []
+        }
+    ]
+}

@@ -1,0 +1,35 @@
+// =============================================================================
+// VENDORS INDEX
+// Third-party library overrides and imports
+// Note: Bootstrap is imported separately via CDN/npm
+// =============================================================================
+
+// Bootstrap customizations are handled in components and themes
+// This file can be used for additional vendor-specific overrides
+
+// Example: Font Awesome adjustments
+.fa,
+.fas,
+.far,
+.fab,
+.bi {
+    // Ensure icons align well with text
+    vertical-align: -0.125em;
+}
+
+// Bootstrap Icons size utilities
+.bi-lg {
+    font-size: 1.25em;
+}
+
+.bi-xl {
+    font-size: 1.5em;
+}
+
+.bi-2x {
+    font-size: 2em;
+}
+
+.bi-3x {
+    font-size: 3em;
+}

@@ -1,0 +1,144 @@
+{#
+Navbar with Pill-Tab Navigation and User Menu
+
+This template uses the new LcmTabView and LcmUserMenu components
+for a modern, tabbed navigation experience matching Skills Manager design.
+
+Main Tabs: Overview | Lablets | Workers | System
+User Menu: Profile dropdown with preferences, notifications, logout
+Connection Indicator: Real-time SSE connection status
+#}
+<nav class="navbar navbar-expand-lg lcm-navbar">
+    <div class="container-fluid">
+        {# Brand #}
+        <a class="navbar-brand d-flex align-items-center" href="/">
+            <i class="bi bi-cloud me-2"></i>
+            <span>Lablet Cloud Manager</span>
+        </a>
+
+        {# Mobile toggle #}
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+            aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse" id="navbarNav">
+            {# Main Navigation - Pill Tabs #}
+            <ul class="navbar-nav nav-pills me-auto" id="main-nav" style="display: none;">
+                {# Overview Tab #}
+                <li class="nav-item">
+                    <a class="nav-link" href="#" id="nav-overview" data-view="overview">
+                        <i class="bi bi-speedometer2 me-1"></i>Overview
+                    </a>
+                </li>
+
+                {# Workers Tab - Direct nav (no dropdown) #}
+                <li class="nav-item">
+                    <a class="nav-link" href="#" id="nav-workers" data-view="workers">
+                        <i class="bi bi-server me-1"></i>Workers
+                    </a>
+                </li>
+
+                {# Labs Tab - Direct nav (no dropdown) #}
+                <li class="nav-item">
+                    <a class="nav-link" href="#" id="nav-labs" data-view="labs">
+                        <i class="bi bi-flask me-1"></i>Labs
+                    </a>
+                </li>
+
+                {# Sessions Tab - Direct nav (no dropdown) #}
+                <li class="nav-item">
+                    <a class="nav-link" href="#" id="nav-sessions" data-view="sessions">
+                        <i class="bi bi-easel me-1"></i>Sessions
+                    </a>
+                </li>
+
+                {# System Tab - Dropdown with sub-views (Admin Only) #}
+                <li class="nav-item dropdown admin-only-nav">
+                    <a class="nav-link dropdown-toggle" href="#" id="nav-system-menu" role="button"
+                        data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-gear me-1"></i>System
+                    </a>
+                    <ul class="dropdown-menu" aria-labelledby="nav-system-menu">
+                        <li>
+                            <a class="dropdown-item" href="#" data-view="system">
+                                <i class="bi bi-activity me-2"></i>Monitoring
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="#" data-view="settings">
+                                <i class="bi bi-sliders me-2"></i>Settings
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="#" data-view="tasks">
+                                <i class="bi bi-list-task me-2"></i>Tasks
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="#" data-view="scheduler">
+                                <i class="bi bi-diagram-3 me-2"></i>Resource Scheduler
+                            </a>
+                        </li>
+                        <li>
+                            <hr class="dropdown-divider">
+                        </li>
+                        <li class="dropdown-header">External Services</li>
+                        <li>
+                            <a class="dropdown-item" id="minio-console-link" href="http://localhost:9001/login" target="_blank">
+                                <i class="bi bi-bucket me-2"></i>Content Storage
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="/grafana/" target="_blank">
+                                <i class="bi bi-graph-up me-2"></i>Grafana
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="/events/" target="_blank">
+                                <i class="bi bi-broadcast me-2"></i>Event Player
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="/mongo-express/" target="_blank">
+                                <i class="bi bi-database me-2"></i>Mongo Express
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="/auth/" target="_blank">
+                                <i class="bi bi-shield-lock me-2"></i>Identity Management
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="/api/docs/" target="_blank">
+                                <i class="bi bi-search me-2"></i>API Documentation
+                            </a>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+
+            {# Right Side - Connection Indicator, Theme Toggle and User Menu #}
+            <div class="navbar-nav align-items-center gap-2 ms-auto">
+                {# Real-time Connection Indicator #}
+                <div class="connection-indicator me-2" id="connection-indicator" title="Real-time connection status">
+                    <i class="bi bi-broadcast" id="connection-icon"></i>
+                    <span class="connection-text d-none d-md-inline">Connecting...</span>
+                </div>
+
+                {# Theme Toggle #}
+                <button id="theme-toggle" class="btn btn-icon" title="Toggle theme">
+                    <i class="bi bi-moon-fill" id="theme-icon"></i>
+                </button>
+
+                {# User Menu Component #}
+                <lcm-user-menu id="user-menu"></lcm-user-menu>
+
+                {# Fallback for when not logged in #}
+                <button id="login-btn" class="btn btn-primary btn-sm" style="display: none;">
+                    <i class="bi bi-box-arrow-in-right me-1"></i>Login
+                </button>
+            </div>
+        </div>
+    </div>
+</nav>
