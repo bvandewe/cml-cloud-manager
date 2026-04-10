@@ -672,6 +672,57 @@ class TestHandleStopping:
 
 
 # =============================================================================
+# _handle_stopped Tests
+# =============================================================================
+
+
+class TestHandleStopped:
+    """Tests for WorkerReconciler._handle_stopped — start or terminate stopped worker."""
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_desired_running_transitions_to_starting(self):
+        """desired_status=running → transition to STARTING and requeue."""
+        reconciler = make_reconciler()
+        worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="running")
+
+        result = await reconciler._handle_stopped(worker)
+
+        assert result.status == ReconciliationStatus.REQUEUE
+        reconciler._api.update_worker_status.assert_called_once_with(
+            worker_id="worker-001",
+            status=CMLWorkerStatus.STARTING,
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_desired_terminated_transitions_to_terminating(self):
+        """desired_status=terminated → transition to TERMINATING and requeue."""
+        reconciler = make_reconciler()
+        worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="terminated")
+
+        result = await reconciler._handle_stopped(worker)
+
+        assert result.status == ReconciliationStatus.REQUEUE
+        reconciler._api.update_worker_status.assert_called_once_with(
+            worker_id="worker-001",
+            status=CMLWorkerStatus.TERMINATING,
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_desired_stopped_is_noop(self):
+        """desired_status=stopped → no action needed, worker is at rest."""
+        reconciler = make_reconciler()
+        worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="stopped")
+
+        result = await reconciler._handle_stopped(worker)
+
+        assert result.status == ReconciliationStatus.SUCCESS
+        reconciler._api.update_worker_status.assert_not_called()
+
+
+# =============================================================================
 # _handle_terminating Tests
 # =============================================================================
 

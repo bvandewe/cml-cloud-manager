@@ -66,6 +66,24 @@ Three-phase bin-packing algorithm:
 2. **Score Phase**: Score remaining candidates (prefer fuller workers for bin-packing)
 3. **Select Phase**: Pick highest-scoring worker
 
+### TimeslotManagerHostedService
+
+Leader-elected periodic service (Sprint H, [ADR-037](../../docs/architecture/adr/ADR-037-timeslot-management.md)) that manages timeslot lifecycle for PENDING sessions:
+
+- **Approaching timeslot activation**: Detects PENDING sessions within the `timeslot_lead_time_minutes` window (default: 35 min) and writes etcd trigger keys to wake the SchedulerHostedService watch for immediate placement.
+- **Expired timeslot enforcement**: Detects PENDING sessions whose `timeslot_start + grace_period` has passed and expires them via CPA, preventing indefinite PENDING state.
+
+Uses a separate etcd leader election key (`/lcm/timeslot-manager/leader`) from SchedulerHostedService, so both can run as leader simultaneously on the same instance.
+
+#### Timeslot Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TIMESLOT_MANAGER_ENABLED` | Enable/disable the timeslot manager | `true` |
+| `TIMESLOT_MANAGER_INTERVAL_SECONDS` | Scan interval in seconds | `60` |
+| `TIMESLOT_EXPIRY_GRACE_MINUTES` | Grace period before expiring missed timeslots | `5` |
+| `TIMESLOT_LEAD_TIME_MINUTES` | Look-ahead window for approaching sessions | `35` |
+
 ### CleanupHostedService
 
 Leader-elected periodic service that removes terminated worker records older than the configured retention period (default: 30 days).
@@ -112,6 +130,12 @@ make lint
 | `POST` | `/api/admin/resign-leadership` | Resign leadership (maintenance) |
 | `GET` | `/api/admin/leader-status` | Current leader election status |
 | `GET` | `/api/admin/stats` | Scheduling statistics |
+| `GET` | `/api/admin/timeslots/status` | TimeslotManager statistics |
+| `GET` | `/api/admin/timeslots/approaching` | PENDING sessions entering scheduling window |
+| `GET` | `/api/admin/timeslots/expired` | Sessions with expired timeslots |
+| `GET` | `/api/admin/timeslots/landscape` | 24-hour timeslot distribution histogram |
+| `GET` | `/api/admin/scheduling-overview` | Pending sessions, retries, capacity |
+| `GET` | `/api/admin/sub-services` | All sub-service health and stats |
 
 ### Scheduling Endpoints (authenticated users)
 

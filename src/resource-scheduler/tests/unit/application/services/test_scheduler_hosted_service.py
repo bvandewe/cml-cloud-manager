@@ -12,16 +12,15 @@ Phase 2 tests (in test_scheduler_hosted_service_phase2.py) cover:
 - Scale-up rejection summaries
 """
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from application.hosted_services.scheduler_hosted_service import SchedulerHostedService
-from application.services.placement_engine import PlacementEngine, SchedulingDecision
-from application.settings import Settings
 from lcm_core.domain.entities import LabletSessionReadModel
 from lcm_core.infrastructure.hosted_services import ReconciliationStatus
 
+from application.hosted_services.scheduler_hosted_service import SchedulerHostedService
+from application.services.placement_engine import PlacementEngine, SchedulingDecision
+from application.settings import Settings
 
 # =============================================================================
 # Fixtures
@@ -552,3 +551,87 @@ class TestConfigure:
         mock_services.add_singleton.assert_called_once()
         call_args = mock_services.add_singleton.call_args
         assert call_args[0][0] is SchedulerHostedService
+
+
+# =============================================================================
+# Timeslot-Aware Filtering Tests (Sprint H)
+# =============================================================================
+
+
+class TestListResourcesTimeslotFiltering:
+    """Tests for timeslot-aware filtering in list_resources() (Sprint H)."""
+
+    @pytest.mark.asyncio
+    async def test_list_resources_filters_future_sessions(self, scheduler, mock_api_client, mock_etcd_client):
+        """Sessions with timeslot_start far in the future are excluded."""
+        from datetime import datetime, timedelta, timezone
+
+        future = datetime.now(timezone.utc) + timedelta(hours=4)
+        mock_api_client.get_lablet_sessions.return_value = [
+            {"id": "s-future", "name": "Future", "definition_id": "d-1", "status": "PENDING", "timeslot_start": future.isoformat()},
+        ]
+        mock_api_client.get_workers.return_value = []
+        mock_api_client.get_worker_templates.return_value = None
+        mock_etcd_client.get_prefix.return_value = {}
+
+        result = await scheduler.list_resources()
+
+        assert len(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_list_resources_includes_approaching_sessions(self, scheduler, mock_api_client, mock_etcd_client):
+        """Sessions within the lead time window are included."""
+        from datetime import datetime, timedelta, timezone
+
+        approaching = datetime.now(timezone.utc) + timedelta(minutes=10)
+        mock_api_client.get_lablet_sessions.return_value = [
+            {"id": "s-approaching", "name": "Approaching", "definition_id": "d-1", "status": "PENDING", "timeslot_start": approaching.isoformat()},
+        ]
+        mock_api_client.get_workers.return_value = []
+        mock_api_client.get_worker_templates.return_value = None
+        mock_etcd_client.get_prefix.return_value = {}
+
+        result = await scheduler.list_resources()
+
+        assert len(result) == 1
+        assert result[0].id == "s-approaching"
+
+    @pytest.mark.asyncio
+    async def test_list_resources_includes_no_timeslot_sessions(self, scheduler, mock_api_client, mock_etcd_client):
+        """Sessions without a timeslot are always included (immediate scheduling)."""
+        mock_api_client.get_lablet_sessions.return_value = [
+            {"id": "s-immediate", "name": "Immediate", "definition_id": "d-1", "status": "PENDING"},
+        ]
+        mock_api_client.get_workers.return_value = []
+        mock_api_client.get_worker_templates.return_value = None
+        mock_etcd_client.get_prefix.return_value = {}
+
+        result = await scheduler.list_resources()
+
+        assert len(result) == 1
+        assert result[0].id == "s-immediate"
+
+    @pytest.mark.asyncio
+    async def test_list_resources_sorts_by_timeslot_proximity(self, scheduler, mock_api_client, mock_etcd_client):
+        """Eligible sessions are sorted by timeslot_start (closest first)."""
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_api_client.get_lablet_sessions.return_value = [
+            {"id": "s-later", "name": "Later", "definition_id": "d-1", "status": "PENDING", "timeslot_start": (now + timedelta(minutes=20)).isoformat()},
+            {"id": "s-sooner", "name": "Sooner", "definition_id": "d-1", "status": "PENDING", "timeslot_start": (now + timedelta(minutes=5)).isoformat()},
+            {"id": "s-immediate", "name": "Immediate", "definition_id": "d-1", "status": "PENDING"},
+        ]
+        mock_api_client.get_workers.return_value = []
+        mock_api_client.get_worker_templates.return_value = None
+        mock_etcd_client.get_prefix.return_value = {}
+
+        result = await scheduler.list_resources()
+
+        assert len(result) == 3
+        # No timeslot → datetime.min → first
+        assert result[0].id == "s-immediate"
+        # Sooner timeslot → second
+        assert result[1].id == "s-sooner"
+        # Later timeslot → third
+        assert result[2].id == "s-later"

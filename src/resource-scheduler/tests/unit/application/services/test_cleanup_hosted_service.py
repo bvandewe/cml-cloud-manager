@@ -4,14 +4,13 @@ Tests the leader-elected periodic cleanup of terminated worker records.
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from application.hosted_services.cleanup_hosted_service import CleanupHostedService
 from application.settings import Settings
-
 
 # =============================================================================
 # Fixtures

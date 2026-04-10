@@ -532,7 +532,7 @@ class CmlSystemSpiClient:
                     product=data.get("product", "CML"),
                 )
             except httpx.HTTPError as e:
-                logger.error(f"Error getting system info from {host}: {e}")
+                logger.error(f"Error getting system info from {host}: {type(e).__name__}: {e}")
                 raise
 
     async def get_system_stats(
@@ -577,7 +577,7 @@ class CmlSystemSpiClient:
 
                 return CmlSystemStats.from_api_response(data)
             except httpx.HTTPError as e:
-                logger.error(f"Error getting system stats from {host}: {e}")
+                logger.error(f"Error getting system stats from {host}: {type(e).__name__}: {e}")
                 raise
 
     async def get_system_health(
@@ -624,7 +624,7 @@ class CmlSystemSpiClient:
 
                 return CmlSystemHealth.from_api_response(data)
             except httpx.HTTPError as e:
-                logger.error(f"Error getting system health from {host}: {e}")
+                logger.error(f"Error getting system health from {host}: {type(e).__name__}: {e}")
                 raise
 
     async def get_license_info(
@@ -671,7 +671,7 @@ class CmlSystemSpiClient:
 
                 return CmlLicenseInfo.from_api_response(data)
             except httpx.HTTPError as e:
-                logger.error(f"Error getting license info from {host}: {e}")
+                logger.error(f"Error getting license info from {host}: {type(e).__name__}: {e}")
                 raise
 
     async def register_license(
@@ -733,8 +733,8 @@ class CmlSystemSpiClient:
                 logger.error(f"❌ {error_msg} on {host}")
                 return False, error_msg
             except httpx.HTTPError as e:
-                logger.error(f"Error registering license on {host}: {e}")
-                return False, str(e)
+                logger.error(f"Error registering license on {host}: {type(e).__name__}: {e}")
+                return False, f"{type(e).__name__}: {e}"
 
     async def deregister_license(
         self,
@@ -786,8 +786,8 @@ class CmlSystemSpiClient:
                 logger.error(f"❌ {error_msg} on {host}")
                 return False, error_msg
             except httpx.HTTPError as e:
-                logger.error(f"Error deregistering license on {host}: {e}")
-                return False, str(e)
+                logger.error(f"Error deregistering license on {host}: {type(e).__name__}: {e}")
+                return False, f"{type(e).__name__}: {e}"
 
     async def check_health(self, host: str) -> tuple[bool, str]:
         """Quick health check for a CML worker.
@@ -805,7 +805,7 @@ class CmlSystemSpiClient:
             else:
                 return False, f"CML {info.version} not ready"
         except Exception as e:
-            return False, str(e)
+            return False, f"{type(e).__name__}: {e}"
 
     def clear_token_cache(self, host: str | None = None) -> None:
         """Clear cached authentication tokens.

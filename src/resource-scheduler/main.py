@@ -19,11 +19,6 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from api.controllers import AdminController, SchedulingController
-from api.services import DualAuthService
-from application.hosted_services import CleanupHostedService, SchedulerHostedService
-from application.services.placement_engine import PlacementEngine
-from application.settings import Settings, app_settings
 from fastapi import FastAPI
 from lcm_core.infrastructure import configure_logging
 from lcm_core.infrastructure.mixins import ServiceInfo, StandardEndpointsMixin
@@ -31,6 +26,12 @@ from lcm_core.integration.clients import ControlPlaneApiClient, EtcdClient
 from neuroglia.hosting.abstractions import HostedService
 from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
 from neuroglia.serialization.json import JsonSerializer
+
+from api.controllers import AdminController, SchedulingController
+from api.services import DualAuthService
+from application.hosted_services import CleanupHostedService, SchedulerHostedService, TimeslotManagerHostedService
+from application.services.placement_engine import PlacementEngine
+from application.settings import Settings, app_settings
 
 # Configure logging
 configure_logging(log_level=app_settings.log_level)
@@ -112,6 +113,18 @@ def create_app() -> FastAPI:
         implementation_factory=cleanup_factory,
     )
 
+    # Configure timeslot manager hosted service for PENDING session timeslot gating
+    TimeslotManagerHostedService.configure(builder.services, settings)
+
+    # Register TimeslotManagerHostedService as HostedService for automatic lifecycle management
+    def timeslot_factory(sp) -> HostedService:
+        return sp.get_required_service(TimeslotManagerHostedService)
+
+    builder.services.add_singleton(
+        HostedService,
+        implementation_factory=timeslot_factory,
+    )
+
     # Service info for standard endpoints
     service_info = ServiceInfo(
         name=settings.app_name,
@@ -127,9 +140,11 @@ def create_app() -> FastAPI:
 
         # app.state.services is set by neuroglia before custom_setup is called
         scheduler = app.state.services.get_required_service(SchedulerHostedService)
+        timeslot_manager = app.state.services.get_required_service(TimeslotManagerHostedService)
+        cleanup_service = app.state.services.get_required_service(CleanupHostedService)
 
         # Create and include admin controller
-        admin_controller = AdminController(scheduler)
+        admin_controller = AdminController(scheduler, timeslot_manager=timeslot_manager, cleanup_service=cleanup_service)
         app.include_router(admin_controller.router)
 
         # Create and include scheduling controller (AD-SCHED-001: dry-run preview)

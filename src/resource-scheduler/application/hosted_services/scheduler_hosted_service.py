@@ -6,6 +6,7 @@ Extends WatchTriggeredHostedService from lcm_core to provide:
 - etcd watch for immediate scheduling on session creation
 - Reconciliation loop that only runs on the leader
 - Placement decisions via PlacementEngine
+- Timeslot-aware filtering (Sprint H): only schedule sessions within lead time window
 
 Watch Pattern (ADR-006):
     control-plane-api publishes session state to etcd (/lcm/sessions/{id}/state)
@@ -15,17 +16,9 @@ Watch Pattern (ADR-006):
 import json
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from infrastructure.observability import (
-    measure_scheduling_latency,
-    record_etcd_capacity_fetch,
-    record_scale_up_decision,
-    record_scheduling_decision,
-    record_scheduling_failure,
-    record_scheduling_retry,
-    record_scheduling_success,
-)
 from lcm_core.domain.entities import LabletSessionReadModel
 from lcm_core.domain.enums import CMLWorkerStatus, LabletSessionStatus
 from lcm_core.infrastructure.hosted_services import (
@@ -42,6 +35,15 @@ from neuroglia.dependency_injection.service_provider import ServiceProviderBase
 
 from application.services.placement_engine import PlacementEngine, SchedulingDecision
 from application.settings import Settings
+from infrastructure.observability import (
+    measure_scheduling_latency,
+    record_etcd_capacity_fetch,
+    record_scale_up_decision,
+    record_scheduling_decision,
+    record_scheduling_failure,
+    record_scheduling_retry,
+    record_scheduling_success,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +210,8 @@ class SchedulerHostedService(WatchTriggeredHostedService[LabletSessionReadModel]
         """Fetch all PENDING sessions from Control Plane API.
 
         Also refreshes etcd capacity data for real-time placement decisions.
+        Applies timeslot-aware filtering (Sprint H) to exclude sessions
+        whose timeslot_start is outside the scheduling window.
 
         Returns:
             List of LabletSessionReadModel objects to reconcile.
@@ -215,6 +219,37 @@ class SchedulerHostedService(WatchTriggeredHostedService[LabletSessionReadModel]
         try:
             sessions_data = await self._api.get_lablet_sessions(status=LabletSessionStatus.PENDING)
             sessions = [LabletSessionReadModel.from_dict(data) for data in sessions_data]
+
+            # Sprint H: Timeslot-aware filtering
+            # Only schedule sessions within the lead time window or without a timeslot
+            now = datetime.now(timezone.utc)
+            lead_time = timedelta(minutes=self._settings.timeslot_lead_time_minutes)
+            eligible: list[LabletSessionReadModel] = []
+            skipped = 0
+            for session in sessions:
+                ts_start = self._parse_timeslot(session.timeslot_start)
+                if ts_start is None:
+                    # No timeslot → always eligible (immediate scheduling)
+                    eligible.append(session)
+                elif ts_start <= now + lead_time:
+                    # Within scheduling window → eligible
+                    eligible.append(session)
+                else:
+                    # Too far in the future → skip for now
+                    skipped += 1
+                    logger.debug(
+                        "Skipping session %s: timeslot_start %s is outside lead time window (%dmin)",
+                        session.id,
+                        ts_start.isoformat(),
+                        self._settings.timeslot_lead_time_minutes,
+                    )
+
+            # Sort by timeslot proximity (closest-starting sessions first)
+            eligible.sort(key=lambda s: self._parse_timeslot(s.timeslot_start) or datetime.min.replace(tzinfo=timezone.utc))
+            sessions = eligible
+
+            if skipped > 0:
+                logger.info(f"Timeslot filter: {len(sessions)} eligible, {skipped} skipped (outside {self._settings.timeslot_lead_time_minutes}min window)")
 
             # Refresh caches for this cycle
             self._cached_workers = await self._api.get_workers(status=CMLWorkerStatus.RUNNING)
@@ -274,6 +309,32 @@ class SchedulerHostedService(WatchTriggeredHostedService[LabletSessionReadModel]
             record_etcd_capacity_fetch(success=False)
             logger.warning(f"Failed to fetch etcd capacity, using API data: {e}")
             # Keep stale cache or empty — PlacementEngine will fall back to API data
+
+    @staticmethod
+    def _parse_timeslot(value: Any) -> datetime | None:
+        """Parse a timeslot value to datetime, handling str/datetime/None.
+
+        The LabletSessionReadModel.timeslot_start field is typed as
+        datetime | None, but from_dict() passes through the raw API value
+        which may be an ISO 8601 string. This helper normalizes it.
+
+        Args:
+            value: datetime, ISO 8601 string, or None.
+
+        Returns:
+            Timezone-aware datetime or None.
+        """
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value)
+                return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                return None
+        return None
 
     def get_resource_id(self, resource: LabletSessionReadModel) -> str:
         """Extract unique ID from session for tracking."""

@@ -34,6 +34,18 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="scheduling-tab" data-bs-toggle="tab" data-bs-target="#scheduling" type="button"
+                    role="tab" aria-controls="scheduling" aria-selected="false">
+                    <i class="bi bi-calendar-check me-1"></i> Scheduling
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="services-tab" data-bs-toggle="tab" data-bs-target="#services" type="button"
+                    role="tab" aria-controls="services" aria-selected="false">
+                    <i class="bi bi-diagram-3 me-1"></i> Services
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="status-tab" data-bs-toggle="tab" data-bs-target="#status" type="button"
                     role="tab" aria-controls="status" aria-selected="false">
                     <i class="bi bi-activity me-1"></i> Status
@@ -55,6 +67,22 @@
 
                     <!-- Quick Links -->
                     <service-links theme-color="{{ themeColor | default('#667eea') }}"></service-links>
+                </div>
+            </div>
+
+            <!-- Scheduling Tab -->
+            <div class="tab-pane fade" id="scheduling" role="tabpanel" aria-labelledby="scheduling-tab">
+                <div class="content-section">
+                    <scheduling-overview theme-color="{{ themeColor | default('#667eea') }}"
+                        refresh-interval="30000"></scheduling-overview>
+                </div>
+            </div>
+
+            <!-- Services Tab -->
+            <div class="tab-pane fade" id="services" role="tabpanel" aria-labelledby="services-tab">
+                <div class="content-section">
+                    <sub-services-card theme-color="{{ themeColor | default('#667eea') }}"
+                        refresh-interval="30000"></sub-services-card>
                 </div>
             </div>
 

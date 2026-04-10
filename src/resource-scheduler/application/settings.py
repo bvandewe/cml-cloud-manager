@@ -62,6 +62,13 @@ class Settings(ApplicationSettings):
     timeslot_lead_time_minutes: int = 35
 
     # ============================================================================
+    # Timeslot Management
+    # ============================================================================
+    timeslot_manager_enabled: bool = True
+    timeslot_manager_interval_seconds: int = 60  # Scan every 60 seconds
+    timeslot_expiry_grace_minutes: int = 5  # Grace period before expiring missed timeslots
+
+    # ============================================================================
     # Cleanup Configuration
     # ============================================================================
     cleanup_enabled: bool = True

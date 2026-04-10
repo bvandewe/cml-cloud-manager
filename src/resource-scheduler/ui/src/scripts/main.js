@@ -7,6 +7,8 @@ import './components/info-card.js';
 import './components/leader-card.js';
 import './components/status-card.js';
 import './components/service-links.js';
+import './components/scheduling-overview.js';
+import './components/sub-services-card.js';
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {

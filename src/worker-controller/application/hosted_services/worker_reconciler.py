@@ -383,6 +383,8 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
                 return await self._handle_running(worker)
             elif worker.status in (CMLWorkerStatus.STOPPING, CMLWorkerStatus.DRAINING):
                 return await self._handle_stopping(worker)
+            elif worker.status == CMLWorkerStatus.STOPPED:
+                return await self._handle_stopped(worker)
             elif worker.status == CMLWorkerStatus.TERMINATING:
                 return await self._handle_terminating(worker)
             else:
@@ -690,6 +692,34 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         else:
             return ReconciliationResult.failed(f"Cannot stop EC2 instance in state: {state.state}")
 
+    async def _handle_stopped(self, worker: CMLWorkerReadModel) -> ReconciliationResult:
+        """Handle STOPPED worker - start or terminate based on desired state.
+
+        A stopped worker is at rest. If the desired state differs, initiate
+        the appropriate transition:
+        - desired=running  → transition to STARTING (EC2 StartInstances via _handle_starting)
+        - desired=terminated → transition to TERMINATING (EC2 TerminateInstances via _handle_terminating)
+        - otherwise        → no-op (worker is at desired state)
+        """
+        if worker.desired_status == CMLWorkerStatus.RUNNING:
+            logger.info(f"Starting stopped worker {worker.id} (desired=running)")
+            await self._api.update_worker_status(
+                worker_id=worker.id,
+                status=CMLWorkerStatus.STARTING,
+            )
+            return ReconciliationResult.requeue("Transitioning STOPPED → STARTING")
+
+        if worker.desired_status == CMLWorkerStatus.TERMINATED:
+            logger.info(f"Terminating stopped worker {worker.id} (desired=terminated)")
+            await self._api.update_worker_status(
+                worker_id=worker.id,
+                status=CMLWorkerStatus.TERMINATING,
+            )
+            return ReconciliationResult.requeue("Transitioning STOPPED → TERMINATING")
+
+        # Worker is stopped and desired is stopped (or not set) — at rest
+        return ReconciliationResult.success()
+
     async def _handle_terminating(self, worker: CMLWorkerReadModel) -> ReconciliationResult:
         """Handle TERMINATING worker - terminate EC2 instance.
 
@@ -852,7 +882,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
                     "disk_free": cml_stats.disk.free,
                 }
             except Exception as e:
-                logger.warning(f"Failed to collect CML stats for {worker.id}: {e}")
+                logger.warning(f"Failed to collect CML stats for {worker.id}: {type(e).__name__}: {e}")
 
         # Report utilization metrics to Control Plane API
         try:
@@ -906,7 +936,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             cml_data["cml_version"] = system_info.version
             cml_data["ready"] = system_info.ready
         except Exception as e:
-            logger.warning(f"Failed to get CML system info for {worker.id}: {e}")
+            logger.warning(f"Failed to get CML system info for {worker.id}: {type(e).__name__}: {e}")
             # Without system info, we can't report meaningful CML data
             return
 
@@ -990,7 +1020,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
 
             cml_data["system_info"] = system_info_dict
         except Exception as e:
-            logger.warning(f"Failed to get CML system stats for {worker.id}: {e}")
+            logger.warning(f"Failed to get CML system stats for {worker.id}: {type(e).__name__}: {e}")
             cml_data["system_info"] = {}
 
         # Get CML system health (authenticated - full health data)
@@ -1031,7 +1061,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
                 },
             }
         except Exception as e:
-            logger.warning(f"Failed to get CML system health for {worker.id}: {e}")
+            logger.warning(f"Failed to get CML system health for {worker.id}: {type(e).__name__}: {e}")
             # Fallback: derive minimal health from system_info readiness
             cml_data["system_health"] = {
                 "valid": cml_data.get("ready", False),
@@ -1073,7 +1103,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             if "system_health" in cml_data:
                 cml_data["system_health"]["is_licensed"] = license_info.is_valid
         except Exception as e:
-            logger.warning(f"Failed to get CML license info for {worker.id}: {e}")
+            logger.warning(f"Failed to get CML license info for {worker.id}: {type(e).__name__}: {e}")
 
         # Default labs_count to 0 (updated by lablet-controller's labs sync)
         cml_data["labs_count"] = 0
@@ -1091,7 +1121,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
                 f"computes={len(cml_data.get('system_info', {}).get('computes', {}))}"
             )
         except Exception as e:
-            logger.warning(f"Failed to report CML data for {worker.id}: {e}")
+            logger.warning(f"Failed to report CML data for {worker.id}: {type(e).__name__}: {e}")
 
     # =========================================================================
     # WORKER DISCOVERY (Independent Loop — AD-020)

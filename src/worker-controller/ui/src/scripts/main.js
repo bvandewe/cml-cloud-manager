@@ -7,5 +7,7 @@ import './components/info-card.js';
 import './components/leader-card.js';
 import './components/status-card.js';
 import './components/service-links.js';
+import './components/fleet-overview.js';
+import './components/operations-card.js';
 
 console.log('🖥️ Worker Controller UI loaded');
