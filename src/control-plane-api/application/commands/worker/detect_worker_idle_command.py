@@ -1,16 +1,21 @@
 """Command for detecting worker idle state and triggering auto-pause."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
+from application.queries.get_worker_idle_status_query import GetWorkerIdleStatusQuery
+from application.services.system_configuration_service import SystemConfigurationService
+from application.settings import Settings
+from application.utils.telemetry_filter import (
+    filter_relevant_events,
+    get_latest_activity_timestamp,
+    get_most_recent_events,
+)
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-
-from application.queries.get_worker_idle_status_query import GetWorkerIdleStatusQuery
-from application.queries.get_worker_telemetry_events_query import GetWorkerTelemetryEventsQuery
-from application.services.system_configuration_service import SystemConfigurationService
 
 from .pause_worker_command import PauseWorkerCommand
 from .update_worker_activity_command import UpdateWorkerActivityCommand
@@ -26,32 +31,37 @@ class DetectWorkerIdleCommand(Command):
     Attributes:
         worker_id: Worker identifier
         force_check: Skip next_idle_check_at validation
+        raw_telemetry_events: Raw CML telemetry events fetched by worker-controller.
+            Per ADR-015, CPA does not call CML API directly.
     """
 
     worker_id: str
     force_check: bool = False
+    raw_telemetry_events: list[dict[str, Any]] | None = field(default=None)
 
 
 class DetectWorkerIdleCommandHandler(CommandHandler[DetectWorkerIdleCommand, dict]):
     """Handler for DetectWorkerIdleCommand.
 
     Orchestrates idle detection workflow:
-    1. Fetch telemetry events from CML
+    1. Process telemetry events (provided by worker-controller per ADR-015)
     2. Update worker activity state
     3. Check idle status and eligibility
     4. Persist scheduling fields (next_idle_check_at, target_pause_at)
     5. Auto-pause if conditions met
     """
 
-    def __init__(self, mediator: Mediator, configuration_service: SystemConfigurationService):
+    def __init__(self, mediator: Mediator, configuration_service: SystemConfigurationService, settings: Settings):
         """Initialize the handler.
 
         Args:
             mediator: Mediator for executing queries and commands
             configuration_service: Service for effective system configuration
+            settings: Application settings (for telemetry filter parameters)
         """
         self._mediator = mediator
         self._configuration_service = configuration_service
+        self._settings = settings
 
     async def handle_async(self, command: DetectWorkerIdleCommand) -> dict:
         """Execute the command.
@@ -77,20 +87,41 @@ class DetectWorkerIdleCommandHandler(CommandHandler[DetectWorkerIdleCommand, dic
             }
 
             try:
-                # Step 1: Fetch telemetry events from CML
-                log.info(f"Fetching telemetry events for worker {command.worker_id}")
-
-                telemetry_result = await self._mediator.execute_async(GetWorkerTelemetryEventsQuery(worker_id=command.worker_id))
-
-                if not telemetry_result.is_success:
-                    log.warning(f"Failed to fetch telemetry for worker {command.worker_id}: {telemetry_result.error_message}")
-                    detection_result["error"] = "Failed to fetch telemetry"
+                # Step 1: Process telemetry events (provided by worker-controller per ADR-015)
+                if command.raw_telemetry_events is None:
+                    log.warning(f"No telemetry events provided for worker {command.worker_id}. " "Worker-controller should fetch telemetry from CML and pass it inline.")
+                    detection_result["error"] = "No telemetry events provided"
                     return self.ok(detection_result)
 
-                detection_result["telemetry_fetched"] = True
-                telemetry_data = telemetry_result.data
+                raw_events = command.raw_telemetry_events
+                span.set_attribute("raw_events_count", len(raw_events))
+                log.info(f"Processing {len(raw_events)} raw telemetry events for worker {command.worker_id}")
 
-                # Step 2: Update worker activity state (initial — scheduling calculated in step 3.5)
+                # Filter for relevant activity events using telemetry_filter utilities
+                filtered_events = filter_relevant_events(
+                    events=raw_events,
+                    relevant_categories=self._settings.worker_activity_relevant_categories,
+                    exclude_user_pattern=self._settings.worker_activity_excluded_user_pattern,
+                    since=None,  # Process all provided events; worker-controller fetches full set
+                )
+                span.set_attribute("filtered_events_count", len(filtered_events))
+
+                recent_events = get_most_recent_events(filtered_events, self._settings.worker_activity_events_max_stored)
+                latest_activity = get_latest_activity_timestamp(filtered_events)
+
+                telemetry_data = {
+                    "worker_id": command.worker_id,
+                    "raw_events_count": len(raw_events),
+                    "filtered_events_count": len(filtered_events),
+                    "recent_events": recent_events,
+                    "latest_activity_at": latest_activity,
+                    "checked_at": datetime.now(timezone.utc),
+                }
+
+                detection_result["telemetry_fetched"] = True
+                log.info(f"Filtered {len(filtered_events)} relevant events from {len(raw_events)} total " f"for worker {command.worker_id}")
+
+                # Step 2: Update worker activity state (scheduling calculated below)
                 log.info(f"Updating activity state for worker {command.worker_id}")
 
                 checked_at = datetime.now(timezone.utc)
@@ -101,7 +132,6 @@ class DetectWorkerIdleCommandHandler(CommandHandler[DetectWorkerIdleCommand, dic
                 next_check = checked_at + timedelta(seconds=check_interval_seconds)
 
                 # Calculate target_pause_at from last_activity_at + idle timeout
-                latest_activity = telemetry_data.get("latest_activity_at")
                 target_pause = None
                 if latest_activity and idle_settings.timeout_minutes:
                     if isinstance(latest_activity, datetime):

@@ -172,6 +172,10 @@ class DetectIdleRequest(BaseModel):
     """Request to detect worker idle state and trigger auto-pause if eligible."""
 
     force_check: bool = Field(default=False, description="Skip next_idle_check_at validation")
+    raw_telemetry_events: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Raw telemetry events fetched by worker-controller from CML API. " "Per ADR-015, CPA does not make external CML calls directly.",
+    )
 
 
 class BulkImportWorkersRequest(BaseModel):
@@ -1452,8 +1456,8 @@ class InternalController(ControllerBase):
         """Execute idle detection workflow for a worker.
 
         Called by worker-controller during reconciliation.
-        Orchestrates the full idle detection workflow:
-        1. Fetch telemetry events from CML
+        Orchestrates the idle detection workflow:
+        1. Process telemetry events (provided by worker-controller per ADR-015)
         2. Update worker activity state
         3. Check idle status and eligibility
         4. Auto-pause if conditions met
@@ -1470,11 +1474,13 @@ class InternalController(ControllerBase):
             - auto_pause_triggered: Whether auto-pause was executed
         """
         force_check = request.force_check if request else False
-        logger.info(f"[Internal] Detecting idle state for worker {worker_id} (force={force_check})")
+        raw_telemetry_events = request.raw_telemetry_events if request else None
+        logger.info(f"[Internal] Detecting idle state for worker {worker_id} " f"(force={force_check}, telemetry_events={len(raw_telemetry_events) if raw_telemetry_events else 'none'})")
 
         command = DetectWorkerIdleCommand(
             worker_id=worker_id,
             force_check=force_check,
+            raw_telemetry_events=raw_telemetry_events,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)

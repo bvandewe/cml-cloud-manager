@@ -789,6 +789,53 @@ class CmlSystemSpiClient:
                 logger.error(f"Error deregistering license on {host}: {type(e).__name__}: {e}")
                 return False, f"{type(e).__name__}: {e}"
 
+    async def get_telemetry_events(
+        self,
+        host: str,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch telemetry events from a CML worker.
+
+        Delegates CML API call per ADR-015: external CML calls are made
+        by controllers, not the control-plane-api.
+
+        Endpoint: GET /api/v0/telemetry/events (auth required)
+        Returns ALL telemetry events — no server-side filtering parameters.
+
+        Args:
+            host: CML worker host/IP.
+            username: API username (uses default if not provided).
+            password: API password (uses default if not provided).
+
+        Returns:
+            List of event dicts with category, timestamp, and data.
+            Empty list if the endpoint is unreachable or returns an error.
+        """
+        username = username or self._default_username
+        password = password or self._default_password
+        url = f"https://{host}/api/v0/telemetry/events"
+
+        async with httpx.AsyncClient(
+            verify=self._verify_ssl,
+            timeout=self._timeout,
+        ) as client:
+            try:
+                response = await self._authenticated_request(
+                    client,
+                    "GET",
+                    url,
+                    host,
+                    username,
+                    password,
+                )
+                events = response.json()
+                logger.debug(f"Retrieved {len(events)} telemetry events from {host}")
+                return events
+            except httpx.HTTPError as e:
+                logger.error(f"Error fetching telemetry events from {host}: {type(e).__name__}: {e}")
+                raise
+
     async def check_health(self, host: str) -> tuple[bool, str]:
         """Quick health check for a CML worker.
 

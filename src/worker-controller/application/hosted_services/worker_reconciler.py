@@ -1494,11 +1494,13 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
     async def _detect_activity(self, worker: CMLWorkerReadModel) -> dict[str, Any] | None:
         """Detect worker activity and trigger auto-pause if idle.
 
-        Calls Control Plane API to execute the full idle detection workflow:
-        1. Fetch telemetry events from CML
-        2. Update worker activity state
-        3. Check idle status and eligibility
-        4. Auto-pause if conditions met
+        Per ADR-015, worker-controller fetches telemetry from CML API
+        and passes raw events to CPA for processing and idle evaluation.
+
+        Flow:
+        1. Fetch raw telemetry events from CML via CmlSystemSpiClient
+        2. Pass events to CPA via detect_worker_idle (internal API)
+        3. CPA filters events, updates activity, checks idle status, auto-pauses
 
         Args:
             worker: Worker to check for activity.
@@ -1507,10 +1509,30 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             Idle detection result dict with keys like is_idle, idle_minutes,
             eligible_for_pause, auto_pause_triggered. None on error.
         """
+        raw_telemetry_events: list[dict[str, Any]] = []
+
+        # Step 1: Fetch raw telemetry events from CML API (ADR-015 delegation)
+        if worker.ip_address:
+            try:
+                raw_telemetry_events = await self._cml.get_telemetry_events(
+                    host=worker.ip_address,
+                    username=worker.cml_username,
+                    password=worker.cml_password,
+                )
+                logger.debug(f"Fetched {len(raw_telemetry_events)} telemetry events from worker {worker.id}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch telemetry events from worker {worker.id}: {e}")
+                # Continue with empty events — CPA will handle gracefully
+                raw_telemetry_events = []
+        else:
+            logger.warning(f"Worker {worker.id} has no IP address, skipping telemetry fetch")
+
+        # Step 2: Send events to CPA for processing and idle evaluation
         try:
             result = await self._api.detect_worker_idle(
                 worker_id=worker.id,
                 force_check=False,
+                raw_telemetry_events=raw_telemetry_events,
             )
 
             # Log detection result

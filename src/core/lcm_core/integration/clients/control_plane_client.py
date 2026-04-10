@@ -1019,11 +1019,12 @@ class ControlPlaneApiClient:
         self,
         worker_id: str,
         force_check: bool = False,
+        raw_telemetry_events: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Execute idle detection for a worker.
 
-        Orchestrates the full idle detection workflow:
-        1. Fetch telemetry events from CML
+        Orchestrates the idle detection workflow:
+        1. Process telemetry events (provided by caller per ADR-015)
         2. Update worker activity state
         3. Check idle status and eligibility
         4. Auto-pause if conditions met
@@ -1031,6 +1032,8 @@ class ControlPlaneApiClient:
         Args:
             worker_id: ID of the worker.
             force_check: Skip next_idle_check_at validation.
+            raw_telemetry_events: Raw CML telemetry events fetched by caller.
+                Per ADR-015, CPA does not call CML API directly.
 
         Returns:
             Detection results including:
@@ -1040,6 +1043,8 @@ class ControlPlaneApiClient:
             - error: Error message if detection failed
         """
         body: dict[str, Any] = {"force_check": force_check}
+        if raw_telemetry_events is not None:
+            body["raw_telemetry_events"] = raw_telemetry_events
 
         result = await self._request(
             "POST",
