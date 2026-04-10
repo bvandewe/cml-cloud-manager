@@ -39,6 +39,7 @@ NON_TERMINAL_STATUSES = [
     LabletSessionStatus.PENDING.value,
     LabletSessionStatus.SCHEDULED.value,
     LabletSessionStatus.INSTANTIATING.value,
+    LabletSessionStatus.READY.value,
     LabletSessionStatus.RUNNING.value,
     LabletSessionStatus.COLLECTING.value,
     LabletSessionStatus.GRADING.value,
@@ -267,6 +268,7 @@ class MongoLabletSessionRepository(TracedRepositoryMixin, MotorRepository[Lablet
         actionable_statuses = [
             LabletSessionStatus.SCHEDULED.value,
             LabletSessionStatus.INSTANTIATING.value,
+            LabletSessionStatus.READY.value,
             LabletSessionStatus.RUNNING.value,
             LabletSessionStatus.COLLECTING.value,
             LabletSessionStatus.GRADING.value,

@@ -20,15 +20,19 @@ from application.commands.lablet_session import (
     MarkSessionReadyCommand,
     RecordResourceObservationCommand,
     ScheduleLabletSessionCommand,
+    SetDesiredStatusCommand,
     StartInstantiationCommand,
     TerminateLabletSessionCommand,
     TransitionLabletSessionCommand,
-    UpdateInstantiationProgressCommand,
+    UpdatePipelineProgressCommand,
 )
+from application.commands.user_session.create_user_session_command import CreateUserSessionCommand
 from application.queries.lablet_session import (
     GetLabletSessionQuery,
+    GetPipelineProgressQuery,
     GetSessionsWithImminentDeadlinesQuery,
     ListLabletSessionsQuery,
+    ListPipelineExecutionsQuery,
 )
 from application.settings import Settings
 from classy_fastapi.decorators import get, post
@@ -105,6 +109,20 @@ class MarkSessionReadyRequest(BaseModel):
     cml_lab_id: str = Field(..., description="CML lab identifier on the worker")
 
 
+class CreateUserSessionRequest(BaseModel):
+    """Request to create a UserSession child entity on a LabletSession.
+
+    Called by lablet-controller after provisioning an LDS session.
+    The UserSession tracks the individual user's connection to the CML lab.
+    If ``lds_login_url`` is provided the entity is immediately transitioned
+    to PROVISIONED state.
+    """
+
+    lds_session_id: str = Field(..., description="LDS session identifier from provisioning")
+    lds_login_url: str | None = Field(default=None, description="JWT-signed launch URL for lablet access")
+    cml_lab_id: str | None = Field(default=None, description="CML lab identifier on the worker (informational)")
+
+
 class StartInstantiationRequest(BaseModel):
     """Request to begin lab instantiation (SCHEDULED → INSTANTIATING)."""
 
@@ -121,13 +139,15 @@ class RecordResourceObservationRequest(BaseModel):
     observed_ports: dict[str, int] = Field(default_factory=dict, description="Actual CML port allocations")
 
 
-class UpdateInstantiationProgressRequest(BaseModel):
-    """Request to update a pipeline step on a session's instantiation progress.
+class UpdatePipelineProgressRequest(BaseModel):
+    """Request to update a pipeline step on a session's pipeline progress.
 
-    ADR-031: Checkpoint-based instantiation pipeline.
+    ADR-034 Sprint E: Supports all pipeline types
+    (instantiate, teardown, collect_evidence, compute_grading).
     """
 
-    step_name: str = Field(..., description="Pipeline step name (e.g., 'ports_alloc', 'lab_resolve')")
+    pipeline_name: str = Field(..., description="Pipeline type: 'instantiate', 'teardown', 'collect_evidence', 'compute_grading'")
+    step_name: str = Field(..., description="Pipeline step name (e.g., 'stop_lab', 'wipe_lab')")
     step_status: str = Field(..., description="Step outcome: 'completed', 'failed', or 'skipped'")
     result_data: dict | None = Field(default=None, description="Optional result payload for completed steps")
     error: str | None = Field(default=None, description="Optional error message for failed steps")
@@ -141,6 +161,21 @@ class BindLabToSessionRequest(BaseModel):
 
     worker_id: str = Field(..., description="ID of the CMLWorker hosting the lab")
     lab_record_id: str = Field(..., description="ID of the LabRecord to bind")
+    cml_lab_id: str | None = Field(default=None, description="CML lab identifier on the worker")
+    cml_lab_title: str | None = Field(default=None, description="CML lab title for display")
+
+
+class SetDesiredStatusRequest(BaseModel):
+    """Request to set the desired lifecycle state (spec) for a session.
+
+    ADR-034 Sprint E / ADR-015 pattern: Follows the Kubernetes-like
+    reconciliation model — desired_status is the target state that
+    controllers reconcile towards.
+    """
+
+    desired_status: str = Field(..., description="Target lifecycle state (running, stopped, terminated)")
+    requested_by: str | None = Field(default=None, description="User or system requesting the change")
+    reason: str | None = Field(default=None, description="Optional reason for the change")
 
 
 class ExpireSessionRequest(BaseModel):
@@ -410,6 +445,36 @@ class InternalSessionsController(ControllerBase):
         return self.process(result)
 
     @post(
+        "/{session_id}/user-session",
+        summary="Create User Session (Internal)",
+        tags=["Internal - Sessions"],
+        status_code=201,
+    )
+    async def create_user_session(
+        self,
+        session_id: session_id_annotation,
+        request: CreateUserSessionRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Create a UserSession child entity on a LabletSession.
+
+        Called by lablet-controller after provisioning an LDS session.
+        Creates a UserSession in PROVISIONING state; if ``lds_login_url``
+        is provided the entity is immediately transitioned to PROVISIONED.
+
+        Returns the created UserSession data including ``user_session_id``.
+        """
+        logger.info(f"[Internal] Creating UserSession for session {session_id} (lds_session_id={request.lds_session_id})")
+
+        command = CreateUserSessionCommand(
+            lablet_session_id=session_id,
+            lds_session_id=request.lds_session_id,
+            lds_login_url=request.lds_login_url,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @post(
         "/{session_id}/resource-observations",
         summary="Record Resource Observations (Internal)",
         tags=["Internal - Sessions"],
@@ -438,35 +503,63 @@ class InternalSessionsController(ControllerBase):
         return self.process(result)
 
     # --------------------------------------------------------------------------
-    # Phase 1: Instantiation Pipeline Endpoints (ADR-031)
+    # Phase 1: Pipeline Progress Endpoints (ADR-034)
     # --------------------------------------------------------------------------
 
     @post(
-        "/{session_id}/instantiation-progress",
-        summary="Update Instantiation Progress (Internal)",
+        "/{session_id}/pipeline-progress",
+        summary="Update Pipeline Progress (Internal)",
         tags=["Internal - Sessions"],
         status_code=200,
     )
-    async def update_instantiation_progress(
+    async def update_pipeline_progress(
         self,
         session_id: session_id_annotation,
-        request: UpdateInstantiationProgressRequest,
+        request: UpdatePipelineProgressRequest,
         api_key: str = Depends(verify_internal_api_key),
     ) -> dict[str, Any]:
-        """Update a pipeline step on a session's instantiation progress.
+        """Update a pipeline step on a session's pipeline progress.
 
-        ADR-031: Called by lablet-controller after each pipeline step completes.
-        The CPA is the source of truth — the controller sends step-level deltas,
-        and the handler applies them to the full InstantiationProgress.
+        ADR-034 Sprint E: The CPA is the source of truth — the controller
+        sends step-level deltas, and the handler applies them per pipeline_name.
         """
-        logger.info(f"[Internal] Updating instantiation progress for session {session_id} (step={request.step_name}, status={request.step_status})")
+        logger.info(f"[Internal] Updating pipeline progress for session {session_id} (pipeline={request.pipeline_name}, step={request.step_name}, status={request.step_status})")
 
-        command = UpdateInstantiationProgressCommand(
+        command = UpdatePipelineProgressCommand(
             session_id=session_id,
+            pipeline_name=request.pipeline_name,
             step_name=request.step_name,
             step_status=request.step_status,
             result_data=request.result_data,
             error=request.error,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @post(
+        "/{session_id}/desired-status",
+        summary="Set Desired Status (Internal)",
+        tags=["Internal - Sessions"],
+        status_code=200,
+    )
+    async def set_desired_status(
+        self,
+        session_id: session_id_annotation,
+        request: SetDesiredStatusRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Set the desired lifecycle state (spec) for a session.
+
+        ADR-034 Sprint E / ADR-015 pattern: Controllers watch etcd for
+        desired_status changes and reconcile actual state accordingly.
+        """
+        logger.info(f"[Internal] Setting desired_status for session {session_id} → {request.desired_status} (requested_by={request.requested_by})")
+
+        command = SetDesiredStatusCommand(
+            session_id=session_id,
+            desired_status=request.desired_status,
+            requested_by=request.requested_by,
+            reason=request.reason,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)
@@ -495,6 +588,8 @@ class InternalSessionsController(ControllerBase):
             session_id=session_id,
             worker_id=request.worker_id,
             lab_record_id=request.lab_record_id,
+            cml_lab_id=request.cml_lab_id,
+            cml_lab_title=request.cml_lab_title,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)
@@ -585,4 +680,57 @@ class InternalSessionsController(ControllerBase):
             reason=request.reason,
         )
         result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    # --------------------------------------------------------------------------
+    # Sprint G (G2): Pipeline Observability Endpoints
+    # --------------------------------------------------------------------------
+
+    @get(
+        "/{session_id}/pipeline-progress",
+        summary="Get Pipeline Progress (Internal)",
+        tags=["Internal - Sessions"],
+    )
+    async def get_pipeline_progress_internal(
+        self,
+        session_id: session_id_annotation,
+        pipeline_name: str | None = None,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Get live pipeline progress for a session.
+
+        Sprint G (G2): Returns per-step status for all pipelines or a
+        single pipeline if pipeline_name is provided.
+        """
+        query = GetPipelineProgressQuery(session_id=session_id, pipeline_name=pipeline_name)
+        result = await self.mediator.execute_async(query)
+        return self.process(result)
+
+    @get(
+        "/{session_id}/pipeline-executions",
+        summary="List Pipeline Execution History (Internal)",
+        tags=["Internal - Sessions"],
+    )
+    async def list_pipeline_executions_internal(
+        self,
+        session_id: session_id_annotation,
+        pipeline_name: str | None = None,
+        execution_status: str | None = None,
+        skip: int = 0,
+        limit: int = 50,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """List auditable PipelineExecutionRecords for a session.
+
+        Sprint G (G2): Returns execution history with timing, step counts,
+        and error information.
+        """
+        query = ListPipelineExecutionsQuery(
+            session_id=session_id,
+            pipeline_name=pipeline_name,
+            status=execution_status,
+            skip=skip,
+            limit=limit,
+        )
+        result = await self.mediator.execute_async(query)
         return self.process(result)

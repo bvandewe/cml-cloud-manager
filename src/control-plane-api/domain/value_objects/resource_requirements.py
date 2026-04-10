@@ -84,6 +84,41 @@ class ResourceRequirements:
         """
         return self.cpu_cores <= available_cpu and self.memory_gb <= available_memory and self.storage_gb <= available_storage
 
+    def with_node_definitions(self, node_definitions: tuple[str, ...]) -> "ResourceRequirements":
+        """Create a copy with updated node_definitions_required.
+
+        Updates the first AmiRequirement's node_definitions_required,
+        or creates a new AmiRequirement if none exist.
+        CPU/memory/storage/nested_virt are preserved unchanged.
+
+        Used by content sync to update topology metadata from CML YAML
+        without overwriting operator-configured resource limits.
+
+        Args:
+            node_definitions: Sorted tuple of unique node definition names.
+
+        Returns:
+            New ResourceRequirements instance with updated ami_requirements.
+        """
+        if self.ami_requirements:
+            first = self.ami_requirements[0]
+            updated_first = AmiRequirement(
+                cml_version_min=first.cml_version_min,
+                cml_version_max=first.cml_version_max,
+                node_definitions_required=node_definitions,
+            )
+            new_ami_reqs = (updated_first, *self.ami_requirements[1:])
+        else:
+            new_ami_reqs = (AmiRequirement(node_definitions_required=node_definitions),)
+
+        return ResourceRequirements(
+            cpu_cores=self.cpu_cores,
+            memory_gb=self.memory_gb,
+            storage_gb=self.storage_gb,
+            nested_virt=self.nested_virt,
+            ami_requirements=new_ami_reqs,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {

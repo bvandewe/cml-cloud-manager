@@ -53,8 +53,13 @@ class SystemConfigurationService:
 
     @classmethod
     def configure(cls, builder: "WebApplicationBuilder") -> None:
-        """Configure the SystemConfigurationService in the dependency injection container."""
-        builder.services.add_singleton(cls)
+        """Configure the SystemConfigurationService in the dependency injection container.
+
+        Registered as scoped because it depends on SystemSettingsRepository,
+        which is scoped (MotorRepository pattern). Singletons cannot depend
+        on scoped services (captive dependency anti-pattern).
+        """
+        builder.services.add_scoped(cls)
 
     async def get_worker_provisioning_settings_async(self) -> EffectiveWorkerProvisioningSettings:
         """Get effective worker provisioning settings."""

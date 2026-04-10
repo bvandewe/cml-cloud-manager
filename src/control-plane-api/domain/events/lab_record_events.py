@@ -292,6 +292,7 @@ class LabRecordDiscoveredDomainEvent(DomainEvent):
     link_count: int
     worker_ip: str | None
     discovered_at: datetime
+    based_on_definition_id: str | None
 
     def __init__(
         self,
@@ -307,6 +308,7 @@ class LabRecordDiscoveredDomainEvent(DomainEvent):
         link_count: int,
         worker_ip: str | None,
         discovered_at: datetime,
+        based_on_definition_id: str | None = None,
     ) -> None:
         super().__init__(aggregate_id)
         self.aggregate_id = aggregate_id
@@ -321,6 +323,7 @@ class LabRecordDiscoveredDomainEvent(DomainEvent):
         self.link_count = link_count
         self.worker_ip = worker_ip
         self.discovered_at = discovered_at
+        self.based_on_definition_id = based_on_definition_id
 
 
 @cloudevent("lab_record.imported.v1")
@@ -666,3 +669,72 @@ class LabRecordPortsAllocatedDomainEvent(DomainEvent):
         self.lab_id = lab_id
         self.allocated_ports = allocated_ports
         self.allocated_at = allocated_at
+
+
+# =============================================================================
+# ADR-034 SPRINT F: PIPELINE RUN HISTORY EVENTS
+# =============================================================================
+
+
+@cloudevent("lab_record.pipeline_run_recorded.v1")
+@dataclass
+class PipelineRunRecordedDomainEvent(DomainEvent):
+    """Event raised when a pipeline execution is recorded on a LabRecord.
+
+    Sprint F (ADR-034): Appends a PipelineRunRecord to the LabRecord's
+    pipeline_run_history. Called after any lifecycle pipeline completes
+    (instantiate, teardown, collect_evidence, compute_grading).
+    """
+
+    lab_id: str
+    run_id: str
+    pipeline_name: str
+    status: str
+    started_at: datetime
+    completed_at: datetime | None
+    duration_seconds: float | None
+    steps_completed: int
+    steps_failed: int
+    steps_skipped: int
+    step_results: dict | None
+    error_message: str | None
+    triggered_by: str
+    lablet_session_id: str | None
+    recorded_at: datetime
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        lab_id: str,
+        run_id: str,
+        pipeline_name: str,
+        status: str,
+        started_at: datetime,
+        completed_at: datetime | None,
+        duration_seconds: float | None,
+        steps_completed: int,
+        steps_failed: int,
+        steps_skipped: int,
+        step_results: dict | None,
+        error_message: str | None,
+        triggered_by: str,
+        lablet_session_id: str | None,
+        recorded_at: datetime,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.lab_id = lab_id
+        self.run_id = run_id
+        self.pipeline_name = pipeline_name
+        self.status = status
+        self.started_at = started_at
+        self.completed_at = completed_at
+        self.duration_seconds = duration_seconds
+        self.steps_completed = steps_completed
+        self.steps_failed = steps_failed
+        self.steps_skipped = steps_skipped
+        self.step_results = step_results
+        self.error_message = error_message
+        self.triggered_by = triggered_by
+        self.lablet_session_id = lablet_session_id
+        self.recorded_at = recorded_at

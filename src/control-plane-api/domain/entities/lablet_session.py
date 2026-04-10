@@ -33,12 +33,13 @@ from domain.events.lablet_session_events import (
     LabletSessionArchivedDomainEvent,
     LabletSessionCollectingDomainEvent,
     LabletSessionCreatedDomainEvent,
+    LabletSessionDesiredStatusUpdatedDomainEvent,
     LabletSessionExpiredDomainEvent,
     LabletSessionGradingDomainEvent,
     LabletSessionInstantiatingDomainEvent,
-    LabletSessionInstantiationProgressUpdatedDomainEvent,
     LabletSessionLabBoundDomainEvent,
     LabletSessionObserveResourcesRequestedDomainEvent,
+    LabletSessionPipelineProgressUpdatedDomainEvent,
     LabletSessionPortDriftDetectedDomainEvent,
     LabletSessionPortsReleasedDomainEvent,
     LabletSessionReadyDomainEvent,
@@ -52,9 +53,13 @@ from domain.events.lablet_session_events import (
     LabletSessionTerminatedDomainEvent,
     LabletSessionTimeslotExtendedDomainEvent,
 )
-from domain.value_objects.state_transition import StateTransition
+from domain.lifecycles import LABLET_SESSION_LIFECYCLE
+from lcm_core.domain.entities.timed_resource import TimedResourceState
+from lcm_core.domain.value_objects.managed_lifecycle import ManagedLifecycle
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from lcm_core.domain.value_objects.timeslot import Timeslot
 from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot, AggregateState
+from neuroglia.data.abstractions import AggregateRoot
 
 
 class InvalidStateTransitionError(Exception):
@@ -67,11 +72,24 @@ class InvalidStateTransitionError(Exception):
         super().__init__(self.message)
 
 
-class LabletSessionState(AggregateState[str]):
+class LabletSessionState(TimedResourceState):
     """Encapsulates the persisted state for the LabletSession aggregate.
 
-    Tracks the full lifecycle of a lab session including scheduling,
-    execution, assessment, and termination.
+    Inheritance hierarchy (ADR-036 §2.1.4):
+        AggregateState[str]  (Neuroglia)
+            └── ResourceState  (Layer 1 — status, desired_status, state_history)
+                    └── TimedResourceState  (Layer 2 — timeslot, lifecycle, timestamps)
+                            └── LabletSessionState  ← YOU ARE HERE
+
+    Inherits from TimedResourceState:
+        - resource_type, owner_id, pipeline_progress (from ResourceState)
+        - timeslot, lifecycle (from TimedResourceState)
+        - started_at, ended_at, duration_seconds, terminated_at (from TimedResourceState)
+
+    Shadows parent fields with typed versions:
+        - status: LabletSessionStatus (parent: str)
+        - desired_status: LabletSessionStatus (parent: str | None)
+        - state_history: list[dict] (parent: list)
 
     Consolidated state — replaces LabletInstanceState + LabletLabBinding
     + LabletRecordRun fields (ADR-020 §2).
@@ -90,24 +108,19 @@ class LabletSessionState(AggregateState[str]):
 
     # Lifecycle state
     status: LabletSessionStatus
-    state_history: list[StateTransition]
+    desired_status: LabletSessionStatus  # Spec: What user/system wants (reconciliation target)
+    state_history: list[dict]
 
     # Scheduling (set when SCHEDULED)
     worker_id: str | None
-    timeslot_start: datetime
-    timeslot_end: datetime
 
     # Lab binding — absorbed from LabletLabBinding (ADR-020 §2, §3)
     lab_record_id: str | None  # Direct 1:1 FK (was via LabletLabBinding)
     cml_lab_id: str | None  # CML lab identifier on the worker
+    cml_lab_title: str | None  # CML lab title for display
 
     # Port allocation — absorbed from LabletRecordRun (ADR-020 §2)
     allocated_ports: dict[str, int] | None  # {"serial_1": 5041, "vnc_1": 5044}
-
-    # Runtime tracking — absorbed from LabletRecordRun (ADR-020 §2)
-    started_at: datetime | None  # When RUNNING state entered
-    ended_at: datetime | None  # When session completed (STOPPED/TERMINATED)
-    duration_seconds: float | None  # Computed on completion
 
     # Child entity FKs (ADR-021 §4)
     user_session_id: str | None  # → UserSession (LDS session tracking)
@@ -129,11 +142,14 @@ class LabletSessionState(AggregateState[str]):
     observation_count: int  # Number of observations recorded
     observed_at: datetime | None  # Timestamp of last observation
 
-    # Instantiation pipeline (ADR-031)
-    instantiation_progress: dict | None  # Serialized InstantiationProgress
+    # Generic pipeline progress — keyed by pipeline name (ADR-034 Sprint E)
+    # All pipelines (instantiate, teardown, collect_evidence, compute_grading)
+    # are stored here.
+    pipeline_progress: dict | None  # {"instantiate": {...}, "teardown": {...}, ...}
 
     def __init__(self) -> None:
         super().__init__()
+        self.resource_type = "lablet_session"
         self.id = ""
         self.definition_id = ""
         self.definition_name = ""
@@ -143,20 +159,15 @@ class LabletSessionState(AggregateState[str]):
         self.reservation_id = None
 
         self.status = LabletSessionStatus.PENDING
+        self.desired_status = LabletSessionStatus.RUNNING  # Default: user wants session running
         self.state_history = []
 
         now = datetime.now(timezone.utc)
-        self.timeslot_start = now
-        self.timeslot_end = now
 
         self.worker_id = None
         self.lab_record_id = None
         self.cml_lab_id = None
         self.allocated_ports = None
-
-        self.started_at = None
-        self.ended_at = None
-        self.duration_seconds = None
 
         self.user_session_id = None
         self.grading_session_id = None
@@ -164,6 +175,7 @@ class LabletSessionState(AggregateState[str]):
         self.grade_result = None
 
         self.created_at = now
+        self.updated_at = now
         self.scheduled_at = None
         self.terminated_at = None
 
@@ -174,18 +186,66 @@ class LabletSessionState(AggregateState[str]):
         self.observation_count = 0
         self.observed_at = None
 
-        # ADR-031: Instantiation pipeline
-        self.instantiation_progress = None
+        # ADR-034 Sprint E: Generic pipeline progress
+        self.pipeline_progress = None
+
+    # --- Timeslot VO backward-compatible accessors (ADR-036 Batch F) ---
+
+    @property
+    def timeslot_start(self) -> datetime:
+        """Backward-compatible accessor — reads from Timeslot VO."""
+        ts = self.get_timeslot()
+        return ts.start if ts else self.created_at
+
+    @timeslot_start.setter
+    def timeslot_start(self, value: datetime) -> None:
+        """Legacy setter for Neuroglia deserialization of old documents."""
+        object.__setattr__(self, "_legacy_ts_start", value)
+
+    @property
+    def timeslot_end(self) -> datetime:
+        """Backward-compatible accessor — reads from Timeslot VO."""
+        ts = self.get_timeslot()
+        return ts.end if ts else self.created_at
+
+    @timeslot_end.setter
+    def timeslot_end(self, value: datetime) -> None:
+        """Legacy setter for Neuroglia deserialization of old documents."""
+        object.__setattr__(self, "_legacy_ts_end", value)
+
+    def get_timeslot(self) -> Timeslot | None:
+        """Deserialize timeslot with legacy field fallback.
+
+        Overrides TimedResourceState.get_timeslot() to support migration
+        from legacy timeslot_start/timeslot_end fields (ADR-036 Batch F).
+        """
+        result = super().get_timeslot()
+        if result is not None:
+            return result
+        # Fallback: legacy documents with direct timeslot_start/timeslot_end
+        ts_start = getattr(self, "_legacy_ts_start", None)
+        ts_end = getattr(self, "_legacy_ts_end", None)
+        if ts_start is not None and ts_end is not None and isinstance(ts_start, datetime) and isinstance(ts_end, datetime) and ts_end > ts_start:
+            return Timeslot(start=ts_start, end=ts_end)
+        return None
 
     def _record_transition(
         self,
-        from_state: LabletSessionStatus | None,
-        to_state: LabletSessionStatus,
-        triggered_by: str,
+        from_state: str | None,
+        to_state: str,
+        triggered_by: str = "system",
         reason: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Record a state transition in the history."""
+        """Record a state transition in the history.
+
+        Overrides ResourceState._record_transition() for two reasons:
+        1. Stores transitions as dicts (via StateTransition.to_dict()) instead
+           of StateTransition objects, for Neuroglia serialization compatibility.
+        2. Maintains updated_at behavior consistent with ResourceState base class.
+
+        ADR-036 Batch F: Follows CMLWorkerState pattern from Batch E.
+        """
         transition = StateTransition(
             from_state=from_state,
             to_state=to_state,
@@ -194,7 +254,8 @@ class LabletSessionState(AggregateState[str]):
             reason=reason,
             metadata=metadata,
         )
-        self.state_history.append(transition)
+        self.state_history.append(transition.to_dict())
+        self.updated_at = datetime.now(timezone.utc)
 
     # --- Event Handlers (14 @dispatch handlers) ---
 
@@ -206,14 +267,20 @@ class LabletSessionState(AggregateState[str]):
         self.definition_name = event.definition_name
         self.definition_version = event.definition_version
         self.owner_id = event.owner_id
-        self.timeslot_start = event.timeslot_start
-        self.timeslot_end = event.timeslot_end
         self.reservation_id = event.reservation_id
         self.created_at = event.created_at
+        self.updated_at = event.created_at
         self.status = LabletSessionStatus.PENDING
+        self.desired_status = LabletSessionStatus.RUNNING  # Default: user wants session running
+        # TimedResource: Timeslot VO and lifecycle (ADR-036 Batch F)
+        self.set_timeslot(Timeslot(start=event.timeslot_start, end=event.timeslot_end))
+        self.lifecycle = ManagedLifecycle(
+            phases=LABLET_SESSION_LIFECYCLE.phases,
+            current_phase="schedule",
+        ).to_dict()
         self._record_transition(
             from_state=None,
-            to_state=LabletSessionStatus.PENDING,
+            to_state=LabletSessionStatus.PENDING.value,
             triggered_by="system",
             reason="Session created",
         )
@@ -228,8 +295,8 @@ class LabletSessionState(AggregateState[str]):
         self.scheduled_at = event.scheduled_at
         self.status = LabletSessionStatus.SCHEDULED
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.SCHEDULED,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.SCHEDULED.value,
             triggered_by=event.scheduled_by,
             reason=f"Scheduled on worker {event.worker_id}",
             metadata={
@@ -244,8 +311,8 @@ class LabletSessionState(AggregateState[str]):
         old_status = self.status
         self.status = LabletSessionStatus.INSTANTIATING
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.INSTANTIATING,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.INSTANTIATING.value,
             triggered_by="lablet-controller",
             reason="Lab import/startup initiated",
         )
@@ -258,8 +325,8 @@ class LabletSessionState(AggregateState[str]):
         self.cml_lab_id = event.cml_lab_id
         self.status = LabletSessionStatus.READY
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.READY,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.READY.value,
             triggered_by="lablet-controller",
             reason="Infrastructure ready, UserSession provisioned",
             metadata={
@@ -275,8 +342,8 @@ class LabletSessionState(AggregateState[str]):
         self.started_at = event.started_at
         self.status = LabletSessionStatus.RUNNING
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.RUNNING,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.RUNNING.value,
             triggered_by="lds-event",
             reason="User logged in, session active",
         )
@@ -287,8 +354,8 @@ class LabletSessionState(AggregateState[str]):
         old_status = self.status
         self.status = LabletSessionStatus.COLLECTING
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.COLLECTING,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.COLLECTING.value,
             triggered_by="lablet-controller",
             reason="Assessment data collection started",
         )
@@ -300,8 +367,8 @@ class LabletSessionState(AggregateState[str]):
         self.grading_session_id = event.grading_session_id
         self.status = LabletSessionStatus.GRADING
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.GRADING,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.GRADING.value,
             triggered_by="lablet-controller",
             reason="Grading started",
             metadata={"grading_session_id": event.grading_session_id},
@@ -323,8 +390,8 @@ class LabletSessionState(AggregateState[str]):
         old_status = self.status
         self.status = LabletSessionStatus.STOPPING
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.STOPPING,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.STOPPING.value,
             triggered_by="lablet-controller",
             reason=event.reason or "Session shutdown initiated",
         )
@@ -334,11 +401,11 @@ class LabletSessionState(AggregateState[str]):
         """Apply the stopped event to the state."""
         old_status = self.status
         self.ended_at = event.stopped_at
-        self.duration_seconds = event.duration_seconds
+        self._compute_duration()
         self.status = LabletSessionStatus.STOPPED
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.STOPPED,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.STOPPED.value,
             triggered_by="lablet-controller",
             reason="Session stopped",
         )
@@ -349,8 +416,8 @@ class LabletSessionState(AggregateState[str]):
         old_status = self.status
         self.status = LabletSessionStatus.ARCHIVED
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.ARCHIVED,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.ARCHIVED.value,
             triggered_by=event.archived_by,
             reason="Session archived",
         )
@@ -363,13 +430,13 @@ class LabletSessionState(AggregateState[str]):
         # Only set ended_at if not already set (e.g., from STOPPED → TERMINATED)
         if self.ended_at is None:
             self.ended_at = event.terminated_at
-        # Only set duration if not already computed
-        if self.duration_seconds is None and event.duration_seconds is not None:
-            self.duration_seconds = event.duration_seconds
+        # Compute duration from started_at/ended_at if not already set
+        if self.duration_seconds is None:
+            self._compute_duration()
         self.status = LabletSessionStatus.TERMINATED
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.TERMINATED,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.TERMINATED.value,
             triggered_by=event.terminated_by,
             reason=event.reason or "Session terminated",
         )
@@ -382,7 +449,10 @@ class LabletSessionState(AggregateState[str]):
     @dispatch(LabletSessionTimeslotExtendedDomainEvent)
     def on(self, event: LabletSessionTimeslotExtendedDomainEvent) -> None:  # type: ignore[override]
         """Apply the timeslot extended event to the state."""
-        self.timeslot_end = event.new_timeslot_end
+        current_ts = self.get_timeslot()
+        if current_ts:
+            new_ts = current_ts.extend(event.new_timeslot_end)
+            self.set_timeslot(new_ts)
 
     @dispatch(LabletSessionRequeuedDomainEvent)
     def on(self, event: LabletSessionRequeuedDomainEvent) -> None:  # type: ignore[override]
@@ -392,8 +462,8 @@ class LabletSessionState(AggregateState[str]):
         so that change-detection mechanisms re-process this session.
         """
         self._record_transition(
-            from_state=self.status,
-            to_state=self.status,  # Same status — no change
+            from_state=self.status.value,
+            to_state=self.status.value,  # Same status — no change
             triggered_by=event.requeued_by,
             reason=event.reason or "Manual requeue for reconciliation",
             metadata={"requeue": True},
@@ -430,15 +500,24 @@ class LabletSessionState(AggregateState[str]):
         """
         self.updated_at = event.requested_at
 
-    @dispatch(LabletSessionInstantiationProgressUpdatedDomainEvent)
-    def on(self, event: LabletSessionInstantiationProgressUpdatedDomainEvent) -> None:  # type: ignore[override]
-        """Apply instantiation pipeline step update to the state.
+    @dispatch(LabletSessionPipelineProgressUpdatedDomainEvent)
+    def on(self, event: LabletSessionPipelineProgressUpdatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply pipeline progress update to the state.
 
-        ADR-031: Updates the serialized instantiation_progress dict.
-        Does NOT change session status — status transitions happen via
-        their own events (e.g., INSTANTIATING → READY).
+        ADR-034 Sprint E: Stores progress per pipeline name in the
+        pipeline_progress dict.
         """
-        self.instantiation_progress = event.progress_data
+        if self.pipeline_progress is None:
+            self.pipeline_progress = {}
+        self.pipeline_progress[event.pipeline_name] = event.progress_data
+
+    @dispatch(LabletSessionDesiredStatusUpdatedDomainEvent)
+    def on(self, event: LabletSessionDesiredStatusUpdatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the desired status updated event to the state (spec change).
+
+        ADR-034 Sprint E: Follows CMLWorker desired_status pattern (ADR-015).
+        """
+        self.desired_status = LabletSessionStatus(event.new_desired_status)
 
     @dispatch(LabletSessionExpiredDomainEvent)
     def on(self, event: LabletSessionExpiredDomainEvent) -> None:  # type: ignore[override]
@@ -448,12 +527,11 @@ class LabletSessionState(AggregateState[str]):
         """
         old_status = self.status
         self.ended_at = event.expired_at
-        if self.duration_seconds is None and event.duration_seconds is not None:
-            self.duration_seconds = event.duration_seconds
+        self._compute_duration()
         self.status = LabletSessionStatus.EXPIRED
         self._record_transition(
-            from_state=old_status,
-            to_state=LabletSessionStatus.EXPIRED,
+            from_state=old_status.value,
+            to_state=LabletSessionStatus.EXPIRED.value,
             triggered_by="system",
             reason=event.reason or "Timeslot expired",
         )
@@ -463,10 +541,15 @@ class LabletSessionState(AggregateState[str]):
         """Apply lab binding to the session state.
 
         ADR-031 / ADR-032: Lab binding during the instantiation pipeline.
-        Sets lab_record_id and denormalizes allocated_ports from the LabRecord.
+        Sets lab_record_id, denormalizes allocated_ports from the LabRecord,
+        and sets cml_lab_id/cml_lab_title early (available before mark_ready).
         """
         self.lab_record_id = event.lab_record_id
         self.allocated_ports = dict(event.allocated_ports) if event.allocated_ports else None
+        if event.cml_lab_id:
+            self.cml_lab_id = event.cml_lab_id
+        if event.cml_lab_title:
+            self.cml_lab_title = event.cml_lab_title
 
 
 class LabletSession(AggregateRoot[LabletSessionState, str]):
@@ -967,31 +1050,34 @@ class LabletSession(AggregateRoot[LabletSessionState, str]):
             )
         )
 
-    # --- Instantiation Pipeline (ADR-031) ---
+    # --- Pipeline Progress (ADR-034 Sprint E) ---
 
-    def update_instantiation_progress(
+    def update_pipeline_progress(
         self,
+        pipeline_name: str,
         step_name: str,
         step_status: str,
         progress_data: dict,
     ) -> None:
-        """Update instantiation pipeline progress after a step completes.
+        """Update pipeline progress after a step completes.
+
+        ADR-034 Sprint E: Tracks progress for all pipeline types
+        (instantiate, teardown, collect_evidence, compute_grading).
 
         Does NOT change session status — the pipeline progress is tracked
-        independently. Status transitions (e.g., INSTANTIATING → READY)
-        happen via their own dedicated methods.
-
-        ADR-031: Checkpoint-based instantiation pipeline.
+        independently. Status transitions happen via dedicated methods.
 
         Args:
-            step_name: Name of the completed step (e.g., "ports_alloc").
+            pipeline_name: Pipeline type (e.g., "instantiate", "teardown").
+            step_name: Name of the completed step.
             step_status: Step outcome — "completed", "failed", or "skipped".
-            progress_data: Full serialized InstantiationProgress dict.
+            progress_data: Full serialized progress dict for this pipeline.
         """
         self.state.on(
             self.register_event(  # type: ignore
-                LabletSessionInstantiationProgressUpdatedDomainEvent(
+                LabletSessionPipelineProgressUpdatedDomainEvent(
                     aggregate_id=self.id(),
+                    pipeline_name=pipeline_name,
                     step_name=step_name,
                     step_status=step_status,
                     progress_data=progress_data,
@@ -1000,16 +1086,63 @@ class LabletSession(AggregateRoot[LabletSessionState, str]):
             )
         )
 
-    def bind_lab(self, lab_record_id: str, allocated_ports: dict[str, int] | None = None) -> None:
+    def update_desired_status(
+        self,
+        new_desired_status: LabletSessionStatus,
+        requested_by: str | None = None,
+        reason: str | None = None,
+    ) -> bool:
+        """Update the desired status (spec) — what the user/system wants.
+
+        ADR-034 Sprint E / ADR-015 pattern: Follows the Kubernetes-like
+        reconciliation model. The lablet-controller watches etcd for
+        desired_status changes and reconciles actual state accordingly.
+
+        Args:
+            new_desired_status: Target lifecycle state.
+            requested_by: User or system that requested the change.
+            reason: Optional reason for the change.
+
+        Returns:
+            True if the desired_status changed, False if already at target.
+        """
+        if self.state.desired_status == new_desired_status:
+            return False
+
+        old_desired_status = self.state.desired_status
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletSessionDesiredStatusUpdatedDomainEvent(
+                    aggregate_id=self.id(),
+                    old_desired_status=old_desired_status.value,
+                    new_desired_status=new_desired_status.value,
+                    updated_at=datetime.now(timezone.utc),
+                    requested_by=requested_by,
+                    reason=reason,
+                )
+            )
+        )
+        return True
+
+    def bind_lab(
+        self,
+        lab_record_id: str,
+        allocated_ports: dict[str, int] | None = None,
+        cml_lab_id: str | None = None,
+        cml_lab_title: str | None = None,
+    ) -> None:
         """Bind a LabRecord to this session during the instantiation pipeline.
 
         ADR-031 / ADR-032: Lab binding is a pipeline step, not part of
         scheduling. Sets lab_record_id and denormalizes allocated_ports
-        from the LabRecord for downstream consumption.
+        from the LabRecord for downstream consumption. Also sets cml_lab_id
+        and cml_lab_title early so they are available before mark_ready.
 
         Args:
             lab_record_id: The LabRecord aggregate ID to bind.
             allocated_ports: Port mapping to denormalize from LabRecord.
+            cml_lab_id: CML lab identifier on the worker.
+            cml_lab_title: CML lab title for display.
         """
         self.state.on(
             self.register_event(  # type: ignore
@@ -1018,6 +1151,8 @@ class LabletSession(AggregateRoot[LabletSessionState, str]):
                     lab_record_id=lab_record_id,
                     allocated_ports=allocated_ports or {},
                     bound_at=datetime.now(timezone.utc),
+                    cml_lab_id=cml_lab_id,
+                    cml_lab_title=cml_lab_title,
                 )
             )
         )
@@ -1086,8 +1221,10 @@ class LabletSession(AggregateRoot[LabletSessionState, str]):
     @property
     def duration_minutes(self) -> int:
         """Calculate the scheduled duration in minutes."""
-        delta = self.state.timeslot_end - self.state.timeslot_start
-        return int(delta.total_seconds() / 60)
+        ts = self.state.get_timeslot()
+        if ts:
+            return int(ts.duration.total_seconds() / 60)
+        return 0
 
     @property
     def actual_duration_minutes(self) -> int | None:
@@ -1105,9 +1242,9 @@ class LabletSession(AggregateRoot[LabletSessionState, str]):
 
     @property
     def last_transition(self) -> StateTransition | None:
-        """Return the most recent state transition."""
+        """Return the most recent state transition (reconstructed from dict)."""
         if self.state.state_history:
-            return self.state.state_history[-1]
+            return StateTransition.from_dict(self.state.state_history[-1])
         return None
 
     @property

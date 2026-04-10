@@ -11,6 +11,7 @@ from .lab_record_repository import LabRecordRepository
 from .lablet_definition_repository import LabletDefinitionRepository
 from .lablet_session_repository import LabletSessionRepository
 from .pending_lab_import_repository import PendingLabImportRepository
+from .pipeline_execution_repository import PipelineExecutionRepository
 from .score_report_repository import ScoreReportRepository
 from .user_session_repository import UserSessionRepository
 from .worker_template_repository import WorkerTemplateRepository
@@ -22,6 +23,7 @@ __all__ = [
     "LabletDefinitionRepository",
     "LabletSessionRepository",
     "PendingLabImportRepository",
+    "PipelineExecutionRepository",
     "ScoreReportRepository",
     "UserSessionRepository",
     "WorkerTemplateRepository",

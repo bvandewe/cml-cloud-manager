@@ -56,6 +56,7 @@ from domain.events.worker_metrics_events import (
     EC2InstanceDetailsUpdatedDomainEvent,
     EC2MetricsUpdatedDomainEvent,
 )
+from domain.lifecycles import CML_WORKER_LIFECYCLE
 from domain.value_objects.cml_license import CMLLicense
 from domain.value_objects.cml_metrics import (
     CMLMetrics,
@@ -70,12 +71,32 @@ from domain.value_objects.cml_metrics import (
 )
 from domain.value_objects.port_allocation import PortAllocation
 from domain.value_objects.worker_capacity import WorkerCapacity
+from lcm_core.domain.entities.timed_resource import TimedResourceState
+from lcm_core.domain.value_objects.managed_lifecycle import ManagedLifecycle
+from lcm_core.domain.value_objects.state_transition import StateTransition
 from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot, AggregateState
+from neuroglia.data.abstractions import AggregateRoot
 
 
-class CMLWorkerState(AggregateState[str]):
-    """Encapsulates the persisted state for the CML Worker aggregate."""
+class CMLWorkerState(TimedResourceState):
+    """Encapsulates the persisted state for the CML Worker aggregate.
+
+    Inheritance hierarchy (ADR-036 §2.1.4):
+        AggregateState[str]  (Neuroglia)
+            └── ResourceState  (Layer 1 — status, desired_status, state_history)
+                    └── TimedResourceState  (Layer 2 — timeslot, lifecycle, timestamps)
+                            └── CMLWorkerState  ← YOU ARE HERE
+
+    Inherits from TimedResourceState:
+        - resource_type, owner_id, pipeline_progress (from ResourceState)
+        - timeslot, lifecycle (from TimedResourceState)
+        - started_at, ended_at, duration_seconds, terminated_at (from TimedResourceState)
+
+    Shadows parent fields with typed versions:
+        - status: CMLWorkerStatus (parent: str)
+        - desired_status: CMLWorkerStatus (parent: str | None)
+        - state_history: list[dict] (parent: list)
+    """
 
     id: str
     name: str
@@ -161,8 +182,14 @@ class CMLWorkerState(AggregateState[str]):
     port_allocations: list[PortAllocation]  # Ports allocated to lablet sessions
     session_ids: list[str]  # IDs of lablet sessions assigned to this worker
 
+    # State history — audit trail of EC2 lifecycle transitions (ADR-036 §2.1.4)
+    # Stored as list[dict] (StateTransition.to_dict()) for Neuroglia serialization.
+    # Captures status changes with AMI/licensing context in metadata.
+    state_history: list[dict]
+
     def __init__(self) -> None:
         super().__init__()
+        self.resource_type = "cml_worker"
         self.id = ""
         self.name = ""
         self.aws_region = ""
@@ -238,6 +265,38 @@ class CMLWorkerState(AggregateState[str]):
         self.port_allocations = []
         self.session_ids = []
 
+        # State history (ADR-036)
+        self.state_history = []
+
+    def _record_transition(
+        self,
+        from_state: str | None,
+        to_state: str,
+        triggered_by: str = "system",
+        reason: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        """Record a state transition in the history.
+
+        Overrides ResourceState._record_transition() for two reasons:
+        1. Stores transitions as dicts (via StateTransition.to_dict()) instead
+           of StateTransition objects, for Neuroglia serialization compatibility.
+        2. Maintains updated_at behavior consistent with ResourceState base class.
+
+        ADR-036 Batch E decision: Accept ResourceState's updated_at behavior
+        (update on every transition) for consistency across all resource types.
+        """
+        transition = StateTransition(
+            from_state=from_state,
+            to_state=to_state,
+            transitioned_at=datetime.now(timezone.utc),
+            triggered_by=triggered_by,
+            reason=reason,
+            metadata=metadata,
+        )
+        self.state_history.append(transition.to_dict())
+        self.updated_at = datetime.now(timezone.utc)
+
     @dispatch(CMLWorkerCreatedDomainEvent)
     def on(self, event: CMLWorkerCreatedDomainEvent) -> None:  # type: ignore[override]
         """Apply the creation event to the state."""
@@ -257,6 +316,23 @@ class CMLWorkerState(AggregateState[str]):
         self.updated_at = event.created_at
         self.created_by = event.created_by
         self.origin = event.origin
+        # TimedResource lifecycle (ADR-036 §2.1.4 Batch E)
+        self.started_at = event.created_at
+        self.lifecycle = ManagedLifecycle(
+            phases=CML_WORKER_LIFECYCLE.phases,
+            current_phase="provision",
+        ).to_dict()
+        self._record_transition(
+            from_state=None,
+            to_state=event.status.value,
+            triggered_by=event.created_by or "system",
+            reason="Worker created",
+            metadata={
+                "origin": event.origin.value,
+                "instance_type": event.instance_type,
+                "ami_name": event.ami_name,
+            },
+        )
 
     @dispatch(CMLWorkerImportedDomainEvent)
     def on(self, event: CMLWorkerImportedDomainEvent) -> None:  # type: ignore[override]
@@ -293,12 +369,42 @@ class CMLWorkerState(AggregateState[str]):
         else:
             self.status = CMLWorkerStatus.UNKNOWN
             self.desired_status = CMLWorkerStatus.RUNNING  # Unknown = assume user wants running
+        # TimedResource lifecycle (ADR-036 §2.1.4 Batch E)
+        # Imported workers assign lifecycle with current_phase based on import state.
+        # Running imports skip provision/startup/initial_metrics phases.
+        self.started_at = event.created_at
+        if self.status == CMLWorkerStatus.RUNNING:
+            import_phase = "monitor_resources"
+        elif self.status == CMLWorkerStatus.STOPPED:
+            import_phase = None  # Lifecycle paused
+        else:
+            import_phase = "provision"  # Default: start from beginning
+        self.lifecycle = ManagedLifecycle(
+            phases=CML_WORKER_LIFECYCLE.phases,
+            current_phase=import_phase,
+        ).to_dict()
+        self._record_transition(
+            from_state=None,
+            to_state=self.status.value,
+            triggered_by=event.created_by or "system",
+            reason="Worker imported from existing EC2 instance",
+            metadata={
+                "origin": event.origin.value,
+                "instance_state": event.instance_state,
+                "ami_id": event.ami_id,
+                "ami_name": event.ami_name,
+            },
+        )
 
     @dispatch(CMLWorkerStatusUpdatedDomainEvent)
     def on(self, event: CMLWorkerStatusUpdatedDomainEvent) -> None:  # type: ignore[override]
         """Apply the status updated event to the state."""
         self.status = event.new_status
         self.updated_at = event.updated_at
+        self._record_transition(
+            from_state=event.old_status.value,
+            to_state=event.new_status.value,
+        )
         # Track transition initiation timestamps for long-running operations
         if event.new_status == CMLWorkerStatus.PENDING:
             # Starting
@@ -523,11 +629,21 @@ class CMLWorkerState(AggregateState[str]):
     @dispatch(CMLWorkerTerminatedDomainEvent)
     def on(self, event: CMLWorkerTerminatedDomainEvent) -> None:  # type: ignore[override]
         """Apply the terminated event to the state."""
+        previous_status = self.status.value  # Capture before mutation
         self.status = CMLWorkerStatus.TERMINATED
         self.service_status = CMLServiceStatus.UNAVAILABLE
         self.terminated_at = event.terminated_at
         self.terminated_by = event.terminated_by
         self.updated_at = event.terminated_at
+        # TimedResource lifecycle completion (ADR-036 §2.1.4 Batch E)
+        self.ended_at = event.terminated_at
+        self._compute_duration()
+        self._record_transition(
+            from_state=previous_status,
+            to_state=CMLWorkerStatus.TERMINATED.value,
+            triggered_by=event.terminated_by or "system",
+            reason="Worker terminated",
+        )
 
     @dispatch(CMLWorkerTagsUpdatedDomainEvent)
     def on(self, event: CMLWorkerTagsUpdatedDomainEvent) -> None:  # type: ignore[override]

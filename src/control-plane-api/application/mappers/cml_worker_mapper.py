@@ -7,10 +7,10 @@ Neuroglia's Mapper.map() function instead of manual dict crafting.
 import json
 import logging
 
-from neuroglia.serialization.json import JsonSerializer
-
 from application.dtos.cml_worker_dto import CMLWorkerDto
 from domain.entities.cml_worker import CMLWorker
+from domain.value_objects.worker_capacity import WorkerCapacity
+from neuroglia.serialization.json import JsonSerializer
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +44,20 @@ def map_worker_to_dto(worker: CMLWorker) -> CMLWorkerDto:
         except (ValueError, TypeError):
             return None
         return max(0.0, min(100.0, fv))
+
+    # Derive declared_capacity: use persisted value if available, otherwise
+    # fall back to CML system_info hardware metrics so the frontend can show
+    # fleet capacity even before the aggregate persists a capacity update.
+    declared_cap = getattr(s, "declared_capacity", None)
+    if declared_cap is None and hasattr(s, "metrics") and s.metrics and s.metrics.system_info:
+        si = s.metrics.system_info
+        if si.cpu_count and si.memory_total and si.disk_total:
+            declared_cap = WorkerCapacity(
+                cpu_cores=int(si.cpu_count),
+                memory_gb=int(si.memory_total / (1024**3)),
+                storage_gb=int(si.disk_total / (1024**3)),
+                max_nodes=None,
+            )
 
     return CMLWorkerDto(
         # Identity
@@ -125,7 +139,8 @@ def map_worker_to_dto(worker: CMLWorker) -> CMLWorkerDto:
         # Capacity Management
         # Use getattr with defaults for fields that may not exist on workers
         # persisted before the capacity management phase was added.
-        declared_capacity=s.declared_capacity.to_dict() if getattr(s, "declared_capacity", None) else None,
+        # declared_cap computed above (with system_info fallback for imported workers).
+        declared_capacity=declared_cap.to_dict() if declared_cap else None,
         allocated_capacity=s.allocated_capacity.to_dict() if getattr(s, "allocated_capacity", None) else None,
         session_ids=list(getattr(s, "session_ids", None) or []),
         # Port Usage — defaults to 0; enriched by query handler via PortAllocationService

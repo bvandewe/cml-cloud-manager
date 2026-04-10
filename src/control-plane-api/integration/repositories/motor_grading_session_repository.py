@@ -6,6 +6,7 @@ GradingSession is a child entity of LabletSession stored in its own collection.
 Pattern: Direct Motor collection access with manual serialization.
 """
 
+import json
 import logging
 from typing import Any
 
@@ -57,18 +58,16 @@ class MongoGradingSessionRepository(GradingSessionRepository):
         """Serialize a GradingSession to a MongoDB document."""
         raw = self._serializer.serialize(entity)
         if isinstance(raw, (bytes, bytearray)):
-            import json
-
             return json.loads(raw.decode("utf-8"))
         if isinstance(raw, str):
-            import json
-
             return json.loads(raw)
         return raw  # type: ignore[return-value]
 
     def _deserialize(self, document: dict[str, Any]) -> GradingSession:
         """Deserialize a MongoDB document to a GradingSession."""
-        return self._serializer.deserialize(document, GradingSession)  # type: ignore[return-value]
+        doc = {k: v for k, v in document.items() if k != "_id"}
+        json_bytes = json.dumps(doc, default=str).encode("utf-8")
+        return self._serializer.deserialize(json_bytes, GradingSession)  # type: ignore[return-value]
 
     # --- CRUD ---
 

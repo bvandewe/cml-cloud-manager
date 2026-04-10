@@ -625,44 +625,7 @@ class LabletSessionObserveResourcesRequestedDomainEvent(DomainEvent):
 
 
 # ---------------------------------------------------------------------------
-# 19. InstantiationProgressUpdated — Pipeline step completed (ADR-031)
-# ---------------------------------------------------------------------------
-
-
-@cloudevent("lablet_session.instantiation_progress_updated.v1")
-@dataclass
-class LabletSessionInstantiationProgressUpdatedDomainEvent(DomainEvent):
-    """Event raised when an instantiation pipeline step completes.
-
-    ADR-031: Checkpoint-based instantiation pipeline.
-    Published after each step completes/fails/skips so that SSE
-    clients can render real-time progress in the Pipeline tab.
-    """
-
-    aggregate_id: str
-    step_name: str
-    step_status: str  # "completed" | "failed" | "skipped"
-    progress_data: dict
-    updated_at: datetime
-
-    def __init__(
-        self,
-        aggregate_id: str,
-        step_name: str,
-        step_status: str,
-        progress_data: dict,
-        updated_at: datetime,
-    ) -> None:
-        super().__init__(aggregate_id)
-        self.aggregate_id = aggregate_id
-        self.step_name = step_name
-        self.step_status = step_status
-        self.progress_data = progress_data
-        self.updated_at = updated_at
-
-
-# ---------------------------------------------------------------------------
-# 20. Expired — Session timeslot expired (ADR-031 / AD-TIMESLOT-001)
+# 19. Expired — Session timeslot expired (ADR-031 / AD-TIMESLOT-001)
 # ---------------------------------------------------------------------------
 
 
@@ -719,6 +682,8 @@ class LabletSessionLabBoundDomainEvent(DomainEvent):
     lab_record_id: str
     allocated_ports: dict[str, int]
     bound_at: datetime
+    cml_lab_id: str | None = None
+    cml_lab_title: str | None = None
 
     def __init__(
         self,
@@ -726,9 +691,98 @@ class LabletSessionLabBoundDomainEvent(DomainEvent):
         lab_record_id: str,
         allocated_ports: dict[str, int],
         bound_at: datetime,
+        cml_lab_id: str | None = None,
+        cml_lab_title: str | None = None,
     ) -> None:
         super().__init__(aggregate_id)
         self.aggregate_id = aggregate_id
         self.lab_record_id = lab_record_id
         self.allocated_ports = allocated_ports
         self.bound_at = bound_at
+        self.cml_lab_id = cml_lab_id
+        self.cml_lab_title = cml_lab_title
+
+
+# ---------------------------------------------------------------------------
+# 22. PipelineProgressUpdated — Generic pipeline step completed (ADR-034 Sprint E)
+# ---------------------------------------------------------------------------
+
+
+@cloudevent("lablet_session.pipeline_progress_updated.v1")
+@dataclass
+class LabletSessionPipelineProgressUpdatedDomainEvent(DomainEvent):
+    """Event raised when a pipeline step completes.
+
+    ADR-034 Sprint E: Supports all pipeline types
+    (instantiate, teardown, collect_evidence, compute_grading).
+    Published after each step completes/fails/skips so that SSE clients
+    can render real-time progress in the Pipeline tab.
+    """
+
+    aggregate_id: str
+    pipeline_name: str  # "instantiate" | "teardown" | "collect_evidence" | "compute_grading"
+    step_name: str
+    step_status: str  # "completed" | "failed" | "skipped"
+    progress_data: dict
+    updated_at: datetime
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        pipeline_name: str,
+        step_name: str,
+        step_status: str,
+        progress_data: dict,
+        updated_at: datetime,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.pipeline_name = pipeline_name
+        self.step_name = step_name
+        self.step_status = step_status
+        self.progress_data = progress_data
+        self.updated_at = updated_at
+
+
+# ---------------------------------------------------------------------------
+# 23. DesiredStatusUpdated — User/system sets target lifecycle state (ADR-034 Sprint E)
+# ---------------------------------------------------------------------------
+
+
+@cloudevent("lablet_session.desired_status_updated.v1")
+@dataclass
+class LabletSessionDesiredStatusUpdatedDomainEvent(DomainEvent):
+    """Event raised when the desired status (spec) is updated for a session.
+
+    ADR-034 Sprint E / ADR-015 pattern: Follows the Kubernetes-like
+    reconciliation model established for CMLWorker:
+    - desired_status = spec (what the user/system wants)
+    - status = state (actual lifecycle state)
+
+    Controllers watch etcd for desired_status changes and reconcile
+    actual state towards the desired state.
+    """
+
+    aggregate_id: str
+    old_desired_status: str
+    new_desired_status: str
+    updated_at: datetime
+    requested_by: str | None  # User or system that requested the change
+    reason: str | None  # Optional reason for the change
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        old_desired_status: str,
+        new_desired_status: str,
+        updated_at: datetime,
+        requested_by: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.old_desired_status = old_desired_status
+        self.new_desired_status = new_desired_status
+        self.updated_at = updated_at
+        self.requested_by = requested_by
+        self.reason = reason

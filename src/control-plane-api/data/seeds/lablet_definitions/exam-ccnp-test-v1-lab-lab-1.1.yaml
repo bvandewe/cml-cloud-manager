@@ -1,24 +1,25 @@
 # Lablet Definition: Exam CCNP Test v1.0 LAB 1.1
-# A multi-node enterprise lab WITHOUT LDS integration
+# A 2-node back-to-back router lab with LDS integration
 #
-# Lab Topology:
-#   [Router1] ── [Router2]
+# Lab Topology (from CML YAML):
+#   [Router1] ---Gi0/0--- Gi0/0 [Router2]
+#   (iosv)                       (iosv)
 #
 # This definition demonstrates:
-#   - No LDS (form_qualified_name is null) → lds_provision step skipped
-#   - No content sync → content_sync step skipped
-#   - Port template present → ports_alloc + tags_sync active
-#   - Custom pipeline with fewer active steps
+#   - LDS integration via form_qualified_name
+#   - Content sync active (content package in Mosaic)
+#   - No port template (CML nodes have no tags)
+#   - Simpler pipeline (ports_alloc + tags_sync skipped)
 
-id: exam-ccnp-test-v1.0-lab-1.1-v1.0.0
-name: exam-ccnp-test-v1.0-lab-1.1
+id: exam-ccnp-test-v1-lab-1.1-v1.0.0
+name: exam-ccnp-test-v1-lab-1.1
 version: '1.0.0'
 description: >-
-    A 2-node test network lab with dual routers, switches, a firewall,
-    and two Ubuntu servers. Tests routing, switching, and security skills.
-    No LDS integration — standalone lab with console-only access.
+    A 2-node back-to-back IOSv router lab for basic routing tests.
+    Content synced from Mosaic via LDS integration.
 
-# No LDS integration — this definition uses direct console access only
+# Content identification (FQN: trackType trackLevel trackAcronym examVersion moduleAcronym formName)
+# FormName=LAB-1.1 from mosaic_meta.json (FormId: 66abb26d4a848e4890c8344a)
 form_qualified_name: 'Exam CCNP TEST v1 LAB 1.1'
 
 # Artifact references
@@ -42,19 +43,19 @@ node_count: 2
 license_affinity:
     - personal
 
-# Port template — serial consoles for all network devices + servers
-port_template:
-    ports:
-        - name: router1_serial
-          protocol: tcp
-          description: Serial console for Router1 (IOSv)
-        - name: router2_serial
-          protocol: tcp
-          description: Serial console for Router2 (IOSv)
+# No port template — CML nodes have no port tags (tags: [])
+# To enable console access, add serial:/vnc: tags to nodes in cml.yaml
+# and re-run content sync to auto-extract the port template.
 
 # Session configuration
 max_duration_minutes: 120 # 2 hours max session time
 warm_pool_depth: 0
+
+# Lab binding options
+# When enabled, the lablet-controller will attempt to reuse an existing
+# LabRecord (WIPED or STOPPED lab) on the assigned worker before importing
+# a fresh topology. This reduces instantiation time significantly.
+lab_reuse_enabled: true
 
 # Ownership and notifications
 owner_notification:
@@ -69,17 +70,18 @@ created_by: seeder
 # Pipeline Definitions (AD-PIPELINE-002)
 #
 # Effective instantiate pipeline (after skip evaluation):
-#   lab_resolve → ports_alloc → tags_sync → lab_binding → lab_start → mark_ready
-#   (content_sync: skipped, variables: skipped, lds_provision: skipped)
+#   content_sync → lab_resolve → lab_binding → lab_start → lds_provision → mark_ready
+#   (variables: optional, ports_alloc: skipped, tags_sync: skipped)
 # ─────────────────────────────────────────────────────────────
 pipelines:
     # ── INSTANTIATE ──────────────────────────────────────────
-    # Same pipeline structure as exam-associate, but skip_when
-    # conditions will prune LDS and content sync steps.
+    # Same pipeline structure as exam-associate.
+    # skip_when conditions will prune ports_alloc + tags_sync (no port_template).
     instantiate:
         description: >-
-            Prepare the lab environment — import topology, allocate ports,
-            start lab. No LDS provisioning for this definition.
+            Prepare the lab environment — import topology,
+            start lab, provision LDS session. No port allocation
+            for this definition (CML nodes have no tags).
         trigger: on_status:instantiating
         max_retries: 3
         retry_backoff: 30
@@ -138,7 +140,7 @@ pipelines:
 
             - name: lds_provision
               handler: lds_provision
-              description: Create LDS session (skipped — no FQN)
+              description: Create LDS session, map devices, get launch URL
               needs: [lab_start]
               skip_when: 'not $DEFINITION.form_qualified_name'
               timeout_seconds: 60
@@ -154,7 +156,7 @@ pipelines:
             lab_record_id: '$STEPS.lab_resolve.lab_record_id'
 
     # ── COLLECT EVIDENCE ─────────────────────────────────────
-    # Without LDS, evidence collection focuses on device configs only.
+    # Evidence collection for this router-only lab focuses on device configs.
     collect_evidence:
         description: >-
             Capture device configurations from all network nodes.
@@ -164,7 +166,7 @@ pipelines:
             - name: capture_configs
               handler: capture_configs
               description: Export running-config from all managed devices
-              timeout_seconds: 180 # 7 nodes, longer timeout
+              timeout_seconds: 180 # 2 nodes
 
             - name: package_evidence
               handler: package_evidence
@@ -176,27 +178,35 @@ pipelines:
             evidence_uri: '$STEPS.package_evidence.evidence_uri'
 
     # ── TEARDOWN ─────────────────────────────────────────────
-    # Simpler teardown — no LDS deregistration needed.
     teardown:
         description: >-
-            Stop and wipe the lab, archive session.
+            Stop the lab, deregister LDS session, wipe lab state,
+            and archive the session record.
         trigger: on_status:stopping
         steps:
             - name: stop_lab
               handler: stop_lab
-              description: Stop the CML lab
+              description: Stop the CML lab (graceful shutdown)
               timeout_seconds: 120
+
+            - name: deregister_lds
+              handler: deregister_lds
+              description: Close the LDS session and release license
+              needs: [stop_lab]
+              skip_when: 'not $SESSION.user_session_id'
+              optional: true # LDS deregistration failure should not block teardown
+              timeout_seconds: 30
 
             - name: wipe_lab
               handler: wipe_lab
-              description: Wipe lab state
+              description: Wipe lab state (reset to DEFINED_ON_CORE)
               needs: [stop_lab]
               timeout_seconds: 120
 
             - name: archive
               handler: archive
-              description: Archive session record
-              needs: [wipe_lab]
+              description: Archive session record and transition to ARCHIVED
+              needs: [wipe_lab, deregister_lds]
               timeout_seconds: 10
 
         outputs:

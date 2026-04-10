@@ -9,6 +9,7 @@ ADR-021: Child Entity Architecture — child refs via IDs, not embedded data.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from domain.entities.lablet_session import LabletSession
@@ -86,6 +87,7 @@ class LabletSessionDto:
     lab_record_id: str | None
     allocated_ports: dict[str, int] | None
     cml_lab_id: str | None
+    cml_lab_title: str | None
 
     # Lifecycle
     status: str
@@ -106,6 +108,10 @@ class LabletSessionDto:
     score_report_id: str | None
     grade_result: str | None
 
+    # LDS session enrichment (from UserSession child entity)
+    lds_session_id: str | None
+    lds_login_url: str | None
+
     # Timestamps
     created_at: str
     scheduled_at: str | None
@@ -125,6 +131,7 @@ class LabletSessionDto:
     node_count: int | None
     worker_name: str | None
     worker_region: str | None
+    worker_cml_endpoint: str | None  # CML HTTPS endpoint for deep-linking to labs
     resource_requirements: dict | None
     port_template: dict | None
     upstream_sync_status: dict | None
@@ -141,8 +148,11 @@ class LabletSessionDto:
     observed_at: str | None
     port_drift_detected: bool
 
-    # Instantiation pipeline (ADR-031)
-    instantiation_progress: dict | None
+    # Pipeline progress (ADR-034 Sprint E)
+    pipeline_progress: dict | None
+
+    # Desired status — reconciliation target (ADR-034 Sprint E)
+    desired_status: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -153,23 +163,50 @@ class LabletSessionDto:
 def map_state_history_to_dto(state_history: list) -> list[StateTransitionDto]:
     """Map state history to DTOs.
 
+    Handles both dict-based state history (ADR-036 Batch F: StateTransition.to_dict())
+    and legacy StateTransition objects for backward compatibility.
+
     Args:
-        state_history: List of StateTransition value objects
+        state_history: List of StateTransition dicts or objects
 
     Returns:
         List of StateTransitionDto
     """
-    return [
-        StateTransitionDto(
-            from_state=transition.from_state.value if transition.from_state else None,
-            to_state=transition.to_state.value,
-            transitioned_at=transition.transitioned_at.isoformat(),
-            triggered_by=transition.triggered_by,
-            reason=transition.reason,
-            metadata=transition.metadata,
-        )
-        for transition in state_history
-    ]
+    dtos: list[StateTransitionDto] = []
+    for item in state_history:
+        if isinstance(item, dict):
+            # ADR-036 Batch F: dict-based state history (canonical format)
+            transitioned_at = item.get("transitioned_at", "")
+            if isinstance(transitioned_at, datetime):
+                transitioned_at = transitioned_at.isoformat()
+            dtos.append(
+                StateTransitionDto(
+                    from_state=item.get("from_state"),
+                    to_state=item.get("to_state", ""),
+                    transitioned_at=str(transitioned_at),
+                    triggered_by=item.get("triggered_by", "system"),
+                    reason=item.get("reason"),
+                    metadata=item.get("metadata"),
+                )
+            )
+        else:
+            # Legacy: StateTransition object (pre-Batch F)
+            from_val = getattr(item.from_state, "value", item.from_state) if item.from_state else None
+            to_val = getattr(item.to_state, "value", item.to_state)
+            transitioned_at = item.transitioned_at
+            if isinstance(transitioned_at, datetime):
+                transitioned_at = transitioned_at.isoformat()
+            dtos.append(
+                StateTransitionDto(
+                    from_state=from_val,
+                    to_state=str(to_val),
+                    transitioned_at=str(transitioned_at),
+                    triggered_by=item.triggered_by,
+                    reason=item.reason,
+                    metadata=item.metadata,
+                )
+            )
+    return dtos
 
 
 def map_lablet_session_to_dto(
@@ -177,6 +214,7 @@ def map_lablet_session_to_dto(
     definition_enrichment: dict[str, Any] | None = None,
     worker_enrichment: dict[str, Any] | None = None,
     lab_record_enrichment: dict[str, Any] | None = None,
+    user_session_enrichment: dict[str, Any] | None = None,
 ) -> LabletSessionDto:
     """Map a LabletSession entity to its full DTO representation.
 
@@ -188,11 +226,14 @@ def map_lablet_session_to_dto(
         worker_enrichment: Optional dict with keys name, aws_region from CMLWorker.
         lab_record_enrichment: Optional dict with keys status, node_count, link_count
             from the LabRecord aggregate.
+        user_session_enrichment: Optional dict with keys lds_session_id, login_url
+            from the UserSession child entity.
     """
     state = entity.state
     defn = definition_enrichment or {}
     wkr = worker_enrichment or {}
     lab = lab_record_enrichment or {}
+    usr = user_session_enrichment or {}
 
     return LabletSessionDto(
         # Identity
@@ -205,6 +246,7 @@ def map_lablet_session_to_dto(
         lab_record_id=state.lab_record_id,
         allocated_ports=state.allocated_ports,
         cml_lab_id=state.cml_lab_id,
+        cml_lab_title=state.cml_lab_title,
         # Lifecycle
         status=state.status.value,
         state_history=map_state_history_to_dto(state.state_history),
@@ -220,6 +262,9 @@ def map_lablet_session_to_dto(
         grading_session_id=state.grading_session_id,
         score_report_id=state.score_report_id,
         grade_result=state.grade_result,
+        # LDS session enrichment (from UserSession child entity)
+        lds_session_id=usr.get("lds_session_id"),
+        lds_login_url=usr.get("login_url"),
         # Timestamps
         created_at=state.created_at.isoformat(),
         scheduled_at=state.scheduled_at.isoformat() if state.scheduled_at else None,
@@ -237,6 +282,7 @@ def map_lablet_session_to_dto(
         node_count=defn.get("node_count"),
         worker_name=wkr.get("name"),
         worker_region=wkr.get("aws_region"),
+        worker_cml_endpoint=wkr.get("https_endpoint"),
         resource_requirements=defn.get("resource_requirements"),
         port_template=defn.get("port_template"),
         upstream_sync_status=defn.get("upstream_sync_status"),
@@ -251,8 +297,10 @@ def map_lablet_session_to_dto(
         observation_count=state.observation_count,
         observed_at=state.observed_at.isoformat() if state.observed_at else None,
         port_drift_detected=state.port_drift_detected,
-        # Instantiation pipeline (ADR-031)
-        instantiation_progress=state.instantiation_progress,
+        # Pipeline progress (ADR-034 Sprint E)
+        pipeline_progress=state.pipeline_progress,
+        # Desired status — reconciliation target (ADR-034 Sprint E)
+        desired_status=state.desired_status.value if state.desired_status else None,
     )
 
 

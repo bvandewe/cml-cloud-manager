@@ -5,7 +5,17 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
+from api.dependencies import get_current_user
+from api.services import DualAuthService
+from application.dtos.lablet_definition_dto import map_lablet_definition_to_summary_dto
+from application.dtos.lablet_session_dto import map_lablet_session_to_summary_dto
+from application.events.domain.cml_worker_events import _broadcast_worker_snapshot
+from application.services.sse_event_relay import SSEEventRelay
 from classy_fastapi.decorators import get as get_route
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
+from domain.repositories.lablet_session_repository import LabletSessionRepository
 from fastapi import Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from neuroglia.dependency_injection import ServiceProviderBase
@@ -14,17 +24,35 @@ from neuroglia.mediation import Mediator
 from neuroglia.mvc import ControllerBase
 from neuroglia.serialization.json import JsonSerializer
 
-from api.dependencies import get_current_user
-from api.services import DualAuthService
-from application.dtos.lablet_definition_dto import map_lablet_definition_to_summary_dto
-from application.dtos.lablet_session_dto import map_lablet_session_to_summary_dto
-from application.events.domain.cml_worker_events import _broadcast_worker_snapshot
-from application.services.sse_event_relay import SSEEventRelay
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
-from domain.repositories.lablet_session_repository import LabletSessionRepository
-
 logger = logging.getLogger(__name__)
+
+
+def _lab_record_to_snapshot_dict(record) -> dict:
+    """Convert a LabRecord aggregate to a snapshot dict for SSE broadcast.
+
+    Matches the shape returned by GetLabRecordsQueryHandler for consistency
+    between API responses and SSE snapshots.
+    """
+    s = record.state
+    return {
+        "id": record.id(),
+        "lab_id": s.lab_id,
+        "worker_id": s.worker_id,
+        "worker_ip": s.worker_ip,
+        "title": s.title,
+        "description": s.description,
+        "status": s.status.value if hasattr(s.status, "value") else str(s.status),
+        "state": s.state,
+        "owner_username": s.owner_username,
+        "node_count": s.node_count,
+        "link_count": s.link_count,
+        "revision": s.revision,
+        "source": s.source,
+        "pending_action": s.pending_action,
+        "created": s.cml_created_at.isoformat() if s.cml_created_at else None,
+        "modified": s.modified_at.isoformat() if s.modified_at else None,
+        "last_synced": s.last_synced_at.isoformat() if s.last_synced_at else None,
+    }
 
 
 class EventsController(ControllerBase):
@@ -138,6 +166,28 @@ class EventsController(ControllerBase):
             except Exception as e:
                 logger.warning(f"Failed to send initial lablet definition snapshots: {e}")
 
+            # Initial lab record snapshots (non-terminal lab records)
+            try:
+                if not scope:
+                    scope = self.service_provider.create_scope()  # type: ignore[attr-defined]
+                lab_record_repo = scope.get_required_service(LabRecordRepository)
+                if lab_record_repo:
+                    all_records = await lab_record_repo.get_all_async()
+                    # Filter to non-terminal records only
+                    records = [r for r in all_records if not r.is_terminal and not r.is_orphaned]
+                    for record in records:
+                        try:
+                            snapshot = _lab_record_to_snapshot_dict(record)
+                            await self._sse_relay.broadcast_event(
+                                event_type="lab.snapshot",
+                                data=snapshot,
+                                source="domain.lab_record.snapshot",
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to send lab record snapshot for {record.id()}: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to send initial lab record snapshots: {e}")
+
             # Heartbeat interval (30 seconds)
             heartbeat_interval = 30
 
@@ -148,6 +198,7 @@ class EventsController(ControllerBase):
                     await asyncio.sleep(1.0)
 
             disconnect_task = asyncio.create_task(check_disconnect())
+            shutdown_task = asyncio.create_task(self._sse_relay.shutdown_event.wait())
 
             try:
                 # Stream events
@@ -155,10 +206,17 @@ class EventsController(ControllerBase):
                     get_event_task = asyncio.create_task(event_queue.get())
 
                     done, pending = await asyncio.wait(
-                        [get_event_task, disconnect_task],
+                        [get_event_task, disconnect_task, shutdown_task],
                         return_when=asyncio.FIRST_COMPLETED,
                         timeout=heartbeat_interval,
                     )
+
+                    # Server shutdown (uvicorn reload / stop)
+                    if shutdown_task in done:
+                        logger.info(f"SSE relay shutting down, closing stream for client {client_id}")
+                        get_event_task.cancel()
+                        yield "event: system.sse.shutdown\ndata: {}\n\n"
+                        break
 
                     if disconnect_task in done:
                         logger.info(f"SSE client disconnected: {client_id}")
@@ -194,6 +252,8 @@ class EventsController(ControllerBase):
                         yield f"event: heartbeat\ndata: {json.dumps({'timestamp': asyncio.get_event_loop().time()})}\n\n"
             finally:
                 disconnect_task.cancel()
+                if not shutdown_task.done():
+                    shutdown_task.cancel()
 
         except asyncio.CancelledError:
             logger.info(f"SSE stream cancelled for client {client_id}")

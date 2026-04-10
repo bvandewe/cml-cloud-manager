@@ -14,14 +14,6 @@ Refactored for Phase 7 (LabRecord Architecture):
 from datetime import datetime, timezone
 from typing import Any
 
-from lcm_core.domain.enums import (
-    CML_STATE_TO_LAB_RECORD_STATUS,
-    LAB_RECORD_VALID_TRANSITIONS,
-    LabRecordStatus,
-)
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot, AggregateState
-
 from domain.events.lab_record_events import (
     LabActionClearedDomainEvent,
     LabActionCompletedDomainEvent,
@@ -44,12 +36,23 @@ from domain.events.lab_record_events import (
     LabRecordUpdatedDomainEvent,
     LabRecordWipedDomainEvent,
     LabStateChangedDomainEvent,
+    PipelineRunRecordedDomainEvent,
 )
 from domain.value_objects.external_interface import ExternalInterface
 from domain.value_objects.lab_revision import LabRevision
 from domain.value_objects.lab_run_record import LabRunRecord
 from domain.value_objects.lab_topology_spec import LabTopologySpec
+from domain.value_objects.pipeline_run_record import PipelineRunRecord
 from domain.value_objects.runtime_binding import RuntimeBinding
+from lcm_core.domain.entities.resource import ResourceState
+from lcm_core.domain.enums import (
+    CML_STATE_TO_LAB_RECORD_STATUS,
+    LAB_RECORD_VALID_TRANSITIONS,
+    LabRecordStatus,
+)
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot
 
 
 class InvalidLabRecordTransitionError(Exception):
@@ -62,8 +65,27 @@ class InvalidLabRecordTransitionError(Exception):
         super().__init__(self.message)
 
 
-class LabRecordState(AggregateState[str]):
+class LabRecordState(ResourceState):
     """Encapsulates the persisted state for a Lab Record.
+
+    Inheritance hierarchy (ADR-036 §2.1.4, Batch G):
+        AggregateState[str]  (Neuroglia)
+            └── ResourceState  (Layer 1 — status, desired_status, state_history)
+                    └── LabRecordState  ← YOU ARE HERE
+
+    Inherits from ResourceState (Layer 1):
+        - id, resource_type, owner_id
+        - status (str), desired_status (str | None)
+        - state_history (list), pipeline_progress (dict | None)
+        - created_at, updated_at
+
+    Shadows parent fields with typed versions:
+        - status: LabRecordStatus (parent: str)
+
+    LabRecords use ResourceState (Layer 1) rather than TimedResourceState
+    (Layer 2) because CML labs have open-ended lifetimes — they are not
+    timeslotted and don't follow a managed lifecycle. Lab run durations
+    are tracked via LabRunRecord entries in run_history_v2.
 
     Phase 7 additions:
     - status: LabRecordStatus (typed enum replacing raw state string)
@@ -91,14 +113,17 @@ class LabRecordState(AggregateState[str]):
     # Class-level annotations — required for Neuroglia deserialization
     # =========================================================================
 
-    # Identity
-    id: str
+    # Identity (id inherited from ResourceState)
     worker_id: str
     lab_id: str
     worker_ip: str | None
 
-    # Typed status (Phase 7)
+    # Typed status (Phase 7) — shadows ResourceState.status (str)
     status: LabRecordStatus
+
+    # State history — audit trail (ADR-036 §2.1.4 Batch G)
+    # Stored as list[dict] (StateTransition.to_dict()) for Neuroglia serialization.
+    state_history: list[dict]
 
     # Lab metadata
     title: str | None
@@ -125,6 +150,9 @@ class LabRecordState(AggregateState[str]):
     # Run history (Phase 7)
     run_history_v2: list[dict[str, Any]]
     max_run_history_size: int
+
+    # Pipeline run history (Sprint F, ADR-034)
+    pipeline_run_history: list[dict[str, Any]]
 
     # Provenance
     source: str
@@ -155,15 +183,18 @@ class LabRecordState(AggregateState[str]):
 
     def __init__(self) -> None:
         super().__init__()
-        self.id = ""
+        self.resource_type = "lab_record"
 
-        # Identity
+        # Identity (id initialized by ResourceState)
         self.worker_id = ""
         self.lab_id = ""
         self.worker_ip = None
 
-        # Typed status (Phase 7 — replaces raw state string)
+        # Typed status (Phase 7 — shadows ResourceState.status)
         self.status = LabRecordStatus.DISCOVERED
+
+        # State history (ADR-036 Batch G)
+        self.state_history = []
 
         # Current lab metadata
         self.title = None
@@ -191,6 +222,9 @@ class LabRecordState(AggregateState[str]):
         self.run_history_v2 = []
         self.max_run_history_size = 50
 
+        # Pipeline run history (Sprint F, ADR-034)
+        self.pipeline_run_history = []
+
         # Provenance
         self.source = "discovery"
         self.based_on_definition_id = None
@@ -217,6 +251,34 @@ class LabRecordState(AggregateState[str]):
         self.last_error = None
         self.last_error_at = None
         self.previous_status_before_error = None
+
+    def _record_transition(
+        self,
+        from_state: str | None,
+        to_state: str,
+        triggered_by: str = "system",
+        reason: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        """Record a state transition in the history.
+
+        Overrides ResourceState._record_transition() for two reasons:
+        1. Stores transitions as dicts (via StateTransition.to_dict()) instead
+           of StateTransition objects, for Neuroglia serialization compatibility.
+        2. Maintains updated_at behavior consistent with ResourceState base class.
+
+        ADR-036 Batch G: Follows CMLWorkerState/LabletSessionState pattern.
+        """
+        transition = StateTransition(
+            from_state=from_state,
+            to_state=to_state,
+            transitioned_at=datetime.now(timezone.utc),
+            triggered_by=triggered_by,
+            reason=reason,
+            metadata=metadata,
+        )
+        self.state_history.append(transition.to_dict())
+        self.updated_at = datetime.now(timezone.utc)
 
     # =========================================================================
     # Event Handlers — creation and update from raw CML data
@@ -249,10 +311,17 @@ class LabRecordState(AggregateState[str]):
             lab_id=event.lab_id,
         ).to_dict()
         self.source = "discovery"
+        self._record_transition(
+            from_state=None,
+            to_state=self.status.value,
+            triggered_by="system",
+            reason="Lab record created from CML data",
+        )
 
     @dispatch(LabRecordUpdatedDomainEvent)
     def on(self, event: LabRecordUpdatedDomainEvent) -> None:  # type: ignore[override]
         """Apply lab record update event (legacy sync path)."""
+        old_status = self.status
         self.title = event.title
         self.description = event.description
         self.notes = event.notes
@@ -266,13 +335,28 @@ class LabRecordState(AggregateState[str]):
         self.last_synced_at = event.synced_at
         # Map raw CML state to typed status
         self.status = CML_STATE_TO_LAB_RECORD_STATUS.get(event.state, self.status)
+        if self.status != old_status:
+            self._record_transition(
+                from_state=old_status.value,
+                to_state=self.status.value,
+                triggered_by="cml-sync",
+                reason=f"Updated from CML state '{event.state}'",
+            )
 
     @dispatch(LabStateChangedDomainEvent)
     def on(self, event: LabStateChangedDomainEvent) -> None:  # type: ignore[override]
         """Apply lab state change event (legacy sync path)."""
+        old_status = self.status
         self.state = event.new_state
         # Map raw CML state to typed status
         self.status = CML_STATE_TO_LAB_RECORD_STATUS.get(event.new_state, self.status)
+        if self.status != old_status:
+            self._record_transition(
+                from_state=old_status.value,
+                to_state=self.status.value,
+                triggered_by="cml-sync",
+                reason=f"CML state changed from '{event.previous_state}' to '{event.new_state}'",
+            )
 
     # =========================================================================
     # ADR-017 RECONCILIATION EVENT HANDLERS
@@ -326,14 +410,22 @@ class LabRecordState(AggregateState[str]):
         self.last_synced_at = event.discovered_at
         self.status = LabRecordStatus.DISCOVERED
         self.source = "discovery"
+        self.based_on_definition_id = event.based_on_definition_id
         self.runtime_binding = RuntimeBinding.for_cml(
             worker_id=event.worker_id,
             lab_id=event.lab_id,
         ).to_dict()
+        self._record_transition(
+            from_state=None,
+            to_state=LabRecordStatus.DISCOVERED.value,
+            triggered_by="system",
+            reason="Lab discovered on worker",
+        )
 
     @dispatch(LabRecordImportedDomainEvent)
     def on(self, event: LabRecordImportedDomainEvent) -> None:  # type: ignore[override]
         """Apply lab import event."""
+        old_status = self.status
         self.lab_id = event.lab_id
         self.title = event.title
         self.status = LabRecordStatus.DEFINED
@@ -355,36 +447,77 @@ class LabRecordState(AggregateState[str]):
         )
         self.revision = 1
         self.revision_history = [initial_rev.to_dict()]
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=LabRecordStatus.DEFINED.value,
+            triggered_by=event.imported_by,
+            reason="Lab imported from YAML topology",
+        )
 
     @dispatch(LabRecordStartedDomainEvent)
     def on(self, event: LabRecordStartedDomainEvent) -> None:  # type: ignore[override]
         """Apply lab started event."""
+        old_status = self.status
         self.status = LabRecordStatus.BOOTED
         self.state = "BOOTED"
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=LabRecordStatus.BOOTED.value,
+            triggered_by="system",
+            reason="Lab started (all nodes running)",
+        )
 
     @dispatch(LabRecordStoppedDomainEvent)
     def on(self, event: LabRecordStoppedDomainEvent) -> None:  # type: ignore[override]
         """Apply lab stopped event."""
+        old_status = self.status
         self.status = LabRecordStatus.STOPPED
         self.state = "STOPPED"
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=LabRecordStatus.STOPPED.value,
+            triggered_by="system",
+            reason="Lab stopped",
+        )
 
     @dispatch(LabRecordWipedDomainEvent)
     def on(self, event: LabRecordWipedDomainEvent) -> None:  # type: ignore[override]
         """Apply lab wiped event."""
+        old_status = self.status
         self.status = LabRecordStatus.WIPED
         self.state = "WIPED"
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=LabRecordStatus.WIPED.value,
+            triggered_by="system",
+            reason="Lab wiped (nodes reset)",
+        )
 
     @dispatch(LabRecordDeletedDomainEvent)
     def on(self, event: LabRecordDeletedDomainEvent) -> None:  # type: ignore[override]
         """Apply lab deleted event (terminal)."""
+        old_status = self.status
         self.status = LabRecordStatus.DELETED
         self.state = "DELETED"
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=LabRecordStatus.DELETED.value,
+            triggered_by="system",
+            reason="Lab deleted from runtime",
+        )
 
     @dispatch(LabRecordArchivedDomainEvent)
     def on(self, event: LabRecordArchivedDomainEvent) -> None:  # type: ignore[override]
         """Apply lab archived event (terminal)."""
+        old_status = self.status
         self.status = LabRecordStatus.ARCHIVED
         self.state = "ARCHIVED"
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=LabRecordStatus.ARCHIVED.value,
+            triggered_by="system",
+            reason="Lab archived",
+        )
 
     @dispatch(LabRecordClonedDomainEvent)
     def on(self, event: LabRecordClonedDomainEvent) -> None:  # type: ignore[override]
@@ -392,8 +525,15 @@ class LabRecordState(AggregateState[str]):
         self.id = event.aggregate_id
         self.lab_id = event.lab_id
         self.source = "clone"
+        old_status = self.status
         self.status = LabRecordStatus.DEFINED
         self.state = "DEFINED_ON_CORE"
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=LabRecordStatus.DEFINED.value,
+            triggered_by="system",
+            reason="Lab cloned",
+        )
 
     @dispatch(LabRecordRevisionCreatedDomainEvent)
     def on(self, event: LabRecordRevisionCreatedDomainEvent) -> None:  # type: ignore[override]
@@ -439,17 +579,58 @@ class LabRecordState(AggregateState[str]):
     @dispatch(LabRecordErrorDomainEvent)
     def on(self, event: LabRecordErrorDomainEvent) -> None:  # type: ignore[override]
         """Apply error event."""
+        old_status = self.status
         self.previous_status_before_error = event.previous_status
         self.last_error = event.error_message
         self.last_error_at = event.occurred_at
         self.status = LabRecordStatus.ERROR
         self.state = "ERROR"
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=LabRecordStatus.ERROR.value,
+            triggered_by="system",
+            reason=event.error_message,
+        )
 
     @dispatch(LabRecordOrphanedDomainEvent)
     def on(self, event: LabRecordOrphanedDomainEvent) -> None:  # type: ignore[override]
         """Apply orphaned event."""
+        old_status = self.status
         self.status = LabRecordStatus.ORPHANED
         self.state = "ORPHANED"
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=LabRecordStatus.ORPHANED.value,
+            triggered_by="system",
+            reason="Lab orphaned (worker terminated)",
+        )
+
+    # =========================================================================
+    # PIPELINE RUN HISTORY EVENT HANDLER (Sprint F, ADR-034)
+    # =========================================================================
+
+    @dispatch(PipelineRunRecordedDomainEvent)
+    def on(self, event: PipelineRunRecordedDomainEvent) -> None:  # type: ignore[override]
+        """Apply pipeline run recorded event — appends to pipeline_run_history."""
+        record = PipelineRunRecord(
+            run_id=event.run_id,
+            pipeline_name=event.pipeline_name,
+            started_at=event.started_at,
+            completed_at=event.completed_at,
+            status=event.status,
+            step_results=event.step_results,
+            error_message=event.error_message,
+            triggered_by=event.triggered_by,
+            lablet_session_id=event.lablet_session_id,
+            duration_seconds=event.duration_seconds,
+            steps_completed=event.steps_completed,
+            steps_failed=event.steps_failed,
+            steps_skipped=event.steps_skipped,
+        )
+        self.pipeline_run_history.append(record.to_dict())
+        # Bounded list — keep last 50 entries (same as run_history_v2)
+        if len(self.pipeline_run_history) > self.max_run_history_size:
+            self.pipeline_run_history = self.pipeline_run_history[-self.max_run_history_size :]
 
 
 class LabRecord(AggregateRoot[LabRecordState, str]):
@@ -517,6 +698,11 @@ class LabRecord(AggregateRoot[LabRecordState, str]):
         """Return the deserialized list of LabRunRecord value objects."""
         return [LabRunRecord.from_dict(run) for run in self.state.run_history_v2]
 
+    @property
+    def pipeline_run_history_vo(self) -> list[PipelineRunRecord]:
+        """Return the deserialized list of PipelineRunRecord value objects."""
+        return [PipelineRunRecord.from_dict(run) for run in self.state.pipeline_run_history]
+
     # =========================================================================
     # FACTORY METHODS
     # =========================================================================
@@ -575,6 +761,7 @@ class LabRecord(AggregateRoot[LabRecordState, str]):
         link_count: int,
         notes: str | None = None,
         worker_ip: str | None = None,
+        based_on_definition_id: str | None = None,
     ) -> "LabRecord":
         """Create a new lab record from discovery scan (Phase 7 factory)."""
         import uuid
@@ -595,6 +782,7 @@ class LabRecord(AggregateRoot[LabRecordState, str]):
             link_count=link_count,
             worker_ip=worker_ip,
             discovered_at=discovered_at,
+            based_on_definition_id=based_on_definition_id,
         )
         record.state.on(record.register_event(event))  # type: ignore
         return record
@@ -867,6 +1055,40 @@ class LabRecord(AggregateRoot[LabRecordState, str]):
         self.state.run_history_v2.append(run.to_dict())
         if len(self.state.run_history_v2) > self.state.max_run_history_size:
             self.state.run_history_v2 = self.state.run_history_v2[-self.state.max_run_history_size :]
+
+    # =========================================================================
+    # PIPELINE RUN HISTORY METHODS (Sprint F, ADR-034)
+    # =========================================================================
+
+    def append_pipeline_run(self, pipeline_run: PipelineRunRecord) -> None:
+        """Append a pipeline execution record via domain event.
+
+        Sprint F (ADR-034): Records a completed pipeline run on this LabRecord.
+        Emits PipelineRunRecordedDomainEvent which the state handler appends
+        to pipeline_run_history (bounded list, max 50 entries).
+
+        Args:
+            pipeline_run: The PipelineRunRecord value object to record.
+        """
+        event = PipelineRunRecordedDomainEvent(
+            aggregate_id=self.id(),
+            lab_id=self.state.lab_id,
+            run_id=pipeline_run.run_id,
+            pipeline_name=pipeline_run.pipeline_name,
+            status=pipeline_run.status,
+            started_at=pipeline_run.started_at,
+            completed_at=pipeline_run.completed_at,
+            duration_seconds=pipeline_run.duration_seconds,
+            steps_completed=pipeline_run.steps_completed,
+            steps_failed=pipeline_run.steps_failed,
+            steps_skipped=pipeline_run.steps_skipped,
+            step_results=pipeline_run.step_results,
+            error_message=pipeline_run.error_message,
+            triggered_by=pipeline_run.triggered_by,
+            lablet_session_id=pipeline_run.lablet_session_id,
+            recorded_at=datetime.now(timezone.utc),
+        )
+        self.state.on(self.register_event(event))  # type: ignore
 
     # =========================================================================
     # PENDING ACTION METHODS (ADR-017 Reconciliation Pattern)

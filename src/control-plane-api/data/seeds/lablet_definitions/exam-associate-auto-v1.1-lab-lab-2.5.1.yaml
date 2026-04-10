@@ -1,80 +1,80 @@
-# Lablet Definition: TEST-LAB-1.1
-# A test lab with PC (Ubuntu Desktop), IOSv router, and vManage Mock API
+# Lablet Definition: DEVASC_200-901_LAB-2.5.1
+# A 2-node test lab with Ubuntu Desktop and vManage Mock API
 #
-# Lab Topology:
-#   [PC] ---ens3--- Gi0/0 [Router] Gi0/1 ---eth0--- [vManageMockAPI]
-#   (ubuntu-desktop)       (iosv)                    (vmanagemock)
+# Lab Topology (from CML YAML):
+#   [ubuntu-desktop] ---ens3--- eth0 [vmanage-mock]
+#   (ubuntu-desktop-24-04-v2)       (mock-server)
 #
 # Network Configuration:
-#   - PC: DHCP from LAN_POOL (192.168.0.0/24)
-#   - Router: Gateway for both subnets
-#   - vManageMockAPI: Static 192.168.10.1/24
+#   - ubuntu-desktop: Static 192.168.10.111/24
+#   - vmanage-mock:   Static 192.168.10.1/24
 #
-# Port Mapping (derived from node tags):
-#   - PC:             serial:4567, vnc:4568
-#   - Router (iosv):  serial:4566
-#   - vManageMockAPI: serial:4569
+# Port Mapping (derived from CML node tags):
+#   - vmanage-mock:    serial:5041
+#   - ubuntu-desktop:  serial:5042, vnc:5044
 
-id: exam-associate-auto-v1.1-lab-2.5.1-v1.0.0
-name: exam-associate-auto-v1.1-lab-2.5.1
+id: exam-associate-auto-v1.1-lab-lab-2.5.1-v1.0.0
+name: exam-associate-auto-v1.1-lab-lab-2.5.1
 version: '1.0.0'
 description: >-
-    A 3-node test lab demonstrating connectivity between an Ubuntu Desktop PC,
-    an IOSv router with DHCP server, and a vManage Mock API service.
-    Ideal for testing SD-WAN automation workflows.
+    A 2-node test lab with Ubuntu Desktop and vManage Mock API connected
+    directly via Ethernet. The desktop queries the mock vManage REST API.
+    Ideal for testing SD-WAN automation workflows (DEVASC 200-901 LAB 2.5.1).
 
 # Content identification (FQN: trackType trackLevel trackAcronym examVersion moduleAcronym formName)
-form_qualified_name: Exam Associate Auto v1.1 LAB 2.5.1
+# Source: GET /api/v1/qualifiedname?mongoId=689def820afbb9684397e666
+form_qualified_name: Exam Associate AUTO v1.1 LAB LAB-2.5.1
 
 # Artifact references (populated by content sync, optional at seed time)
 lab_yaml_hash: '' # Will be populated by content sync
 grading_rules_uri: null # Will be populated by content sync
 
-# Resource requirements (based on node definitions)
-# - ubuntu-desktop-24-04-v2: ~2 vCPU, 4GB RAM
-# - iosv: ~1 vCPU, 512MB RAM
-# - vmanagemock: ~1 vCPU, 1GB RAM
+# Resource requirements (based on CML node definitions)
+# - ubuntu-desktop-24-04-v2 (image: lablet-desktop-v0.1.1): ~2 vCPU, 4GB RAM
+# - mock-server (image: mock-api-vmanage-20251028): ~1 vCPU, 1GB RAM
 resource_requirements:
-    cpu_cores: 4
-    memory_gb: 8
+    cpu_cores: 3
+    memory_gb: 5
     storage_gb: 50
     nested_virt: true
     ami_requirements:
         - cml_version_min: '2.7.0'
           node_definitions_required:
               - ubuntu-desktop-24-04-v2
-              - iosv
-              - vmanagemock
+              - mock-server
 
 # Lab metadata
-node_count: 3
+node_count: 2
 license_affinity:
     - personal
     - enterprise
 
 # Port template (ports to be dynamically allocated per instance)
-# These correspond to the serial: and vnc: tags defined on each node
+# Port names follow from_cml_nodes convention: {sanitized_node_label}_{protocol}
+# CML tags: vmanage-mock [serial:5041], ubuntu-desktop [serial:5042, vnc:5044]
 port_template:
     ports:
-        # PC node (n0) ports
-        - name: pc_serial
+        # vmanage-mock node (n0) — tags: [serial:5041]
+        - name: vmanage-mock_serial
           protocol: tcp
-          description: Serial console for PC (Ubuntu Desktop) node
-        - name: pc_vnc
+          description: serial on vmanage-mock
+        # ubuntu-desktop node (n1) — tags: [serial:5042, vnc:5044]
+        - name: ubuntu-desktop_serial
           protocol: tcp
-          description: VNC graphical display for PC node
-        # Router node (n1) ports
-        - name: router_serial
+          description: serial on ubuntu-desktop
+        - name: ubuntu-desktop_vnc
           protocol: tcp
-          description: Serial console for IOSv router
-        # vManageMockAPI node (n2) ports
-        - name: vmanage_serial
-          protocol: tcp
-          description: Serial console for vManage Mock API
+          description: vnc on ubuntu-desktop
 
 # Session configuration
 max_duration_minutes: 120 # 2 hours max session time
 warm_pool_depth: 0 # No pre-instantiated instances
+
+# Lab binding options
+# When enabled, the lablet-controller will attempt to reuse an existing
+# LabRecord (WIPED or STOPPED lab) on the assigned worker before importing
+# a fresh topology. This reduces instantiation time significantly.
+lab_reuse_enabled: true
 
 # Ownership and notifications
 owner_notification:

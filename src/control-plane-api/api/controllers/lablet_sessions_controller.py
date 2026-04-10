@@ -18,9 +18,11 @@ from application.commands.lablet_session import (
 from application.queries.lablet_session import (
     GetGradingSessionQuery,
     GetLabletSessionQuery,
+    GetPipelineProgressQuery,
     GetScoreReportQuery,
     GetUserSessionQuery,
     ListLabletSessionsQuery,
+    ListPipelineExecutionsQuery,
 )
 from classy_fastapi.decorators import delete, get, post
 from classy_fastapi.routable import Routable
@@ -428,5 +430,60 @@ class LabletSessionsController(ControllerBase):
         Returns score, pass/fail status, sections breakdown, and grade result.
         """
         query = GetScoreReportQuery(lablet_session_id=lablet_session_id)
+        result = await self.mediator.execute_async(query)
+        return self.process(result)
+
+    # ─── Sprint G: Pipeline Observability ────────────────────────────
+
+    @get(
+        "/{lablet_session_id}/pipeline-progress",
+        summary="Get Pipeline Progress for Lablet Session",
+        tags=["Lablet Sessions"],
+    )
+    async def get_pipeline_progress(
+        self,
+        lablet_session_id: str,
+        pipeline_name: str | None = None,
+        user: dict = Depends(get_current_user),
+    ):
+        """Get live pipeline progress from the LabletSession aggregate.
+
+        Returns per-step status for all pipelines, or a single pipeline
+        if ``pipeline_name`` is provided.
+
+        Sprint G (G2).
+        """
+        query = GetPipelineProgressQuery(session_id=lablet_session_id, pipeline_name=pipeline_name)
+        result = await self.mediator.execute_async(query)
+        return self.process(result)
+
+    @get(
+        "/{lablet_session_id}/pipeline-executions",
+        summary="List Pipeline Execution History",
+        tags=["Lablet Sessions"],
+    )
+    async def list_pipeline_executions(
+        self,
+        lablet_session_id: str,
+        pipeline_name: str | None = None,
+        status: str | None = None,
+        skip: int = 0,
+        limit: int = 50,
+        user: dict = Depends(get_current_user),
+    ):
+        """List auditable PipelineExecutionRecords for a lablet session.
+
+        Returns execution history with timing, step counts, and error
+        information. Supports filtering by pipeline_name and status.
+
+        Sprint G (G2).
+        """
+        query = ListPipelineExecutionsQuery(
+            session_id=lablet_session_id,
+            pipeline_name=pipeline_name,
+            status=status,
+            skip=skip,
+            limit=limit,
+        )
         result = await self.mediator.execute_async(query)
         return self.process(result)

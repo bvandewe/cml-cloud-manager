@@ -7,6 +7,7 @@ Pattern: Direct Motor collection access with manual serialization.
 ScoreReport is immutable after creation — no update_async method.
 """
 
+import json
 import logging
 from typing import Any
 
@@ -59,18 +60,16 @@ class MongoScoreReportRepository(ScoreReportRepository):
         """Serialize a ScoreReport to a MongoDB document."""
         raw = self._serializer.serialize(entity)
         if isinstance(raw, (bytes, bytearray)):
-            import json
-
             return json.loads(raw.decode("utf-8"))
         if isinstance(raw, str):
-            import json
-
             return json.loads(raw)
         return raw  # type: ignore[return-value]
 
     def _deserialize(self, document: dict[str, Any]) -> ScoreReport:
         """Deserialize a MongoDB document to a ScoreReport."""
-        return self._serializer.deserialize(document, ScoreReport)  # type: ignore[return-value]
+        doc = {k: v for k, v in document.items() if k != "_id"}
+        json_bytes = json.dumps(doc, default=str).encode("utf-8")
+        return self._serializer.deserialize(json_bytes, ScoreReport)  # type: ignore[return-value]
 
     # --- CRUD (minus update — immutable) ---
 

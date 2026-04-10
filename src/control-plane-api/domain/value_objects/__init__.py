@@ -10,7 +10,6 @@ from .port_allocation import PortAllocation
 from .port_template import PortDefinition, PortTemplate
 from .resource_requirements import AmiRequirement, ResourceRequirements
 from .runtime_binding import RuntimeBinding
-from .state_transition import StateTransition
 from .worker_capacity import WorkerCapacity
 
 __all__ = [
@@ -27,7 +26,6 @@ __all__ = [
     "PortTemplate",
     "ResourceRequirements",
     "RuntimeBinding",
-    "StateTransition",
     "TopologyAnnotation",
     "TopologyLink",
     "TopologyNode",

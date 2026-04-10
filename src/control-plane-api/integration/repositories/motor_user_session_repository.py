@@ -7,6 +7,7 @@ Pattern: Direct Motor collection access with manual serialization,
 following the same approach used for other child entities.
 """
 
+import json
 import logging
 from typing import Any
 
@@ -58,18 +59,16 @@ class MongoUserSessionRepository(UserSessionRepository):
         """Serialize a UserSession to a MongoDB document."""
         raw = self._serializer.serialize(entity)
         if isinstance(raw, (bytes, bytearray)):
-            import json
-
             return json.loads(raw.decode("utf-8"))
         if isinstance(raw, str):
-            import json
-
             return json.loads(raw)
         return raw  # type: ignore[return-value]
 
     def _deserialize(self, document: dict[str, Any]) -> UserSession:
         """Deserialize a MongoDB document to a UserSession."""
-        return self._serializer.deserialize(document, UserSession)  # type: ignore[return-value]
+        doc = {k: v for k, v in document.items() if k != "_id"}
+        json_bytes = json.dumps(doc, default=str).encode("utf-8")
+        return self._serializer.deserialize(json_bytes, UserSession)  # type: ignore[return-value]
 
     # --- CRUD ---
 

@@ -85,6 +85,7 @@ class EtcdStateStore:
     # Key patterns (relative to /ccm prefix configured in EtcdClient)
     SESSION_STATE_KEY = "/sessions/{id}/state"
     SESSION_METADATA_KEY = "/sessions/{id}/metadata"
+    SESSION_DESIRED_STATE_KEY = "/sessions/{id}/desired_state"  # ADR-034 Sprint E: Desired lifecycle state (spec)
     WORKER_STATE_KEY = "/workers/{id}/state"
     WORKER_DESIRED_STATE_KEY = "/workers/{id}/desired_state"  # ADR-015: Spec for reconciliation
     WORKER_LICENSE_KEY = "/workers/{id}/license"  # ADR-016: License pending operation for reactive reconciliation
@@ -136,6 +137,36 @@ class EtcdStateStore:
         await self._etcd.put(key, state, lease_id=lease_id)
         log.debug(f"Set session {session_id} state to {state}")
 
+    async def get_session_desired_state(self, session_id: str) -> str | None:
+        """Get the desired state (spec) of a LabletSession.
+
+        ADR-034 Sprint E / ADR-015 pattern: desired_status = spec (what user wants).
+
+        Args:
+            session_id: The session ID
+
+        Returns:
+            Desired state string or None if not found
+        """
+        key = self.SESSION_DESIRED_STATE_KEY.format(id=session_id)
+        result = await self._etcd.get(key)
+        return result.value if result else None
+
+    async def set_session_desired_state(self, session_id: str, desired_state: str) -> None:
+        """Set the desired state (spec) of a LabletSession.
+
+        ADR-034 Sprint E / ADR-015 pattern: This triggers watch-based
+        reconciliation in lablet-controller. When desired_state != state,
+        lablet-controller will reconcile.
+
+        Args:
+            session_id: The session ID
+            desired_state: The desired state (e.g., "running", "stopped", "terminated")
+        """
+        key = self.SESSION_DESIRED_STATE_KEY.format(id=session_id)
+        await self._etcd.put(key, desired_state)
+        log.info(f"Set session {session_id} desired_state to {desired_state}")
+
     async def delete_session_state(self, session_id: str) -> bool:
         """Delete the state of a LabletSession.
 
@@ -151,6 +182,10 @@ class EtcdStateStore:
         # Also delete metadata if present
         metadata_key = self.SESSION_METADATA_KEY.format(id=session_id)
         await self._etcd.delete(metadata_key)
+
+        # Also delete desired_state if present (ADR-034 Sprint E)
+        desired_key = self.SESSION_DESIRED_STATE_KEY.format(id=session_id)
+        await self._etcd.delete(desired_key)
 
         return deleted
 

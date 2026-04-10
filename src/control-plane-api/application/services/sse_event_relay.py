@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import redis.asyncio as redis
+from application.settings import app_settings
 from neuroglia.hosting.abstractions import HostedService
 from neuroglia.serialization.json import JsonSerializer
-
-from application.settings import app_settings
 
 if TYPE_CHECKING:
     from neuroglia.hosting.web import WebApplicationBuilder
@@ -77,11 +76,17 @@ class SSEEventRelay:
         self._redis_pubsub = None
         self._listen_task = None
         self._serializer = serializer
+        self._shutdown_event = asyncio.Event()
 
         # Batching support (ADR-013)
         self._batch_buffer: dict[str, list[dict]] = {}
         self._batch_task: asyncio.Task | None = None
         self._batching_enabled = True
+
+    @property
+    def shutdown_event(self) -> asyncio.Event:
+        """Shared shutdown signal for SSE generator loops."""
+        return self._shutdown_event
 
     async def start_redis_listener(self):
         """Start listening to Redis Pub/Sub channel."""
@@ -347,6 +352,9 @@ class SSEEventRelayHostedService(HostedService):
 
         # ADR-013: Stop batch timer (flushes remaining batches)
         await self._relay.stop_batch_timer()
+
+        # Signal all SSE generator loops to exit immediately
+        self._relay.shutdown_event.set()
 
         try:
             await self._relay.broadcast_event(

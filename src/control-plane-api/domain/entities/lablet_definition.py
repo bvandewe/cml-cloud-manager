@@ -12,9 +12,6 @@ from datetime import datetime, timezone
 from typing import Any, cast
 from uuid import uuid4
 
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot, AggregateState
-
 from domain.enums import LabletDefinitionStatus, LicenseType
 from domain.events.lablet_definition_events import (
     LabletDefinitionArtifactSyncedDomainEvent,
@@ -29,6 +26,10 @@ from domain.events.lablet_definition_events import (
 from domain.utils import slugify_fqn
 from domain.value_objects.port_template import PortTemplate
 from domain.value_objects.resource_requirements import ResourceRequirements
+from lcm_core.domain.entities.timed_resource import TimedResourceState
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot
 
 
 class NotificationConfig:
@@ -70,8 +71,25 @@ class NotificationConfig:
         )
 
 
-class LabletDefinitionState(AggregateState[str]):
+class LabletDefinitionState(TimedResourceState):
     """Encapsulates the persisted state for the LabletDefinition aggregate.
+
+    Inheritance hierarchy (ADR-036 §2.1.4, Batch I):
+        AggregateState[str]  (Neuroglia)
+            └── ResourceState  (Layer 1 — status, desired_status, state_history)
+                    └── TimedResourceState  (Layer 2 — timeslot, lifecycle)
+                            └── LabletDefinitionState  ← YOU ARE HERE
+
+    Inherits from TimedResourceState (Layer 2):
+        - id, resource_type, owner_id
+        - status (str), desired_status (str | None)
+        - state_history (list), pipeline_progress (dict | None)
+        - created_at, updated_at
+        - timeslot (dict | None), lifecycle (dict | None)
+        - started_at, ended_at, duration_seconds, terminated_at
+
+    Shadows parent fields with typed versions:
+        - status: LabletDefinitionStatus (parent: str)
 
     A LabletDefinition is immutable once created - modifications require
     creating a new version which gets a new aggregate ID.
@@ -115,8 +133,12 @@ class LabletDefinitionState(AggregateState[str]):
     # Warm pool
     warm_pool_depth: int  # Number of pre-instantiated instances to maintain
 
+    # State history — audit trail (ADR-036 Batch I)
+    # Stored as list[dict] (StateTransition.to_dict()) for Neuroglia serialization.
+    state_history: list
+
     # Status and versioning
-    status: LabletDefinitionStatus
+    status: LabletDefinitionStatus  # Shadows ResourceState.status (str)
     previous_version_id: str | None  # Reference to previous version's aggregate ID
 
     # Ownership and notification
@@ -154,6 +176,11 @@ class LabletDefinitionState(AggregateState[str]):
 
     def __init__(self) -> None:
         super().__init__()
+
+        # Resource hierarchy fields (ADR-036 Batch I)
+        self.resource_type = "lablet_definition"
+        self.desired_status = None
+
         self.id = ""
         self.name = ""
         self.version = ""
@@ -219,12 +246,49 @@ class LabletDefinitionState(AggregateState[str]):
         # Pipeline definitions (ADR-034)
         self.pipelines: dict | None = None  # Optional pipeline DAGs from definition YAML
 
+        # State history — audit trail (ADR-036 Batch I)
+        # Explicit init required: Neuroglia bypasses __init__ on deserialization,
+        # so existing MongoDB docs without this field need the defensive check
+        # in _record_transition() below. New aggregates get it here.
+        self.state_history: list = []
+
         # Lab binding options (Phase 7)
         self.lab_reuse_enabled: bool = False  # Allow labs to be reused across timeslots
         self.multi_lab_enabled: bool = False  # Allow multiple labs per lablet instance
 
         # Instantiation timing (AD-P10-01)
         self.boot_lead_time_minutes: int | None = None  # Per-definition override, None = use global setting
+
+    def _record_transition(
+        self,
+        from_state: str | None,
+        to_state: str,
+        triggered_by: str = "system",
+        reason: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        """Record a state transition in the history.
+
+        Overrides ResourceState._record_transition() to store transitions
+        as dicts (via StateTransition.to_dict()) for Neuroglia serialization
+        compatibility.
+
+        ADR-036 Batch I: Follows LabRecordState/CMLWorkerState pattern.
+        """
+        transition = StateTransition(
+            from_state=from_state,
+            to_state=to_state,
+            transitioned_at=datetime.now(timezone.utc),
+            triggered_by=triggered_by,
+            reason=reason,
+            metadata=metadata,
+        )
+        # Defensive: Neuroglia bypasses __init__ on deserialization, so
+        # documents created before state_history was added may lack it.
+        if not hasattr(self, "state_history") or self.state_history is None:
+            self.state_history = []
+        self.state_history.append(transition.to_dict())
+        self.updated_at = datetime.now(timezone.utc)
 
     @dispatch(LabletDefinitionCreatedDomainEvent)
     def on(self, event: LabletDefinitionCreatedDomainEvent) -> None:  # type: ignore[override]
@@ -262,6 +326,18 @@ class LabletDefinitionState(AggregateState[str]):
         # Pipeline definitions (ADR-034)
         self.pipelines = getattr(event, "pipelines", None)
 
+        # Lab binding options (Phase 7)
+        self.lab_reuse_enabled = getattr(event, "lab_reuse_enabled", False)
+
+        # Resource hierarchy fields (ADR-036 Batch I)
+        self.owner_id = event.created_by
+        self._record_transition(
+            from_state=None,
+            to_state=self.status.value,
+            triggered_by=event.created_by,
+            reason="Definition created",
+        )
+
     @dispatch(LabletDefinitionVersionCreatedDomainEvent)
     def on(self, event: LabletDefinitionVersionCreatedDomainEvent) -> None:  # type: ignore[override]
         """Apply the version creation event to the state.
@@ -279,18 +355,34 @@ class LabletDefinitionState(AggregateState[str]):
         self.created_by = event.created_by
         self.created_at = event.created_at
         self.updated_at = event.created_at
-        self.status = LabletDefinitionStatus.ACTIVE
+        self.status = LabletDefinitionStatus.PENDING_SYNC  # ADR-028: must sync before ACTIVE
         # Note: previous_version_id would be set via separate tracking
+
+        # Resource hierarchy fields (ADR-036 Batch I)
+        self.owner_id = event.created_by
+        self._record_transition(
+            from_state=None,
+            to_state=self.status.value,
+            triggered_by=event.created_by,
+            reason="New version created",
+        )
 
     @dispatch(LabletDefinitionDeprecatedDomainEvent)
     def on(self, event: LabletDefinitionDeprecatedDomainEvent) -> None:  # type: ignore[override]
         """Apply the deprecation event to the state."""
+        old_status = self.status
         self.status = LabletDefinitionStatus.DEPRECATED
         self.deprecated_by = event.deprecated_by
         self.deprecated_at = event.deprecated_at
         self.deprecation_reason = event.deprecation_reason
         self.replacement_version = event.replacement_version
         self.updated_at = event.deprecated_at
+        self._record_transition(
+            from_state=old_status.value,
+            to_state=self.status.value,
+            triggered_by=event.deprecated_by,
+            reason=event.deprecation_reason or "Definition deprecated",
+        )
 
     @dispatch(LabletDefinitionArtifactSyncedDomainEvent)
     def on(self, event: LabletDefinitionArtifactSyncedDomainEvent) -> None:  # type: ignore[override]
@@ -303,12 +395,22 @@ class LabletDefinitionState(AggregateState[str]):
     @dispatch(LabletDefinitionSyncRequestedDomainEvent)
     def on(self, event: LabletDefinitionSyncRequestedDomainEvent) -> None:  # type: ignore[override]
         """Apply the sync requested event to the state."""
+        old_status = self.status
         self.sync_status = "sync_requested"
+        self.status = LabletDefinitionStatus.PENDING_SYNC
         self.updated_at = datetime.fromisoformat(event.requested_at)
+        if self.status != old_status:
+            self._record_transition(
+                from_state=old_status.value,
+                to_state=self.status.value,
+                triggered_by="system",
+                reason="Sync requested",
+            )
 
     @dispatch(LabletDefinitionContentSyncedDomainEvent)
     def on(self, event: LabletDefinitionContentSyncedDomainEvent) -> None:  # type: ignore[override]
         """Apply the content sync event to the state (ADR-025)."""
+        old_status = self.status
         self.last_synced_at = event.synced_at
         self.sync_status = event.sync_status
         self.lab_yaml_hash = event.lab_yaml_hash
@@ -338,9 +440,21 @@ class LabletDefinitionState(AggregateState[str]):
         if event.port_template is not None:
             self.port_template = PortTemplate.from_dict(event.port_template)
 
+        # Topology metadata from CML YAML (AD-SEED-001)
+        if event.node_count is not None:
+            self.node_count = event.node_count
+        if event.node_definitions_required is not None:
+            self.resource_requirements = self.resource_requirements.with_node_definitions(tuple(event.node_definitions_required))
+
         # Transition from PENDING_SYNC to ACTIVE on successful sync (ADR-028)
         if event.sync_status == "success" and self.status == LabletDefinitionStatus.PENDING_SYNC:
             self.status = LabletDefinitionStatus.ACTIVE
+            self._record_transition(
+                from_state=old_status.value,
+                to_state=self.status.value,
+                triggered_by="system",
+                reason="Content sync completed successfully",
+            )
 
     @dispatch(LabletDefinitionWarmPoolUpdatedDomainEvent)
     def on(self, event: LabletDefinitionWarmPoolUpdatedDomainEvent) -> None:  # type: ignore[override]
@@ -388,6 +502,8 @@ class LabletDefinitionState(AggregateState[str]):
             self.user_session_default_region = changes["user_session_default_region"]
         if "boot_lead_time_minutes" in changes:
             self.boot_lead_time_minutes = changes["boot_lead_time_minutes"]
+        if "lab_reuse_enabled" in changes:
+            self.lab_reuse_enabled = changes["lab_reuse_enabled"]
         self.updated_at = event.updated_at
 
 
@@ -432,6 +548,7 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
         owner_notification: NotificationConfig | None = None,
         boot_lead_time_minutes: int | None = None,
         pipelines: dict | None = None,
+        lab_reuse_enabled: bool = False,
     ) -> "LabletDefinition":
         """Create a new LabletDefinition in PENDING_SYNC status (ADR-028).
 
@@ -493,6 +610,7 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
                     user_session_default_region=user_session_default_region,
                     boot_lead_time_minutes=boot_lead_time_minutes,
                     pipelines=pipelines,
+                    lab_reuse_enabled=lab_reuse_enabled,
                 )
             )
         )
@@ -646,6 +764,8 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
         upstream_sync_status: dict | None = None,
         error_message: str | None = None,
         port_template: PortTemplate | None = None,
+        node_count: int | None = None,
+        node_definitions_required: list[str] | None = None,
     ) -> None:
         """Record the result of a content synchronization operation.
 
@@ -666,6 +786,8 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
             upstream_sync_status: Per-service sync status dict.
             error_message: Error details if sync failed.
             port_template: PortTemplate extracted from CML YAML node tags.
+            node_count: Number of nodes in the CML topology (AD-SEED-001).
+            node_definitions_required: Unique node definitions from CML YAML.
         """
         self.state.on(
             self.register_event(  # type: ignore
@@ -687,6 +809,8 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
                     devices_json=devices_json,
                     upstream_sync_status=upstream_sync_status,
                     port_template=port_template.to_dict() if port_template else None,
+                    node_count=node_count,
+                    node_definitions_required=node_definitions_required,
                 )
             )
         )

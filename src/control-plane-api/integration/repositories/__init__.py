@@ -10,6 +10,7 @@ from .motor_grading_session_repository import MongoGradingSessionRepository
 from .motor_lab_record_repository import MongoLabRecordRepository
 from .motor_lablet_definition_repository import MongoLabletDefinitionRepository
 from .motor_lablet_session_repository import MongoLabletSessionRepository
+from .motor_pipeline_execution_repository import MongoPipelineExecutionRepository
 from .motor_score_report_repository import MongoScoreReportRepository
 from .motor_user_session_repository import MongoUserSessionRepository
 
@@ -19,6 +20,7 @@ __all__ = [
     "MongoLabRecordRepository",
     "MongoLabletDefinitionRepository",
     "MongoLabletSessionRepository",
+    "MongoPipelineExecutionRepository",
     "MongoScoreReportRepository",
     "MongoUserSessionRepository",
     "MongoWorkerTemplateRepository",

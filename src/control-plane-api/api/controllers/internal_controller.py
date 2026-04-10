@@ -11,6 +11,7 @@ import logging
 from typing import Annotated, Any
 
 from application.commands.lab import (
+    AppendPipelineRunCommand,
     BindLabToLabletCommand,
     CompleteLabActionCommand,
     DiscoverLabRecordsCommand,
@@ -197,6 +198,7 @@ class DiscoverLabRecordsRequest(BaseModel):
     worker_id: str = Field(..., description="ID of the worker hosting these labs")
     labs: list[dict[str, Any]] = Field(..., description="List of lab data from CML scan")
     source: str = Field(default="lab-discovery-service", description="Source of the discovery")
+    partial_scan: bool = Field(default=False, description="If true, skip orphan sweep (single-lab registration)")
 
 
 class UpdateLabRecordStatusRequest(BaseModel):
@@ -232,6 +234,27 @@ class RecordLabRunRequest(BaseModel):
     stop_reason: str | None = Field(default=None, description="Why the run stopped (e.g., 'user_request', 'timeslot_end')")
     lablet_session_id: str | None = Field(default=None, description="LabletSession ID if bound during run")
     final_state: str | None = Field(default=None, description="Final CML state at run end")
+
+
+class AppendPipelineRunRequest(BaseModel):
+    """Request to record a pipeline execution on a LabRecord.
+
+    Sprint F (ADR-034): Submitted by lablet-controller after a lifecycle
+    pipeline completes (instantiate, teardown, collect_evidence, compute_grading).
+    """
+
+    pipeline_name: str = Field(..., description="Pipeline name (e.g., 'instantiate', 'teardown')")
+    status: str = Field(default="completed", description="Terminal status: completed, failed, partial")
+    started_at: str | None = Field(default=None, description="ISO 8601 pipeline start time")
+    completed_at: str | None = Field(default=None, description="ISO 8601 pipeline completion time")
+    duration_seconds: float | None = Field(default=None, description="Total pipeline duration in seconds")
+    steps_completed: int = Field(default=0, description="Number of successfully completed steps")
+    steps_failed: int = Field(default=0, description="Number of failed steps")
+    steps_skipped: int = Field(default=0, description="Number of skipped steps")
+    step_results: dict | None = Field(default=None, description="Per-step outcome dict")
+    error_message: str | None = Field(default=None, description="Pipeline-level error message")
+    triggered_by: str = Field(default="lablet-controller", description="Who triggered the pipeline")
+    lablet_session_id: str | None = Field(default=None, description="LabletSession ID that owns this run")
 
 
 class CompleteLabActionRequest(BaseModel):
@@ -401,6 +424,10 @@ class RecordContentSyncResultRequest(BaseModel):
 
     # Port template extracted from CML YAML nodes (ADR-029)
     port_template: dict[str, Any] | None = Field(default=None, description="Port template extracted from CML YAML node tags")
+
+    # Topology metadata auto-derived from CML YAML (AD-SEED-001)
+    node_count: int | None = Field(default=None, description="Number of nodes in the CML topology")
+    node_definitions_required: list[str] | None = Field(default=None, description="Unique node definitions from CML topology")
 
 
 # ==============================================================================
@@ -1016,6 +1043,7 @@ class InternalController(ControllerBase):
             worker_id=request.worker_id,
             labs=request.labs,
             source=request.source,
+            partial_scan=request.partial_scan,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)
@@ -1130,6 +1158,56 @@ class InternalController(ControllerBase):
             stop_reason=request.stop_reason,
             lablet_session_id=request.lablet_session_id,
             final_state=request.final_state,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @post(
+        "/lab-records/{lab_record_id}/pipeline-run",
+        summary="Record Pipeline Run",
+        tags=["Internal - Labs"],
+        status_code=201,
+    )
+    async def append_pipeline_run(
+        self,
+        lab_record_id: lab_record_id_annotation,
+        request: AppendPipelineRunRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Record a completed pipeline execution on a LabRecord.
+
+        Sprint F (ADR-034): Called by lablet-controller after a lifecycle
+        pipeline completes (instantiate, teardown, collect_evidence,
+        compute_grading). Appends a PipelineRunRecord to the aggregate.
+
+        Args:
+            lab_record_id: LabRecord aggregate ID.
+            request: Pipeline execution data.
+            api_key: Internal API key (from header).
+
+        Returns:
+            Created pipeline run record summary.
+        """
+        logger.info(
+            "[Internal] Lab record %s pipeline run: %s (%s)",
+            lab_record_id,
+            request.pipeline_name,
+            request.status,
+        )
+        command = AppendPipelineRunCommand(
+            lab_record_id=lab_record_id,
+            pipeline_name=request.pipeline_name,
+            status=request.status,
+            started_at=request.started_at,
+            completed_at=request.completed_at,
+            duration_seconds=request.duration_seconds,
+            steps_completed=request.steps_completed,
+            steps_failed=request.steps_failed,
+            steps_skipped=request.steps_skipped,
+            step_results=request.step_results,
+            error_message=request.error_message,
+            triggered_by=request.triggered_by,
+            lablet_session_id=request.lablet_session_id,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)
@@ -1571,6 +1649,8 @@ class InternalController(ControllerBase):
             devices_json=request.devices_json,
             upstream_sync_status=request.upstream_sync_status,
             port_template=request.port_template,
+            node_count=request.node_count,
+            node_definitions_required=request.node_definitions_required,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)

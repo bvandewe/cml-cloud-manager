@@ -38,6 +38,9 @@ class LabletDefinitionCreatedDomainEvent(DomainEvent):
     user_session_type: str
     user_session_default_region: str | None
 
+    # Lab binding options (Phase 7)
+    lab_reuse_enabled: bool
+
     # Instantiation timing (AD-P10-01)
     boot_lead_time_minutes: int | None
 
@@ -71,6 +74,7 @@ class LabletDefinitionCreatedDomainEvent(DomainEvent):
         user_session_default_region: str | None = None,
         boot_lead_time_minutes: int | None = None,
         pipelines: dict | None = None,
+        lab_reuse_enabled: bool = False,
     ) -> None:
         super().__init__(aggregate_id)
         self.aggregate_id = aggregate_id
@@ -97,6 +101,7 @@ class LabletDefinitionCreatedDomainEvent(DomainEvent):
         self.user_session_default_region = user_session_default_region
         self.boot_lead_time_minutes = boot_lead_time_minutes
         self.pipelines = pipelines
+        self.lab_reuse_enabled = lab_reuse_enabled
 
 
 @cloudevent("lablet_definition.version_created.v1")
@@ -401,6 +406,8 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
     devices_json: str | None
     upstream_sync_status: dict | None  # Per-service sync results
     port_template: dict[str, Any] | None  # Serialized PortTemplate extracted from CML YAML
+    node_count: int | None  # Number of nodes in the CML topology (AD-SEED-001)
+    node_definitions_required: list[str] | None  # Unique node definitions from CML YAML
 
     def __init__(
         self,
@@ -421,6 +428,8 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
         devices_json: str | None = None,
         upstream_sync_status: dict | None = None,
         port_template: dict[str, Any] | None = None,
+        node_count: int | None = None,
+        node_definitions_required: list[str] | None = None,
     ) -> None:
         super().__init__(aggregate_id)
         self.aggregate_id = aggregate_id
@@ -440,3 +449,5 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
         self.devices_json = devices_json
         self.upstream_sync_status = upstream_sync_status
         self.port_template = port_template
+        self.node_count = node_count
+        self.node_definitions_required = node_definitions_required

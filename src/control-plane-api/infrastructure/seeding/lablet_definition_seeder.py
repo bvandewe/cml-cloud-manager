@@ -255,6 +255,7 @@ class LabletDefinitionSeeder(EntitySeeder[LabletDefinition]):
             warm_pool_depth=data.get("warm_pool_depth", 0),
             owner_notification=owner_notification,
             pipelines=data.get("pipelines"),
+            lab_reuse_enabled=data.get("lab_reuse_enabled", False),
         )
 
         # Note: LabletDefinition.create() generates its own ID via uuid4.
