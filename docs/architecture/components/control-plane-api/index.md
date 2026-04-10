@@ -1,6 +1,6 @@
 # Control Plane API Architecture
 
-**Version:** 1.2.0 (February 2026)
+**Version:** 1.3.0 (April 2026)
 **Status:** Current Implementation
 
 !!! note "Related Documentation"
@@ -11,7 +11,8 @@
 ## Revision History
 
 | Version | Date | Changes |
-|---------|------|---------|
+|---------|---------|-------|
+| 1.3.0 | 2026-04 | SSE race condition fix (ADR-039), LDS CloudEvent direct ingestion (ADR-040), LDS integration settings |
 | 1.2.0 | 2026-02 | Added CloudEvent ingestion endpoint, CollectAndGrade command, etcd state publishing (ADR-018) |
 | 1.1.0 | 2026-02 | Added dual auth architecture, SSE event relay |
 | 1.0.0 | 2026-01 | Initial architecture documentation |
@@ -367,63 +368,49 @@ class CMLApiClient:
     """
 ```
 
-### CloudEvent Ingestion (LDS Integration)
+### CloudEvent Ingestion (LDS Integration — ADR-040)
 
-The Control Plane API receives CloudEvents from external systems via the `/api/events/pub` endpoint.
+The Control Plane API receives CloudEvents from external systems via its `CloudEventMiddleware` (mounted on the main app). Per [ADR-040](../../adr/ADR-040-lds-cloudevent-direct-ingestion-cpa.md), CPA handles **simple state-transition** CloudEvents directly, while complex orchestration events are routed to lablet-controller per [ADR-022](../../adr/ADR-022-cloudevent-ingestion-lablet-controller.md).
 
 ```mermaid
 sequenceDiagram
     participant LDS as Lab Delivery System
     participant CPA as Control Plane API
-    participant Handler as EventHandler
+    participant Handler as LdsSessionRunningHandler
     participant MongoDB
-    participant etcd
+    participant SSE as SSE Event Relay
+    participant Browser
 
-    LDS->>CPA: POST /api/events/pub<br/>CloudEvent (application/cloudevents+json)
-
-    alt Event: com.cisco.lds.session.started
-        CPA->>Handler: HandleLdsSessionStarted
-        Handler->>MongoDB: Update instance state = RUNNING
-        Handler->>etcd: PUT /lcm/instances/{id}/state = RUNNING
-    else Event: com.cisco.lds.session.ended
-        CPA->>Handler: HandleLdsSessionEnded
-        Handler->>MongoDB: Update instance state = STOPPING
-        Handler->>etcd: PUT /lcm/instances/{id}/state = STOPPING
-    end
-
+    LDS->>CPA: POST / (CloudEvent: io.lablet.lds.session.running.v1)
+    CPA->>Handler: CloudEventIngestor dispatches
+    Handler->>Handler: Deduplication check
+    Handler->>MongoDB: Load LabletSession aggregate
+    Handler->>Handler: session.mark_running() (READY → RUNNING)
+    Handler->>MongoDB: Save aggregate (emits domain events)
+    MongoDB-->>SSE: Domain event → SSE handler
+    SSE-->>Browser: lablet.session.status.changed
     CPA-->>LDS: 202 Accepted
 ```
 
-#### Supported CloudEvent Types (FR-2.2.6)
+#### Supported LDS CloudEvent Types
 
-| Event Type | Source | Description | Action |
-|------------|--------|-------------|--------|
-| `com.cisco.lds.session.started` | Lab Delivery System | Training session has started | Transition READY → RUNNING |
-| `com.cisco.lds.session.ended` | Lab Delivery System | Training session has ended | Trigger lab grading and cleanup |
+| Event Type | Handler | Action | State Transition |
+|------------|---------|--------|------------------|
+| `io.lablet.lds.session.running.v1` | `LdsSessionRunningHandler` | Mark session running | READY → RUNNING |
+| `io.lablet.lds.session.paused.v1` | `LdsSessionPausedHandler` | Informational log | — |
+| `io.lablet.lds.session.ended.v1` | `LdsSessionEndedHandler` | Informational log | — |
 
-#### Endpoint Specification
+!!! note "Dual Routing Model"
+    Events requiring external calls (e.g., `lds.session.user-finished` → GradingSPI) are routed
+    to lablet-controller per ADR-022. Only simple aggregate mutations are handled directly by CPA.
 
-```http
-POST /api/events/pub
-Content-Type: application/cloudevents+json
+#### LDS Integration Settings
 
-{
-  "specversion": "1.0",
-  "type": "com.cisco.lds.session.started",
-  "source": "/lds/sessions",
-  "id": "event-uuid",
-  "time": "2026-01-15T10:00:00Z",
-  "data": {
-    "session_id": "session-uuid",
-    "lablet_instance_id": "instance-uuid",
-    "user_id": "user-uuid"
-  }
-}
-```
-
-!!! note "ADR-018: Lab Delivery System Integration"
-    See [ADR-018](../../../architecture/decisions/ADR-018-lab-delivery-system-integration.md) for the full
-    integration design including READY state machine and CollectAndGrade workflow.
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LDS_CLOUDEVENT_SOURCE` | Expected CloudEvent source URI | `https://labs.lcm.io` |
+| `LDS_CLOUDEVENT_TYPE_PREFIX` | CloudEvent type prefix for LDS | `io.lablet.lds` |
+| `LDS_CLOUDEVENT_ENABLED` | Feature toggle for LDS event processing | `true` |
 
 ## 9. CQRS Commands Reference
 
@@ -485,6 +472,9 @@ Key environment variables:
 | `WORKER_MONITORING_ENABLED` | Enable background monitoring | `true` |
 | `WORKER_METRICS_POLL_INTERVAL` | Metrics collection interval (sec) | `300` |
 | `ETCD_ENDPOINTS` | etcd cluster endpoints | `localhost:2379` |
+| `LDS_CLOUDEVENT_SOURCE` | Expected LDS CloudEvent source URI | `https://labs.lcm.io` |
+| `LDS_CLOUDEVENT_TYPE_PREFIX` | LDS CloudEvent type prefix | `io.lablet.lds` |
+| `LDS_CLOUDEVENT_ENABLED` | Enable LDS CloudEvent processing | `true` |
 
 ## 11. Related Documentation
 

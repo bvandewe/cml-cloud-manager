@@ -141,7 +141,6 @@ The `_reconcile()` method in SchedulerService should:
 2. How to handle partial failures (instance scheduled but port allocation fails)?
 3. Should we batch API calls (get all pending + definitions) or fetch per-instance?
 4. What metrics/logs should be emitted during scheduling?
-
 ```
 
 ---
@@ -151,7 +150,6 @@ The `_reconcile()` method in SchedulerService should:
 ### Directory Structure
 
 ```
-
 src/resource-scheduler/
 ├── application/
 │   ├── commands/          # CQRS commands (if any)
@@ -171,7 +169,6 @@ src/resource-scheduler/
 │       └── etcd_client.py           # etcd state store client
 ├── main.py               # Application entry point
 └── tests/                # Test directory
-
 ```
 
 ### Key API Endpoints (Control Plane API)
@@ -189,11 +186,9 @@ src/resource-scheduler/
 ### Instance States (LabletInstanceStatus)
 
 ```
-
 PENDING → SCHEDULED → INSTANTIATING → RUNNING → STOPPING → STOPPED → TERMINATED
                                     ↓
                                  GRADING → GRADED → COLLECTING → ARCHIVED
-
 ```
 
 ---

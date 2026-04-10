@@ -6,6 +6,50 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ## [Unreleased]
 
+### Fixed — SSE Race Condition (ADR-039)
+
+- **Timestamp-guarded `mergeAll` reducer** (control-plane-api/UI): Replaced destructive `replaceAll` with `mergeAll` that protects SSE-updated fields (`status`, `pipeline_progress`, `worker_id`, `desired_status`) using `_sseUpdatedAt` timestamp guard (5-second window). Prevents stale HTTP polling data from overwriting real-time SSE-driven state updates.
+- **HTTP 201 response upsert** (control-plane-api/UI): Session creation modal now immediately populates the store from the HTTP response, providing instant UI feedback before SSE events arrive.
+- **Deferred reload** (control-plane-api/UI): Changed `UI_SESSION_CREATED` reload delay from 500ms to 3000ms, allowing the PENDING→SCHEDULED→INSTANTIATING chain (~1–1.5s) to complete before HTTP poll.
+- **Enriched `created` SSE payload** (control-plane-api): `lablet.session.created` event now includes `status`, `definition_name`, `definition_version`, `timeslot_start`, `timeslot_end`, and `reservation_id`.
+- **Timeslot extended data shape** (control-plane-api/UI): Fixed SSE handler field name from `data.timeslot` to `data.new_timeslot_end`.
+- **Score recorded field names** (control-plane-api/UI): Fixed SSE handler field names from `data.score`/`data.grading_result` to `data.score_report_id`/`data.grade_result`.
+- **Dead eventMap cleanup** (control-plane-api/UI): Commented out 9 per-status wire types that backend never emits — backend uses single `lablet.session.status.changed` wire type.
+
+### Added — LDS CloudEvent Direct Ingestion (ADR-040)
+
+- **LDS integration events** (control-plane-api): Three `@cloudevent`-decorated integration events — `io.lablet.lds.session.running.v1`, `session.paused.v1`, `session.ended.v1` — consumed by CPA's `CloudEventIngestor`.
+- **LDS event handler** (control-plane-api): `LdsSessionRunningHandler` transitions sessions READY→RUNNING when user logs in via LDS. Includes `EventDeduplicationService`, `InvalidStateTransitionError` handling, and settings toggle.
+- **LDS CloudEvent settings** (control-plane-api): `lds_cloudevent_source`, `lds_cloudevent_type_prefix`, `lds_cloudevent_enabled` — configurable per environment.
+- **Tests**: 9 new unit tests covering happy path, state guards, deduplication, disable toggle, invalid transition, session_id fallback.
+
+### Fixed — Lab Provisioning Test Remediation (Track 1)
+
+- **Stale reuse tests** (lablet-controller): Rewrote `TestTryReuseExistingLab` class — 4 stale tests replaced with 10 comprehensive tests. Fixed `based_on_definition_id` matching (was using obsolete `node_count`), added `get_lab()` ghost detection mocks, verified ORPHANED marking via `update_lab_record_status`. All 10 tests passing.
+- **Ghost guard tests** (lablet-controller): Added `TestStepLabStart` class in `test_instantiation_pipeline.py` — 5 new tests covering ghost lab detection (`get_lab_state` returns `None` → fail + ORPHANED), no-worker-id skip, BOOTED immediate completion, missing `cml_lab_id` failure, and CML exception handling. Relocated from skipped G5 class per ADR-034.
+- **LabRecord definition_id assertion** (lablet-controller): Added `based_on_definition_id` payload assertion to `TestRegisterLabRecord::test_registers_lab_and_returns_record_id`, verifying `_register_lab_record()` includes `instance.definition_id` in the discovery payload.
+- **Production code**: All 4 Track 1 bugs (definition_id matching, ghost lab verification, LabRecord definition_id, lab_start ghost guard) confirmed already fixed in `lablet_reconciler.py` — no production changes needed, only test remediation.
+
+### Added — Pipeline Run Recording (Sprint F, ADR-034)
+
+- **PipelineRunRecord value object** (control-plane-api): Frozen dataclass capturing pipeline execution outcome — `run_id`, `pipeline_name`, `status`, step counts, timing, `step_results`, provenance fields. Full `to_dict()`/`from_dict()` serialization.
+- **PipelineRunRecordedDomainEvent** (control-plane-api): New domain event with `@cloudevent("lab_record.pipeline_run_recorded.v1")` decorator. Triggers `@dispatch` handler on LabRecordState to append bounded history (max 50 entries).
+- **LabRecord aggregate methods**: `append_pipeline_run()` (event-sourced via domain event) and `pipeline_run_history_vo` property accessor on LabRecord entity.
+- **AppendPipelineRunCommand** (control-plane-api): Self-contained CQRS command + handler following RecordLabRunCommand pattern. OTel-traced, returns 201 with run summary.
+- **Internal API endpoint**: `POST /api/internal/lab-records/{id}/pipeline-run` — accepts pipeline execution data from lablet-controller with API key auth.
+- **ControlPlaneApiClient.append_pipeline_run()** (lcm-core): HTTP client method for cross-service pipeline run recording.
+- **Reconciler wiring** (lablet-controller): All 4 pipeline types (instantiate, teardown, collect_evidence, compute_grading) wired with `on_complete` callback to record pipeline runs via CPA. Fire-and-forget — errors logged but don't affect pipeline outcome.
+- **Tests**: 19 new unit tests — PipelineRunRecord VO (8), LabRecord domain integration (6), AppendPipelineRunCommandHandler (5).
+
+### Added — TimeslotManager Documentation (Sprint H6)
+
+- **ADR-037**: TimeslotManager architectural decision record — documents separate hosted service rationale, leader election, expiry detection, configuration, admin endpoints.
+- **resource-scheduler README**: TimeslotManagerHostedService section with description, configuration table (4 env vars), expanded admin endpoint table (10 entries).
+
+### Removed — UI Dead Code Cleanup (M3-CLEANUP)
+
+- **SessionsPage V1** (1,411 lines): Removed legacy `SessionsPage.js` web component, superseded by store-driven `SessionsPageV2.js` (StoreConnectedPage pattern). Removed `?sessions=v1` URL fallback from `app.js`. Bundle reduced from 790 KB → 750 KB.
+
 ### Added — Instantiation Pipeline (ADR-031, Phases 1–5)
 
 - **Scheduler simplification** (resource-scheduler, Phase 4): Removed static port allocation from `_handle_assign()` — scheduler now passes `allocated_ports={}`. Port allocation is deferred to the lablet-controller pipeline (`ports_alloc` step). Placement engine port check is count-only (no change needed).

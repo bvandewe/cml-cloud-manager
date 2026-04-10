@@ -2,6 +2,12 @@
 
 > **Purpose:** Copy-paste this prompt to bootstrap a fresh AI agent session for implementing ADR-034 Sprint D (Teardown Pipeline + Evidence/Grading Stubs).
 >
+> **Parent ADRs:**
+> - [ADR-034](../architecture/adr/ADR-034-pipeline-executor-lifecycle-handlers.md) — Pipeline Executor & Lifecycle Handlers
+> - [ADR-036](../architecture/adr/ADR-036-resource-management-abstraction-layer.md) — Resource Management Abstraction Layer (Phase 1 = this sprint)
+>
+> **Implementation Track:** [ADR-034-next-steps.md](./ADR-034-next-steps.md)
+>
 > **Prerequisites completed (Sprints A–C):**
 >
 > - `PipelineExecutor` with graphlib DAG, simpleeval skip_when, retry/timeout (577 lines)
@@ -13,6 +19,7 @@
 > - `PipelineResult.max_retries` for retry budget tracking
 > - 126 tests across 4 files (all green)
 > - 10 architectural decisions (AD-PIPELINE-002 through AD-PIPELINE-010)
+> - ADR-036 approved — concrete resource subtypes, dual execution strategy, pipeline domain events
 
 ---
 
@@ -35,9 +42,29 @@ The fire-and-check delegation pattern is fully established:
 
 **Critical file:** `src/lablet-controller/application/hosted_services/lablet_reconciler.py`
 **Reference pattern:** `_handle_instantiating()` (lines ~540–640) — copy this pattern for D2/D5.
+**Current `_handle_stopping()`:** L1456–L1531 — imperative/inline, must be replaced.
+**Step handlers:** L864–L1271 — 9 existing `_step_*` methods, add 12 new ones here.
+**Status routing:** `_reconcile_inner()` status switch at ~L486–L497 — add COLLECTING/GRADING.
 **Seed files with pipeline definitions (already complete):**
 - `src/control-plane-api/data/seeds/lablet_definitions/exam-associate-auto-v1.1-lab-2.5.1.yaml`
 - `src/control-plane-api/data/seeds/lablet_definitions/exam-professional-enterprise-v1.0-lab-1.1.yaml`
+
+**Existing test files (10 files, 6,944 total lines):**
+- `tests/test_instantiation_pipeline.py` (878 lines) — fire-and-check reference tests
+- `tests/test_pipeline_executor.py` (1,265 lines) — executor unit tests
+- `tests/test_lifecycle_phase_handler.py` (392 lines) — handler wrapper tests
+- `tests/test_reconciler_concurrency.py` (160 lines) — per-session lock tests
+- `tests/test_lablet_reconciler_g5.py` (1,344 lines) — general reconciler tests
+- `tests/test_phase9_lab_discovery.py` (1,341 lines) — lab discovery tests
+- Other: test_resource_observer.py, test_timeslot_watcher_service.py, test_lds_spi.py
+
+**CPA progress endpoint:** Verify if `update_instantiation_progress()` is generic or
+instantiation-specific. If specific, add a generic `update_pipeline_progress(session_id,
+pipeline_name, progress)` endpoint. Check `lcm_core/integration/clients/control_plane_api_client.py`.
+
+**ADR-036 context (Phase 1 alignment):** This sprint completes ADR-036 Phase 1 tasks 1.1–1.7
+(functional pipeline completion). The pipeline domain events (Phase 1 tasks 1.8–1.14) are
+Sprint E. The `desired_status` field is also Sprint E.
 
 ### Sprint D Tasks
 
@@ -255,6 +282,22 @@ After implementation:
 | `_handle_running()` → COLLECTING transition not yet wired | Sprint D only creates the handlers; lifecycle triggers are Sprint E+ |
 | _record_lab_run_completed migration | Fold into `_step_archive` to avoid adding a 5th teardown step — or create a separate `_step_record_run` step |
 | Three new fire-and-check handlers increase reconciler size | All three follow identical patterns — consider a `_create_pipeline_handler()` helper to DRY |
+| COLLECTING/GRADING missing from LabletSessionStatus enum | Check both `lcm_core` and `control-plane-api` enums before starting; add if missing |
+| CPA progress endpoint is instantiation-specific | Check and generalize to `update_pipeline_progress(session_id, pipeline_name, progress)` if needed |
+
+## ADR-036 Alignment
+
+Sprint D completes **ADR-036 Phase 1 tasks 1.1–1.7** (functional pipeline completion):
+- Task 1.1: Decompose `_handle_stopping()` → D1
+- Task 1.2: Wire to LifecyclePhaseHandler + teardown pipeline → D2
+- Task 1.3: Evidence collection stubs → D3
+- Task 1.4: Grading stubs → D4
+- Task 1.5: Wire `_handle_collecting()` and `_handle_grading()` → D5
+- Task 1.6: Tests → D6
+- Task 1.7: Validate seed files → D7
+
+**Next after Sprint D:** Sprint E (ADR-036 Phase 1 tasks 1.8–1.14) — pipeline domain events,
+SSE handlers, etcd projectors, `desired_status` field, and frontend pipeline progress panel.
 
 ## Sprint D Estimated Scope
 
@@ -266,3 +309,38 @@ After implementation:
 | Status routing + worker_ip updates | ~15 lines |
 | Test file (`test_teardown_pipeline.py`) | ~600-800 lines, ~40-50 tests |
 | **Total** | ~400 production lines + ~700 test lines |
+
+## Session Initialization
+
+Start the next session with:
+
+```
+mcp_knowledge_recall_session(
+  workspace_id: "lablet-cloud-manager",
+  focus_hint: "Sprint D teardown evidence grading pipeline step handlers lablet-controller"
+)
+```
+
+Then set focus:
+
+```
+mcp_knowledge_set_focus(
+  workspace_id: "lablet-cloud-manager",
+  name: "Sprint D — Teardown + Evidence + Grading Pipelines",
+  description: "Implement 12 step handlers (4 teardown, 4 evidence, 3 grading), refactor _handle_stopping to fire-and-check, add _handle_collecting and _handle_grading, add status routing, tests",
+  active_plan: "docs/implementation/ADR-034-sprint-d-prompt.md",
+  current_phase: "Sprint D",
+  priority_files: [
+    "src/lablet-controller/application/hosted_services/lablet_reconciler.py",
+    "src/lablet-controller/application/services/lifecycle_phase_handler.py",
+    "src/lablet-controller/application/services/pipeline_executor.py",
+    "src/control-plane-api/data/seeds/lablet_definitions/exam-associate-auto-v1.1-lab-2.5.1.yaml"
+  ],
+  priority_components: [
+    "LabletReconciler",
+    "PipelineExecutor",
+    "LifecyclePhaseHandler",
+    "LabletSessionStatus"
+  ]
+)
+```

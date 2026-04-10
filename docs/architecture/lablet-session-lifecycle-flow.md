@@ -2,63 +2,120 @@
 
 | Attribute | Value |
 |-----------|-------|
-| **Document Version** | 2.0.0 |
+| **Document Version** | 3.0.0 |
 | **Created** | 2026-01-19 |
-| **Updated** | 2026-02-18 |
+| **Updated** | 2026-04-10 |
 | **Status** | Active |
+| **ADRs** | ADR-001, ADR-034, ADR-039, ADR-040 |
 
 ---
 
 ## Overview
 
-This document describes the complete lifecycle of a `LabletSession` (renamed from `LabletInstance` — AD-38) from reservation through execution to termination, showing how all microservices collaborate following ADR-001 (API-Centric State Management).
+This document describes the complete lifecycle of a **LabletSession** from reservation through execution to archival, showing how all four microservices collaborate via **etcd watch streams** and the **Control Plane API** as the single source of truth (ADR-001).
 
-**Key Principles:**
+**Key Architectural Principles:**
 
-- **Control Plane API** is the single source of truth - all state mutations go through it
-- **Controllers** (resource-scheduler, lablet-controller, worker-controller) reconcile external systems and post results to Control Plane API
-- **Domain Events** are automatically emitted via Neuroglia's `@cloudevent` decorator when aggregate state changes
-- **CloudEvents** from external systems (LDS, Grading Engine) are received by **lablet-controller** via Neuroglia CloudEventIngestor and proxied to Control Plane API (AD-41)
-- **Child Entities** (UserSession, GradingSession, ScoreReport) are stored in separate MongoDB collections but linked to the LabletSession by `lablet_session_id`
+- **Control Plane API (CPA)** is the **sole MongoDB writer** — all state mutations go through it
+- **etcd** is the cross-service coordination bus — state projection, watch streams, leader election, capacity tracking
+- **Watch + Poll dual-mode** — etcd watches provide reactivity; periodic polling guarantees consistency against missed events
+- **Pipeline fire-and-check** (ADR-034) — long-running multi-step phases (INSTANTIATING, COLLECTING, GRADING, STOPPING) run as managed `asyncio.Task` inside a `LifecyclePhaseHandler`; the reconciler never blocks — it checks handler status on each cycle
+- **Lab reuse over reimport** — labs are wiped (not deleted), preserving topology for ~20s reuse vs ~90s fresh import
 
 ---
 
 ## Service Responsibilities
 
-| Service | Role | SPI Integration |
-|---------|------|-----------------|
-| **control-plane-api** | State management, API gateway, event handling | MongoDB |
-| **resource-scheduler** | Scheduling decisions, worker assignment | Control Plane API |
-| **lablet-controller** | Lab lifecycle + LDS provisioning + Grading orchestration | CML Labs API, LDS API, Grading Engine API |
-| **worker-controller** | Worker provisioning and monitoring | AWS EC2, CloudWatch, CML System |
+| Service | Role | Watch Prefix | External Systems |
+|---------|------|--------------|------------------|
+| **control-plane-api** | State management, aggregate persistence, etcd projection | — (source) | MongoDB |
+| **resource-scheduler** | Scheduling decisions, worker assignment | `/sessions/{id}` (status=PENDING) | CPA API, etcd (capacity) |
+| **worker-controller** | AWS EC2 provisioning, CML health, metrics | `/workers/{id}` | AWS EC2, CloudWatch, CML System API |
+| **lablet-controller** | Session lifecycle reconciliation, lab/LDS/grading orchestration | `/sessions/{id}`, `/requeue/` | CML Labs API, LDS API, CPA API |
+
+All services are **leader-elected** — only one instance per service reconciles at a time.
 
 ---
 
 ## State Machine
 
-```
-PENDING → SCHEDULED → INSTANTIATING → READY → RUNNING → COLLECTING → GRADING → STOPPING → STOPPED → TERMINATED
-                                                                                ↘ (from any state) → TERMINATED
+### Status Enum
+
+```python
+class LabletSessionStatus(str, Enum):
+    PENDING         = "PENDING"          # Session created, awaiting scheduling
+    SCHEDULED       = "SCHEDULED"        # Worker assigned, awaiting timeslot
+    INSTANTIATING   = "INSTANTIATING"    # Pipeline: lab import + start + LDS provision
+    READY           = "READY"            # Lab BOOTED + LDS provisioned, awaiting user
+    RUNNING         = "RUNNING"          # User logged in, session active
+    COLLECTING      = "COLLECTING"       # Evidence capture pipeline (configs, screenshots, pcaps)
+    GRADING         = "GRADING"          # Grading engine evaluating evidence
+    STOPPING        = "STOPPING"         # Teardown pipeline: stop + wipe + archive
+    STOPPED         = "STOPPED"          # Teardown complete, awaiting final archival
+    ARCHIVED        = "ARCHIVED"         # Terminal: session preserved for historical records
+    TERMINATED      = "TERMINATED"       # Terminal: force-terminated from any state
+    EXPIRED         = "EXPIRED"          # Terminal: timeslot elapsed
 ```
 
-### State Descriptions
+### Transition Diagram
 
-| State | Description | Triggered By |
-|-------|-------------|--------------|
-| **PENDING** | Session created, awaiting scheduling | User via UI |
-| **SCHEDULED** | Assigned to worker, ports allocated | resource-scheduler |
-| **INSTANTIATING** | Lab being imported/started, LDS session being provisioned | lablet-controller |
-| **READY** | Lab running + LDS provisioned, awaiting user login | lablet-controller |
-| **RUNNING** | User logged in, actively working | LDS CloudEvent (session.started) |
-| **COLLECTING** | Assessment data collection in progress | User or LDS CloudEvent (session.ended) |
-| **GRADING** | Grading engine evaluating submission | lablet-controller |
-| **STOPPING** | Lab being stopped, sessions being archived | lablet-controller |
-| **STOPPED** | Lab stopped, cleanup in progress | lablet-controller |
-| **TERMINATED** | Lab deleted, resources released | lablet-controller |
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: User creates session
+    PENDING --> SCHEDULED: resource-scheduler assigns worker
+    PENDING --> TERMINATED: Force terminate
+
+    SCHEDULED --> INSTANTIATING: lablet-controller (timeslot approach)
+    SCHEDULED --> TERMINATED: Force terminate
+
+    INSTANTIATING --> READY: Pipeline completes (mark_ready step)
+    INSTANTIATING --> EXPIRED: Timeslot elapsed
+    INSTANTIATING --> TERMINATED: Force terminate / pipeline exhausted
+
+    READY --> RUNNING: LDS CloudEvent or manual transition
+    READY --> EXPIRED: Timeslot elapsed
+    READY --> TERMINATED: Force terminate
+
+    RUNNING --> COLLECTING: Assessment trigger
+    RUNNING --> STOPPING: Timeslot ended / manual
+    RUNNING --> EXPIRED: Timeslot elapsed
+    RUNNING --> TERMINATED: Force terminate
+
+    COLLECTING --> GRADING: Evidence pipeline completes
+    COLLECTING --> STOPPING: Manual override
+    COLLECTING --> EXPIRED: Timeslot elapsed
+    COLLECTING --> TERMINATED: Force terminate
+
+    GRADING --> STOPPING: Grading pipeline completes
+    GRADING --> EXPIRED: Timeslot elapsed
+    GRADING --> TERMINATED: Force terminate
+
+    STOPPING --> ARCHIVED: Teardown pipeline completes (archive step)
+    STOPPING --> TERMINATED: Force terminate
+
+    ARCHIVED --> TERMINATED: Cleanup
+    EXPIRED --> TERMINATED: Cleanup
+```
+
+### Valid Transitions
+
+| From | To |
+|------|----|
+| **PENDING** | SCHEDULED, TERMINATED |
+| **SCHEDULED** | INSTANTIATING, TERMINATED |
+| **INSTANTIATING** | READY, EXPIRED, TERMINATED |
+| **READY** | RUNNING, EXPIRED, TERMINATED |
+| **RUNNING** | COLLECTING, STOPPING, EXPIRED, TERMINATED |
+| **COLLECTING** | GRADING, STOPPING, EXPIRED, TERMINATED |
+| **GRADING** | STOPPING, EXPIRED, TERMINATED |
+| **STOPPING** | ARCHIVED, TERMINATED |
+| **ARCHIVED** | TERMINATED |
+| **EXPIRED** | TERMINATED |
+| **TERMINATED** | *(terminal — no further transitions)* |
 
 ---
 
-## Sequence Diagram
+## End-to-End Sequence Diagram
 
 ```mermaid
 sequenceDiagram
@@ -70,7 +127,8 @@ sequenceDiagram
 
     box rgba(144,238,144,0.1) Control Plane
     participant CP as Control Plane API
-    participant Repo as MongoDB
+    participant etcd as etcd
+    participant Mongo as MongoDB
     end
 
     box rgba(255,215,0,0.1) Controllers
@@ -82,181 +140,107 @@ sequenceDiagram
     box rgba(255,182,193,0.1) External Systems
     participant CML as CML Labs API
     participant LDS as Lab Delivery System
-    participant GE as Grading Engine
     end
 
-    Note over User,GE: Phase 1: Reservation (PENDING)
+    Note over User,LDS: Phase 1: Reservation (→ PENDING)
 
     User->>UI: Request Lab Session
     UI->>CP: POST /api/v1/sessions
-    activate CP
-    CP->>CP: CreateLabletSessionCommand
-    Note right of CP: LabletSession created<br/>Status: PENDING<br/>Domain Event: lablet_session.created.v1
-    CP->>Repo: Save LabletSession
-    CP-->>UI: 201 Created (session_id)
-    deactivate CP
-    UI-->>User: Lab Reserved
+    CP->>Mongo: Save LabletSession (PENDING)
+    CP->>etcd: PUT /sessions/{id} = {status: PENDING, ...}
+    CP-->>UI: 201 Created
 
-    Note over Sched,Repo: Phase 2: Scheduling (SCHEDULED)
+    Note over Sched,etcd: Phase 2: Scheduling (PENDING → SCHEDULED)
 
-    loop Every 10s (Leader Only)
-        Sched->>CP: GET /api/v1/sessions?status=PENDING
-        activate Sched
-        CP-->>Sched: [PENDING sessions]
-        Sched->>CP: GET /api/v1/workers?status=RUNNING
-        CP-->>Sched: [Available workers]
-        Sched->>Sched: PlacementEngine.schedule()
-        alt Worker Available
-            Sched->>CP: POST /api/internal/sessions/{id}/schedule
-            CP->>CP: ScheduleLabletSessionCommand
-            Note right of CP: Status: SCHEDULED<br/>Ports allocated<br/>Domain Event: lablet_session.scheduled.v1
-            CP->>Repo: Update LabletSession
-            CP-->>Sched: 200 OK
-        else No Workers
-            Sched->>CP: POST /api/internal/workers/scale-up
-            Note right of Sched: Request worker provisioning
-        end
-        deactivate Sched
-    end
+    etcd-->>Sched: Watch event: session PENDING
+    Sched->>Sched: PlacementEngine.schedule()
+    Sched->>CP: POST /api/internal/sessions/{id}/schedule
+    CP->>Mongo: Update (SCHEDULED, worker_id, capacity reserved)
+    CP->>etcd: PUT /sessions/{id} = {status: SCHEDULED, ...}
+    CP-->>Sched: 200 OK
 
-    Note over LC,LDS: Phase 3: Instantiation (INSTANTIATING → READY)
+    Note over LC,CML: Phase 3: Instantiation (SCHEDULED → INSTANTIATING → READY)
 
-    loop Every 10s (Leader Only)
-        LC->>CP: GET /api/v1/sessions?status=SCHEDULED,INSTANTIATING
-        activate LC
-        CP-->>LC: [sessions with timeslot approaching]
+    etcd-->>LC: Watch event: session SCHEDULED
+    LC->>LC: _handle_scheduled() — timeslot check
+    LC->>CP: POST /api/internal/sessions/{id}/start-instantiation
+    CP->>Mongo: Update (INSTANTIATING)
+    CP->>etcd: PUT /sessions/{id} = {status: INSTANTIATING}
 
-        alt Timeslot Approaching
-            LC->>CP: POST /api/internal/sessions/{id}/transition
-            Note right of CP: Status: INSTANTIATING<br/>Domain Event: lablet_session.instantiating.v1
+    etcd-->>LC: Watch event: session INSTANTIATING
+    LC->>LC: _handle_instantiating() — fire-and-check
+    LC->>LC: Start LifecyclePhaseHandler (instantiate pipeline)
 
-            LC->>CML: POST /api/v0/import (topology_yaml)
-            CML-->>LC: lab_id
+    Note right of LC: Pipeline runs as asyncio.Task
 
-            LC->>CP: PATCH /api/internal/sessions/{id}/lab-id
+    LC->>CML: Import/reuse lab topology
+    LC->>CP: Allocate ports, bind LabRecord
+    LC->>CML: Start lab, poll until BOOTED
+    LC->>LDS: Create LDS session + device mapping
+    LC->>CP: POST /api/internal/sessions/{id}/mark-ready
+    CP->>Mongo: Update (READY)
+    CP->>etcd: PUT /sessions/{id} = {status: READY}
 
-            LC->>CML: PUT /api/v0/labs/{lab_id}/start
-            CML-->>LC: 200 OK
+    Note over User,LDS: Phase 4: Active Session (READY → RUNNING)
 
-            loop Poll until nodes are booted
-                LC->>CML: GET /api/v0/labs/{lab_id}/nodes
-                CML-->>LC: node states
-            end
-
-            LC->>LDS: Create LabSession (via LabDeliverySPI)
-            LDS-->>LC: lds_session_id, login_url
-
-            LC->>LDS: Set device access info
-            LDS-->>LC: 200 OK
-
-            LC->>CP: POST /api/internal/sessions/{id}/user-session
-            Note right of CP: UserSession created (PROVISIONED)<br/>Domain Event: user_session.created.v1
-
-            LC->>CP: POST /api/internal/sessions/{id}/transition
-            Note right of CP: Status: READY<br/>Domain Event: lablet_session.ready.v1
-        end
-        deactivate LC
-    end
-
-    Note over User,LDS: Phase 4: Lab Session (READY → RUNNING)
-
-    User->>UI: Access Lab
-    UI->>CP: GET /api/v1/sessions/{id}
-    CP-->>UI: Session details (login_url, ports)
-    UI-->>User: Lab Console/VNC + LDS IFRAME
+    etcd-->>LC: Watch event: session READY
+    LC->>LC: _handle_ready() — verify lab BOOTED
 
     User->>LDS: Login via IFRAME
     LDS-)LC: CloudEvent: lds.session.started
-    LC->>CP: PUT /api/internal/sessions/{id}/user-session/status
-    Note right of CP: UserSession: ACTIVE
-    LC->>CP: POST /api/internal/sessions/{id}/transition
-    Note right of CP: Status: RUNNING<br/>Domain Event: lablet_session.running.v1
+    LC->>CP: POST /api/internal/sessions/{id}/transition (RUNNING)
 
-    User->>CML: Connect to lab devices
+    Note right of CP: Or via ADR-040: LDS → CPA direct
+    LDS-)CP: CloudEvent: io.lablet.lds.session.running.v1
+    CP->>CP: session.mark_running() (direct aggregate mutation)
 
-    Note over LC,GE: Phase 5: Assessment (COLLECTING → GRADING)
+    CP->>Mongo: Update (RUNNING)
+    CP->>etcd: PUT /sessions/{id} = {status: RUNNING}
 
-    rect rgba(255,200,100,0.2)
-        Note over User,LDS: User finishes lab session
-        User->>UI: Click Finish Lab
-        UI->>CP: POST /api/v1/sessions/{id}/collect
-        activate CP
-        CP->>CP: StartCollectionCommand
-        Note right of CP: Status: COLLECTING<br/>Domain Event: lablet_session.collecting.v1
-        CP->>Repo: Update LabletSession
-        CP-->>UI: 202 Accepted
-        deactivate CP
+    Note over LC,CML: Phase 5: Assessment (RUNNING → COLLECTING → GRADING)
+
+    rect rgba(255,200,100,0.15)
+        Note right of LC: Assessment flow (stubs in Sprint D)
+        LC->>CP: Transition → COLLECTING
+        LC->>LC: _handle_collecting() — fire-and-check
+        Note right of LC: collect_evidence pipeline (stubs)
+        LC->>CP: Transition → GRADING
+        LC->>LC: _handle_grading() — fire-and-check
+        Note right of LC: compute_grading pipeline (stubs)
     end
 
-    rect rgba(200,255,200,0.2)
-        Note over LC,GE: Lablet Controller orchestrates grading
-        LC->>GE: POST /api/v1/sessions (create grading session)
-        GE-->>LC: grading_session_id
+    Note over LC,CML: Phase 6: Teardown (→ STOPPING → ARCHIVED)
 
-        LC->>CP: POST /api/internal/sessions/{id}/grading-session
-        Note right of CP: GradingSession created (COLLECTING)<br/>Domain Event: grading_session.created.v1
+    LC->>CP: Transition → STOPPING (releases capacity)
+    CP->>etcd: PUT /sessions/{id} = {status: STOPPING}
 
-        GE-)LC: CloudEvent: grading.session.completed
-        LC->>CP: POST /api/internal/sessions/{id}/score-report
-        Note right of CP: ScoreReport created<br/>Domain Event: score_report.created.v1
+    etcd-->>LC: Watch event: session STOPPING
+    LC->>LC: _handle_stopping() — fire-and-check
+    LC->>LC: Start LifecyclePhaseHandler (teardown pipeline)
 
-        LC->>CP: POST /api/internal/sessions/{id}/transition
-        Note right of CP: Status: STOPPING<br/>Domain Events: graded + stopping
-        CP->>Repo: Update LabletSession
-    end
+    LC->>CML: stop_lab() + poll until STOPPED
+    LC->>LDS: archive_session()
+    LC->>CML: wipe_lab() (preserve topology for reuse)
+    LC->>CP: Record lab run + transition → ARCHIVED
 
-    Note over LC,CML: Phase 6: Cleanup (STOPPING → STOPPED → TERMINATED)
-
-    loop Every 10s (Leader Only)
-        LC->>CP: GET /api/v1/sessions?status=STOPPING
-        activate LC
-        CP-->>LC: [stopping sessions]
-
-        LC->>CML: PUT /api/v0/labs/{lab_id}/stop
-        CML-->>LC: 200 OK
-
-        LC->>CML: DELETE /api/v0/labs/{lab_id}
-        CML-->>LC: 200 OK
-
-        LC->>LDS: Archive session
-        LDS-->>LC: 200 OK
-
-        LC->>CP: POST /api/internal/sessions/{id}/transition
-        Note right of CP: Status: STOPPED<br/>Domain Event: lablet_session.stopped.v1
-
-        LC->>CP: POST /api/internal/sessions/{id}/release-ports
-        Note right of CP: Ports returned to pool
-
-        LC->>CP: POST /api/internal/sessions/{id}/transition
-        Note right of CP: Status: TERMINATED<br/>Domain Event: lablet_session.terminated.v1
-        deactivate LC
-    end
-
-    UI->>CP: GET /api/v1/sessions/{id}
-    CP-->>UI: Session with score report
-    UI-->>User: Show Grade Report
+    CP->>Mongo: Update (ARCHIVED)
+    CP->>etcd: PUT /sessions/{id} = {status: ARCHIVED}
 ```
 
 ---
 
 ## Phase Details
 
-### Phase 1: Reservation (User → PENDING)
+### Phase 1: Reservation (→ PENDING)
 
-**Actors:** User, UI, Control Plane API
-
-**Flow:**
+**Owner:** control-plane-api
+**Trigger:** User API call
 
 1. User selects a `LabletDefinition` and timeslot in the UI
-2. UI calls `POST /api/v1/sessions` with:
-   - `definition_id`: Which lab template to use
-   - `timeslot_start`, `timeslot_end`: When the lab should run
-   - `reservation_id`: Optional external reservation reference
-3. Control Plane API executes `CreateLabletSessionCommand`
-4. `LabletSession` aggregate is created in `PENDING` state
+2. UI calls `POST /api/v1/sessions` with `definition_id`, `timeslot_start`, `timeslot_end`
+3. CPA executes `CreateLabletSessionCommand` → persists `LabletSession` aggregate to MongoDB
+4. CPA publishes session state to etcd at `/sessions/{id}`
 5. Domain event `lablet_session.created.v1` is emitted
-
-**API Endpoint:**
 
 ```http
 POST /api/v1/sessions
@@ -274,22 +258,23 @@ Content-Type: application/json
 
 ### Phase 2: Scheduling (PENDING → SCHEDULED)
 
-**Actors:** resource-scheduler, Control Plane API
+**Owner:** resource-scheduler
+**Trigger:** etcd watch on `/sessions/{id}` where status=PENDING (+ polling fallback)
 
-**Flow:**
+The `LabletSessionScheduler` (a `WatchTriggeredHostedService`) reconciles PENDING sessions:
 
-1. `SchedulerHostedService` runs reconciliation loop (every 10s, leader only)
-2. Fetches `PENDING` sessions from Control Plane API
-3. Fetches `RUNNING` workers with capacity
-4. `PlacementEngine` matches sessions to workers based on:
-   - Resource requirements (CPU, memory)
-   - License requirements (personal/enterprise)
-   - Port availability
-   - Affinity rules
-5. For successful placements, calls `POST /api/internal/sessions/{id}/schedule`
-6. Control Plane API allocates ports and transitions to `SCHEDULED`
+1. Fetches the `LabletDefinition` for resource requirements
+2. Runs `PlacementEngine.schedule()` against:
+    - RUNNING workers list
+    - Real-time capacity from etcd (`/capacity/{worker_id}`)
+    - Worker templates (for scale-up decisions)
+3. **Decision outcomes:**
+    - **`assign`** → calls CPA `ScheduleLabletSessionCommand` → SCHEDULED (worker capacity reserved)
+    - **`scale_up`** → requests new worker provisioning, requeues session
+    - **`wait`** → requeues for next cycle (no suitable worker)
 
-**Internal Endpoint:**
+!!! note "Port Allocation is Deferred"
+    The scheduler passes `allocated_ports={}`. Actual port allocation happens during the instantiate pipeline's `ports_alloc` step, where real ports are allocated from the worker's pool based on the lab topology.
 
 ```http
 POST /api/internal/sessions/{session_id}/schedule
@@ -298,7 +283,7 @@ Content-Type: application/json
 
 {
   "worker_id": "worker-xyz789",
-  "allocated_ports": {"console_1": 5041, "vnc_1": 5044}
+  "allocated_ports": {}
 }
 ```
 
@@ -306,237 +291,313 @@ Content-Type: application/json
 
 ### Phase 3: Instantiation (SCHEDULED → INSTANTIATING → READY)
 
-**Actors:** lablet-controller, CML Labs API, LDS, Control Plane API
+**Owner:** lablet-controller
+**Trigger:** etcd watch on `/sessions/{id}` status changes
+**Pattern:** Pipeline fire-and-check delegation (ADR-034)
 
-**Flow:**
+#### Step 1: SCHEDULED → INSTANTIATING
 
-1. `LabletReconciler` runs reconciliation loop (every 10s, leader only)
-2. For `SCHEDULED` sessions with approaching timeslot:
-   - Transition to `INSTANTIATING`
-   - Import lab topology to CML: `POST /api/v0/import`
-   - Record CML `lab_id`
-   - Start lab: `PUT /api/v0/labs/{lab_id}/start`
-   - Poll node states until all nodes booted
-   - **Provision LDS session** via `LabDeliverySPI`: create session, set devices
-   - Create **UserSession** entity (status: `PROVISIONED`)
-   - Transition to `READY`
+`_handle_scheduled()` checks whether the timeslot is approaching (or is on-demand). When ready, calls CPA `StartInstantiationCommand`.
 
-**CML API Calls:**
+#### Step 2: Pipeline Execution
 
-```http
-# Import topology
-POST https://{worker_ip}/api/v0/import
-Content-Type: text/x-yaml
+`_handle_instantiating()` uses the **fire-and-check** pattern:
 
-{topology_yaml}
-
-# Start lab
-PUT https://{worker_ip}/api/v0/labs/{lab_id}/start
-
-# Check node states
-GET https://{worker_ip}/api/v0/labs/{lab_id}/nodes
 ```
+reconcile cycle 1:  No handler exists → start LifecyclePhaseHandler
+reconcile cycle 2:  Handler is_running → return success (self-driving)
+     ...
+reconcile cycle N:  Handler finished → check result:
+    • completed/partial → success
+    • failed → check retry budget → restart or terminate
+    • None (crash) → restart handler
+```
+
+The `LifecyclePhaseHandler` wraps a `PipelineExecutor` in a managed `asyncio.Task`. The executor runs the **instantiate pipeline** defined in the seed YAML as a DAG (topological sort via `graphlib`):
+
+| # | Step | Handler Method | External System | Purpose |
+|---|------|---------------|-----------------|---------|
+| 1 | `content_sync` | `_step_content_sync` | ContentSyncService | Verify definition content is synced |
+| 2 | `variables` | `_step_variables` | — | Resolve session variables (stub) |
+| 3 | `lab_resolve` | `_step_lab_resolve` | **CML Labs API** | Reuse existing WIPED/STOPPED lab or import fresh from YAML |
+| 4 | `ports_alloc` | `_step_ports_alloc` | CPA API | Allocate real ports from worker pool |
+| 5 | `tags_sync` | `_step_tags_sync` | **CML Labs API** | Write `protocol:port` tags to CML nodes |
+| 6 | `lab_binding` | `_step_lab_binding` | CPA API | Bind LabRecord to session, denormalize ports |
+| 7 | `lab_start` | `_step_lab_start` | **CML Labs API** | Start CML lab, poll until BOOTED |
+| 8 | `lds_provision` | `_step_lds_provision` | **LDS API** | Create LDS session, map devices, get launch URL |
+| 9 | `mark_ready` | `_step_mark_ready` | CPA API | Atomically transition session → READY |
+
+#### Pipeline Executor Features
+
+- **DAG-based execution** — steps sorted via `graphlib.TopologicalSorter` based on `needs` declarations
+- **`skip_when` expressions** — evaluated via `simpleeval` with `$SESSION`, `$DEFINITION`, `$STEPS` context
+- **Per-step retry** — configurable `max_retries` + `retry_delay_seconds` with backoff
+- **Per-step timeout** — enforced via `asyncio.wait_for()`
+- **Progress persistence** — after each step, calls CPA `UpdateInstantiationProgressCommand`
+- **Crash-resilient resumability** — on restart, completed/skipped steps are restored from CPA progress
+
+#### Lab Resolution Strategy
+
+`_step_lab_resolve` attempts lab reuse before fresh import:
+
+1. If `cml_lab_id` is empty → query CPA for WIPED/STOPPED labs on this worker matching node count
+    - Priority: **WIPED** (~20s reuse) > **STOPPED** (wipe first, ~30s)
+2. Fallback: fresh import via CML `import_lab()` (~90s)
 
 ---
 
-### Phase 4: Lab Session (READY → RUNNING)
+### Phase 4: Active Session (READY → RUNNING)
 
-**Actors:** User, LDS, lablet-controller, CML Labs API
+**Owner:** lablet-controller
+**Trigger:** etcd watch
 
-**Flow:**
+#### READY State
 
-1. User accesses session via UI — sees lab console links and LDS IFRAME login URL
-2. User logs into LDS IFRAME
-3. LDS sends `lds.session.started` CloudEvent to lablet-controller
-4. Lablet Controller updates UserSession to `ACTIVE` and transitions LabletSession to `RUNNING`
-5. User works in the lab environment
-6. Session remains in `RUNNING` state until:
-   - User finishes and triggers collection
-   - Timeslot expires
-   - LDS sends `lds.session.ended` CloudEvent
-   - Admin terminates
+`_handle_ready()` performs a **health check** — verifies the lab is still BOOTED on the CML worker. The READY → RUNNING transition is triggered externally:
+
+- **LDS CloudEvent** (`lds.session.started`) — user logged into the IFRAME
+- **Manual API call** — admin transitions via `POST /api/v1/sessions/{id}/transition`
+
+#### RUNNING State
+
+`_handle_running()` monitors the active session:
+
+- Verifies lab state is still healthy (BOOTED on CML)
+- Checks timeslot hasn't elapsed
+- Observes resource utilization
+- On timeslot end or manual trigger → transition to STOPPING (or COLLECTING for assessment flow)
 
 ---
 
 ### Phase 5: Assessment (RUNNING → COLLECTING → GRADING)
 
-**Actors:** User, lablet-controller, Grading Engine, Control Plane API
+**Owner:** lablet-controller
+**Pattern:** Pipeline fire-and-check (same as instantiation)
 
-**Flow:**
+!!! warning "Sprint D Status: Stubs"
+    The evidence collection and grading pipelines are currently **stub implementations** that return "completed" immediately. Full implementation is planned for Sprint E.
 
-1. User clicks "Finish Lab" → UI calls `POST /api/v1/sessions/{id}/collect`
-2. Control Plane API transitions to `COLLECTING`
-3. Lablet Controller detects `COLLECTING` state, orchestrates grading:
-   - Creates **GradingSession** in Grading Engine (via `GradingSPI`)
-   - Submits Pod definition (device access info)
-   - Creates GradingSession entity (status: `COLLECTING`)
-4. Grading Engine evaluates submission
-5. Grading Engine sends `grading.session.completed` CloudEvent to lablet-controller
-6. Lablet Controller creates **ScoreReport** entity and transitions to `STOPPING`
+#### COLLECTING — Evidence Pipeline
 
----
+`_handle_collecting()` uses fire-and-check with the `collect_evidence` pipeline:
 
-### Phase 6: Cleanup (STOPPING → STOPPED → TERMINATED)
+| # | Step | Handler Method | Status |
+|---|------|---------------|--------|
+| 1 | `capture_configs` | `_step_capture_configs` | Stub |
+| 2 | `capture_screenshots` | `_step_capture_screenshots` | Stub |
+| 3 | `export_pcaps` | `_step_export_pcaps` | Stub |
+| 4 | `package_evidence` | `_step_package_evidence` | Stub |
 
-**Actors:** lablet-controller, CML Labs API, LDS, Control Plane API
+#### GRADING — Scoring Pipeline
 
-**Flow:**
+`_handle_grading()` uses fire-and-check with the `compute_grading` pipeline:
 
-1. `LabletReconciler` picks up `STOPPING` sessions
-2. Stop lab: `PUT /api/v0/labs/{lab_id}/stop`
-3. Delete lab: `DELETE /api/v0/labs/{lab_id}`
-4. Archive LDS session: `archive_session(lds_session_id)`
-5. Transition to `STOPPED`
-6. Release allocated ports back to worker pool
-7. Transition to `TERMINATED`
+| # | Step | Handler Method | Status |
+|---|------|---------------|--------|
+| 1 | `load_rubric` | `_step_load_rubric` | Stub |
+| 2 | `evaluate` | `_step_evaluate` | Stub |
+| 3 | `record_score` | `_step_record_score` | Stub |
 
 ---
 
-## Domain Events Emitted
+### Phase 6: Teardown (→ STOPPING → ARCHIVED)
 
-| Event Type | State Transition | Description |
-|------------|------------------|-------------|
+**Owner:** lablet-controller
+**Pattern:** Pipeline fire-and-check (ADR-034 Sprint D)
+
+When a session transitions to STOPPING (capacity is released by CPA), `_handle_stopping()` starts a `LifecyclePhaseHandler` with the **teardown pipeline**:
+
+| # | Step | Handler Method | External System | Purpose |
+|---|------|---------------|-----------------|---------|
+| 1 | `stop_lab` | `_step_stop_lab` | **CML Labs API** | Call `stop_lab()`, poll with `asyncio.sleep(5)` until STOPPED/DEFINED_ON_CORE |
+| 2 | `deregister_lds` | `_step_deregister_lds` | **LDS API** | Archive LDS session (skipped if no `lds_session_id`) |
+| 3 | `wipe_lab` | `_step_wipe_lab` | **CML Labs API** | Wipe lab to DEFINED_ON_CORE (preserves topology for reuse) |
+| 4 | `archive` | `_step_archive` | CPA API | Record lab run completion + transition → ARCHIVED |
+
+!!! info "Labs are Wiped, Not Deleted"
+    The teardown pipeline **wipes** labs instead of deleting them. This preserves the imported topology on the worker, allowing future sessions to **reuse** the lab (~20s) instead of re-importing from YAML (~90s).
+
+The `_step_archive` handler internally calls `_record_lab_run_completed()` before transitioning to ARCHIVED (AD-PIPELINE-011: no separate step for run recording).
+
+---
+
+### Alternative Paths
+
+#### Timeslot Expiry (→ EXPIRED)
+
+The `TimeslotWatcherService` runs every 10 seconds, scanning for sessions with elapsed timeslots via CPA's `GET /api/internal/lablet-sessions/imminent-deadlines`. For each match, it writes an etcd trigger key to initiate watch-based reconciliation.
+
+Additionally, `_reconcile_inner()` performs an **early timeslot expiry check** before status routing: if the timeslot has elapsed and the session is not in a terminal/stopping state, it calls `ExpireLabletSessionCommand` immediately.
+
+EXPIRED is reachable from: INSTANTIATING, READY, RUNNING, COLLECTING, GRADING.
+
+#### Force Termination (→ TERMINATED)
+
+Reachable from **any** state via `TerminateLabletSessionCommand`. Side effects:
+
+- Releases allocated ports back to worker pool
+- Releases worker capacity
+- Unbinds LabRecord from session
+
+---
+
+## Reconciliation Architecture
+
+### Watch + Poll Dual-Mode
+
+The lablet-controller's `LabletReconciler` extends `WatchTriggeredHostedService`:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     LabletReconciler                          │
+│                                                               │
+│  ┌─────────────┐     ┌──────────────────────────────────┐    │
+│  │ etcd Watch   │────▶│   _reconcile_inner(instance)      │   │
+│  │ /sessions/*  │     │                                    │   │
+│  └─────────────┘     │  1. Early timeslot expiry check     │   │
+│                       │  2. Per-session lock                 │   │
+│  ┌─────────────┐     │  3. Worker IP validation              │   │
+│  │ Poll Timer   │────▶│  4. Status routing:                  │   │
+│  │ (fallback)   │     │     SCHEDULED → _handle_scheduled()  │   │
+│  └─────────────┘     │     INSTANTIATING → _handle_inst..()  │   │
+│                       │     READY → _handle_ready()           │   │
+│                       │     RUNNING → _handle_running()        │   │
+│                       │     COLLECTING → _handle_collecting()  │   │
+│                       │     GRADING → _handle_grading()        │   │
+│                       │     STOPPING → _handle_stopping()      │   │
+│                       └──────────────────────────────────────┘    │
+│                                                                    │
+│  Sub-services (started on leader election):                        │
+│  • LabsRefreshService — periodic CML lab discovery                 │
+│  • LabActionWatcherService — reactive lab pending actions          │
+│  • ContentSyncWatcherService — definition content sync             │
+│  • TimeslotWatcherService — proactive deadline detection (10s)     │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### Fire-and-Check Pattern
+
+Used for INSTANTIATING, COLLECTING, GRADING, and STOPPING:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│              Fire-and-Check Delegation                     │
+│                                                            │
+│  Reconciler checks _active_handlers[handler_key]:          │
+│                                                            │
+│  ┌─ No handler exists ──────────────────────────────────┐ │
+│  │  1. Get pipeline_def from LabletDefinition YAML       │ │
+│  │  2. Build PipelineContext ($SESSION, $DEFINITION)      │ │
+│  │  3. Create PipelineExecutor with step_dispatcher       │ │
+│  │  4. Wrap in LifecyclePhaseHandler (asyncio.Task)       │ │
+│  │  5. Store in _active_handlers                          │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                                                            │
+│  ┌─ Handler exists + is_running ─────────────────────────┐ │
+│  │  → return success (pipeline is self-driving)           │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                                                            │
+│  ┌─ Handler finished ────────────────────────────────────┐ │
+│  │  result.status == "completed"/"partial" → success      │ │
+│  │  result.status == "failed":                            │ │
+│  │    retries < max → restart handler (retry)             │ │
+│  │    retries >= max → terminate session                  │ │
+│  │  result is None (crash) → restart handler              │ │
+│  └───────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
+## External Systems Integration
+
+| System | Protocol | Called By | Operations |
+|--------|----------|-----------|------------|
+| **CML Labs API** | REST (`https://{worker_ip}`) | lablet-controller | `import_lab`, `start_lab`, `stop_lab`, `wipe_lab`, `get_lab_state`, `get_lab_nodes`, `patch_node_tags` |
+| **CML System API** | REST (`https://{worker_ip}`) | worker-controller | Health check, system info, license register/deregister |
+| **LDS API** | REST | lablet-controller | `create_session`, `set_devices`, `get_lablet_launch_url`, `archive_session` |
+| **AWS EC2** | boto3 | worker-controller | `run_instance`, `start/stop/terminate_instance`, `describe_instances` |
+| **AWS CloudWatch** | boto3 | worker-controller | `get_metric_data` (CPU, memory, network) |
+| **MongoDB** | Motor (async) | control-plane-api **only** | All aggregate persistence |
+| **etcd** | gRPC | All services | Leader election, watch streams, capacity projection, state publication |
+
+---
+
+## Domain Events
+
+| Event Type | Transition | Description |
+|------------|------------|-------------|
 | `lablet_session.created.v1` | → PENDING | Session created |
 | `lablet_session.scheduled.v1` | PENDING → SCHEDULED | Assigned to worker |
-| `lablet_session.instantiating.v1` | SCHEDULED → INSTANTIATING | Lab import started |
-| `user_session.created.v1` | (in INSTANTIATING) | LDS session provisioned |
+| `lablet_session.instantiating.v1` | SCHEDULED → INSTANTIATING | Pipeline started |
 | `lablet_session.ready.v1` | INSTANTIATING → READY | Lab + LDS ready |
 | `lablet_session.running.v1` | READY → RUNNING | User logged in |
-| `lablet_session.collecting.v1` | RUNNING → COLLECTING | Assessment started |
-| `grading_session.created.v1` | (in COLLECTING) | Grading initiated |
-| `lablet_session.graded.v1` | (in GRADING) | Score recorded |
-| `score_report.created.v1` | (in GRADING) | Score report stored |
-| `lablet_session.stopping.v1` | * → STOPPING | Cleanup started |
-| `lablet_session.stopped.v1` | STOPPING → STOPPED | Lab stopped |
-| `lablet_session.terminated.v1` | STOPPED → TERMINATED | Cleanup complete |
+| `lablet_session.collecting.v1` | RUNNING → COLLECTING | Evidence capture started |
+| `lablet_session.grading.v1` | COLLECTING → GRADING | Grading started |
+| `lablet_session.stopping.v1` | * → STOPPING | Teardown started |
+| `lablet_session.archived.v1` | STOPPING → ARCHIVED | Teardown complete |
+| `lablet_session.expired.v1` | * → EXPIRED | Timeslot elapsed |
+| `lablet_session.terminated.v1` | * → TERMINATED | Force terminated |
 
 ---
 
-## CloudEvents Consumed (via lablet-controller CloudEventIngestor — AD-41)
+## CloudEvents Consumed
 
 | Event Type | Source | Handler | Action |
 |------------|--------|---------|--------|
 | `lds.session.started` | LDS | `LdsSessionStartedHandler` | Update UserSession → ACTIVE, transition READY → RUNNING |
 | `lds.session.ended` | LDS | `LdsSessionEndedHandler` | Update UserSession → ENDED, trigger collection |
-| `grading.session.completed` | Grading Engine | `GradingSessionCompletedHandler` | Create ScoreReport, transition to STOPPING |
+| `grading.session.completed` | Grading Engine | `GradingSessionCompletedHandler` | Create ScoreReport, transition → STOPPING |
 | `grading.session.failed` | Grading Engine | `GradingSessionFailedHandler` | Mark GradingSession FAULTED |
 
 ---
 
 ## API Endpoints Summary
 
-### Public Endpoints (User-Facing)
+### Public Endpoints (User-Facing via CPA)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/v1/sessions` | Create reservation |
+| `POST` | `/api/v1/sessions` | Create reservation (→ PENDING) |
 | `GET` | `/api/v1/sessions/{id}` | Get session details |
 | `GET` | `/api/v1/sessions` | List sessions (with filters) |
 | `DELETE` | `/api/v1/sessions/{id}` | Terminate session |
-| `POST` | `/api/v1/sessions/{id}/collect` | Start assessment collection (RUNNING → COLLECTING) |
-| `POST` | `/api/v1/sessions/{id}/grade` | Start assessment grading |
-| `GET` | `/api/v1/sessions/{id}/user-session` | Get UserSession details |
-| `GET` | `/api/v1/sessions/{id}/user-session/login-url` | Get LDS IFRAME login URL |
-| `GET` | `/api/v1/sessions/{id}/grading-session` | Get GradingSession details |
-| `GET` | `/api/v1/sessions/{id}/score-report` | Get score report |
-| `GET` | `/api/v1/score-reports` | List/query score reports (reporting) |
+| `POST` | `/api/v1/sessions/{id}/transition` | Manual status transition |
 
-### Internal Endpoints (Service-to-Service)
+### Internal Endpoints (Service-to-Service via CPA)
 
 | Method | Endpoint | Called By |
 |--------|----------|-----------|
 | `POST` | `/api/internal/sessions/{id}/schedule` | resource-scheduler |
+| `POST` | `/api/internal/sessions/{id}/start-instantiation` | lablet-controller |
+| `POST` | `/api/internal/sessions/{id}/mark-ready` | lablet-controller |
 | `POST` | `/api/internal/sessions/{id}/transition` | lablet-controller |
-| `PATCH` | `/api/internal/sessions/{id}/lab-id` | lablet-controller |
-| `POST` | `/api/internal/sessions/{id}/release-ports` | lablet-controller |
-| `POST` | `/api/internal/sessions/{id}/user-session` | lablet-controller |
-| `PUT` | `/api/internal/sessions/{id}/user-session/status` | lablet-controller |
-| `POST` | `/api/internal/sessions/{id}/grading-session` | lablet-controller |
-| `PUT` | `/api/internal/sessions/{id}/grading-session/status` | lablet-controller |
-| `POST` | `/api/internal/sessions/{id}/score-report` | lablet-controller |
-
-### CloudEvent Ingestion Endpoints (lablet-controller)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/events` | CloudEvent ingestion (LDS + GradingEngine events) |
-| `POST` | `/api/v1/sessions/{id}/collect` | Trigger assessment collection (RUNNING → COLLECTING) |
-| `POST` | `/api/v1/sessions/{id}/grade` | Trigger assessment grading |
+| `PATCH` | `/api/internal/sessions/{id}/bind-lab` | lablet-controller |
+| `PUT` | `/api/internal/sessions/{id}/progress` | lablet-controller |
+| `POST` | `/api/internal/sessions/{id}/expire` | lablet-controller |
+| `POST` | `/api/internal/sessions/{id}/terminate` | any service |
 
 ---
 
-## Assessment API Details
+## Key Code Locations
 
-### Start Collection Endpoint
-
-```http
-POST /api/v1/sessions/{session_id}/collect
-```
-
-**Description:** Transitions a RUNNING session to COLLECTING state. The lablet-controller initiates grading by calling the GradingEngine SPI.
-
-**Request:** Empty body (no payload required)
-
-**Response:**
-
-- `202 Accepted` - Collection started successfully
-- `400 Bad Request` - Invalid state transition (session not in RUNNING state)
-- `404 Not Found` - Session not found
-
-**CloudEvent Emitted:**
-
-```json
-{
-  "specversion": "1.0",
-  "type": "ccm.lablet.session.collecting.v1",
-  "source": "https://lablet-cloud-manager.io",
-  "subject": "{session_id}",
-  "data": {
-    "lablet_session_id": "{session_id}",
-    "worker_id": "{worker_id}",
-    "lab_id": "{lab_id}",
-    "grading_session_id": "{grading_session_id}",
-    "previous_status": "RUNNING",
-    "new_status": "COLLECTING"
-  }
-}
-```
-
-### CloudEvent Consumed: Grading Completed
-
-```json
-{
-  "specversion": "1.0",
-  "type": "grading.session.completed",
-  "source": "https://grading-engine.io",
-  "subject": "{grading_session_id}",
-  "data": {
-    "grading_session_id": "{grading_session_id}",
-    "lablet_session_id": "{session_id}",
-    "score": 85,
-    "max_score": 100,
-    "cut_score": 70,
-    "passed": true,
-    "sections": [
-      { "name": "Connectivity", "score": 45, "max_score": 50 },
-      { "name": "Security", "score": 40, "max_score": 50 }
-    ]
-  }
-}
-```
-
-**Handler:** `GradingSessionCompletedHandler` in lablet-controller:
-
-1. Creates `ScoreReport` entity from CloudEvent data
-2. Updates `GradingSession` status → `SUBMITTED`
-3. Transitions `LabletSession` → `STOPPING`
+| Component | File | Purpose |
+|-----------|------|---------|
+| **LabletSessionStatus enum** | `src/core/lcm_core/domain/enums/lablet_session_status.py` | All status values + valid transitions |
+| **LabletReconciler** | `src/lablet-controller/application/hosted_services/lablet_reconciler.py` | Main lifecycle engine (~2500 lines) |
+| **PipelineExecutor** | `src/lablet-controller/application/services/pipeline_executor.py` | DAG-based step execution engine |
+| **LifecyclePhaseHandler** | `src/lablet-controller/application/services/lifecycle_phase_handler.py` | Managed asyncio.Task wrapper |
+| **Session commands** | `src/control-plane-api/application/commands/lablet_session/` | CPA command handlers (create, schedule, transition, etc.) |
+| **Seed pipeline definitions** | `src/lablet-controller/data/seed/` | YAML files defining pipeline steps per LabletDefinition |
+| **TimeslotWatcherService** | `src/lablet-controller/application/hosted_services/timeslot_watcher_service.py` | Proactive deadline detection |
 
 ---
 
 ## Related Documentation
 
-- [ADR-001: API-Centric State Management](../adr/adr-001-api-centric-state-management.md)
-- [LabletSession Entity](../../src/control-plane-api/domain/entities/lablet_session.py)
-- [CloudEvent Ingestor](../../src/lablet-controller/application/events/cloud_event_ingestor.py)
-- [Lablet Resource Manager Architecture](./lablet-resource-manager-architecture.md)
-- [Architecture Overview](./index.md)
+- [ADR-001: API-Centric State Management](adr/ADR-001-api-centric-state-management.md)
+- [LCM Platform Architecture](lablet-resource-manager-architecture.md)
+- [Lablet Controller Architecture](components/lablet-controller/index.md)
+- [Resource Scheduler Architecture](components/resource-scheduler/index.md)
+- [Worker Controller Architecture](components/worker-controller/index.md)
+- [Control Plane API Architecture](components/control-plane-api/index.md)

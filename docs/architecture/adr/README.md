@@ -41,6 +41,11 @@ This directory contains Architecture Decision Records (ADRs) for the Lablet Clou
 | [ADR-033](./ADR-033-cml-node-tag-sync.md) | CML Node Tag Sync with Allocated Ports | Accepted | 2026-03-02 |
 | [ADR-034](./ADR-034-pipeline-executor-lifecycle-handlers.md) | Pipeline Executor & Lifecycle Phase Handlers | Proposed | 2026-03-02 |
 | [ADR-035](./ADR-035-legacy-scheduler-service-removal.md) | Legacy SchedulerService Removal | Accepted | 2026-03-04 |
+| [ADR-036](./ADR-036-resource-management-abstraction-layer.md) | Resource Management Abstraction Layer | Accepted | 2026-03-10 |
+| [ADR-037](./ADR-037-timeslot-management.md) | Timeslot Management | Accepted | 2026-03-10 |
+| [ADR-038](./ADR-038-step-handler-registry-and-reconciler-decomposition.md) | Step Handler Registry & Reconciler Decomposition | Accepted | 2026-03-18 |
+| [ADR-039](./ADR-039-sse-race-condition-fix.md) | SSE Race Condition Fix | Accepted | 2026-04-10 |
+| [ADR-040](./ADR-040-lds-cloudevent-direct-ingestion-cpa.md) | LDS CloudEvent Direct Ingestion via CPA | Accepted | 2026-04-10 |
 
 ## Status Definitions
 
@@ -213,4 +218,14 @@ ADR-033 (CML Node Tag Sync)
     ├── ADR-029 (Port Template Extraction)
     ├── ADR-031 (Checkpoint Pipeline)
     └── ADR-032 (Port Allocation on LabRecord)
+
+ADR-039 (SSE Race Condition Fix)
+    ├── ADR-013 (SSE Protocol Improvements)
+    └── ADR-001 (API-Centric State Management)
+
+ADR-040 (LDS CloudEvent Direct Ingestion via CPA)
+    ├── ADR-003 (CloudEvents)
+    ├── ADR-015 (CPA No External Calls)
+    ├── ADR-018 (LDS Integration)
+    └── ADR-022 (CloudEvent Ingestion) ← amends (dual routing)
 ```

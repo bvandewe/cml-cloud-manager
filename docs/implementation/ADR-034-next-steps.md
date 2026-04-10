@@ -5,7 +5,7 @@
 | **Status** | Active |
 | **Created** | 2026-03-02 |
 | **Parent ADR** | [ADR-034](../architecture/adr/ADR-034-pipeline-executor-lifecycle-handlers.md) |
-| **Last Updated** | 2026-03-04 |
+| **Last Updated** | 2026-03-12 |
 
 ## 1. Current State Summary
 
@@ -45,16 +45,22 @@ lablet-controller → GET /api/internal/lablet-definitions/{id} → CPA → JSON
 | Per-session `asyncio.Lock` on reconciler | `lablet_reconciler.py` | ✅ Sprint C |
 | Internal `terminate_session` endpoint | CPA + lcm_core client | ✅ Sprint C |
 | Pipeline resumability (executor) | `pipeline_executor.py` | ✅ Sprint C |
-| Teardown step handlers | `lablet_reconciler.py` | ❌ Sprint D |
-| Pipeline SSE events + projectors | CPA | ❌ Sprint E |
-| Pipeline progress UI | CPA frontend | ❌ Sprint E |
-| `PipelineRunRecord` on `LabRecord` | `control-plane-api/domain/entities/` | ❌ Sprint E |
+| Teardown step handlers | `lablet_reconciler.py` | ✅ Sprint D |
+| Evidence collection stubs | `lablet_reconciler.py` | ✅ Sprint D |
+| Grading stubs | `lablet_reconciler.py` | ✅ Sprint D |
+| `_handle_stopping` fire-and-check | `lablet_reconciler.py` | ✅ Sprint D |
+| `_handle_collecting` + `_handle_grading` | `lablet_reconciler.py` | ✅ Sprint D |
+| COLLECTING/GRADING status routing | `lablet_reconciler.py` | ✅ Sprint D |
+| Pipeline SSE events + projectors | CPA | ✅ Sprint G |
+| Pipeline progress UI | CPA frontend | ✅ Sprint G |
+| `PipelineRunRecord` on `LabRecord` | `control-plane-api/domain/entities/` | ❌ Sprint F |
 
 ### What DOES Exist (Reusable)
 
 | Component | Location | Reusability |
 |-----------|----------|-------------|
 | 9 `_step_*` handler methods | `lablet_reconciler.py` L864–L1271 | ✅ Keep — executor dispatches to these |
+| 12 Sprint D `_step_*` handlers | `lablet_reconciler.py` L1301–L1478 | ✅ Sprint D — 4 teardown + 4 evidence stubs + 3 grading stubs + 1 step_down |
 | `_build_default_progress()` | ~~`lablet_reconciler.py`~~ | ✅ REMOVED (Sprint C, AD-PIPELINE-009) |
 | `_next_executable_step()` | ~~`lablet_reconciler.py`~~ | ✅ REMOVED (Sprint C, AD-PIPELINE-009) |
 | `_is_pipeline_complete()` | ~~`lablet_reconciler.py`~~ | ✅ REMOVED (Sprint C, AD-PIPELINE-009) |
@@ -316,10 +322,21 @@ result = await step_dispatcher(step["handler"], context.session, progress)
 
 ---
 
-### Sprint E: UX, SSE Events, Queries & Frontend (Phase 4)
+### Sprint E: UX, SSE Events, Queries & Frontend (Phase 4) — ✅ DONE (Implemented as Sprint G)
 
 **Goal:** Improve user experience with real-time pipeline progress, extended queries,
 and frontend enhancements.
+
+**Status:** Implemented as Sprint G (Pipeline Observability & Control Endpoints). See `SPRINT_G_PLAN.md`.
+
+**Completed deliverables:**
+- ✅ G1: PipelineExecutionRecord read model + repository + handler upsert
+- ✅ G2: 2 query handlers + 4 controller query endpoints + 19 tests
+- ✅ G3: 4 admin control endpoints + 13 tests
+- ✅ G4: PipelineProgressPanel (741 lines) + SessionDetailPage lifecycle hero + 83 Vitest tests
+- ✅ G5: 4 CloudEvent types (pipeline.started/completed/step.completed/step.failed) + emission logic
+
+**Test baselines confirmed:** LC 416 pass, CPA 827 pass (7 pre-existing), Frontend 207 pass
 
 #### E1: Pipeline Progress SSE Events
 
@@ -411,21 +428,23 @@ Sprint C (Integration) ✅ DONE — 126 tests, 8 tasks complete
   └── C7: Test suite (126 tests across 4 files)     ✅
   └── Bonus: graphlib refactor (AD-PIPELINE-010)    ✅
 
-Sprint D (Teardown + More Pipelines) 🎯 CURRENT — depends on C4
-  ├── D1: Decompose _handle_stopping into step handlers
-  ├── D2: Wire _handle_stopping to LifecyclePhaseHandler
-  ├── D3: Stub step handlers for evidence collection
-  ├── D4: Stub step handlers for grading
-  ├── D5: Wire _handle_collecting + _handle_grading
-  ├── D6: Tests for all new handlers + delegation
-  └── D7: Validate seed files load with all handlers
+Sprint D (Teardown + More Pipelines) ✅ DONE — 52 tests, depends on C4
+  ├── D1: Decompose _handle_stopping into step handlers    ✅
+  ├── D2: Wire _handle_stopping to LifecyclePhaseHandler   ✅ (fire-and-check pattern)
+  ├── D3: Stub step handlers for evidence collection       ✅ (4 stubs)
+  ├── D4: Stub step handlers for grading                   ✅ (3 stubs)
+  ├── D5: Wire _handle_collecting + _handle_grading        ✅ (+ COLLECTING/GRADING routing)
+  ├── D6: Tests (test_teardown_pipeline.py — 964 lines, 52 tests) ✅
+  └── D7: Validate seed files load with all handlers       ✅ (meta-test)
 
-Sprint E (UX & Observability) — depends on C4
-  ├── SSE events for pipeline progress
-  ├── Pipeline execution projectors + queries
-  └── Frontend pipeline progress UI
+Sprint E (Pipeline Events + desired_status + UX) ✅ DONE (as Sprint G) — depends on D
+  ├── G1: PipelineExecutionRecord read model + repository + handler     ✅
+  ├── G2: 2 query handlers + 4 controller query endpoints (19 tests)   ✅
+  ├── G3: 4 admin control endpoints (13 tests)                         ✅
+  ├── G4: PipelineProgressPanel frontend (741 lines, 83 Vitest tests)  ✅
+  └── G5: 4 CloudEvent types + emission logic                          ✅
 
-Sprint F (Output Storage) — depends on D
+Sprint F (Output Storage) 🎯 NEXT — depends on D
 Sprint G (Definition Decomposition) — independent
 ```
 
@@ -460,6 +479,7 @@ Sprint G (Definition Decomposition) — independent
 - **AD-PIPELINE-008**: Internal terminate_session endpoint for system-initiated termination
 - **AD-PIPELINE-009**: No backward compat — all definitions must have pipelines, seed files mandatory
 - **AD-PIPELINE-010**: Replace manual Kahn's algorithm with `graphlib.TopologicalSorter` (stdlib, CPython 3.9+)
+- **AD-PIPELINE-011**: Fire-and-check pattern for all 4 pipelines (instantiate, teardown, collect_evidence, compute_grading)
 
 ### Key Files Modified This Session
 

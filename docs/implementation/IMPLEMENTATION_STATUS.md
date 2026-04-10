@@ -2,10 +2,10 @@
 
 | Attribute | Value |
 |-----------|-------|
-| **Document Version** | 2.6.0 |
+| **Document Version** | 2.7.0 |
 | **Status** | Current |
 | **Created** | 2026-02-08 |
-| **Last Updated** | 2026-02-20 |
+| **Last Updated** | 2026-03-10 |
 | **Author** | LCM Architecture Team |
 | **Related** | [Requirements](../specs/lablet-resource-manager-requirements.md), [MVP Implementation Plan](./mvp-implementation-plan.md), [LabRecord Implementation Plan](./labrecord-implementation-plan.md) |
 
@@ -1079,15 +1079,40 @@ The following sections track per-service implementation status for every functio
 
 ## Background Jobs Migration (ADR-011)
 
-> **Status:** 🔄 In Progress \u2014 Migrating background jobs from APScheduler to controller-based reconciliation loops.
+> **Status:** ✅ Complete \u2014 All background jobs migrated from APScheduler to controller-based reconciliation loops.
 
 | Task | Service | Status | Notes |
 |------|---------|:------:|-------|
-| Worker metrics collection job | WC | ✅ | Migrated to WC reconciler |
-| Lab sync job | WC | ✅ | Migrated to WC reconciler |
-| Idle detection job | WC | 🔄 | In progress |
-| Lab cleanup job | LC | 🔄 | In progress |
-| APScheduler removal (ADR-011) | CPA, RS, WC, LC | 🔄 | Partially removed (CPA+RS done, WC+LC in progress) |
+| Worker metrics collection job | WC | ✅ | Migrated to WC reconciler (asyncio loop, leader-gated) |
+| Lab sync job | WC | ✅ | Migrated to WC reconciler (lab discovery asyncio loop) |
+| Idle detection job | WC | ✅ | Integrated into reconciler `_handle_running()` → `_detect_activity()` → CPA idle detection API |
+| Lab cleanup job | LC | ✅ | Five interlocking mechanisms: state-machine teardown, timeslot expiry, etcd-watched lab actions, orphan detection polling, proactive deadline scanning |
+| APScheduler removal (ADR-011) | CPA, RS, WC, LC | ✅ | Removed from all services. `apscheduler` remains as transitive dep of `neuroglia-python` (optional, unused) |
+
+---
+
+## ADR-036 Resource Hierarchy Migration
+
+> **Status:** 🔄 In Progress — Batches A–G ✅ Complete, Batch I ⬜ Not Started
+> **Plan Reference:** [ADR-036 Phase 2 Implementation Plan](./adr036-phase2-implementation-plan.md)
+
+Promoting all managed aggregates into the `ResourceState` → `TimedResourceState` hierarchy
+defined in `lcm_core`. Provides uniform state_history, desired_status, timeslot, and
+managed_lifecycle support across all resource types.
+
+| Batch | Aggregate | Target Base Class | Status | Notes |
+|-------|-----------|-------------------|:------:|-------|
+| A–C | VOs + base classes | `lcm_core` | ✅ | StateTransition, Timeslot, ManagedLifecycle, ResourceState, TimedResourceState, TimedResourceReadModel |
+| D | CMLWorkerState | `TimedResourceState` (field additions) | ✅ | state_history added |
+| E | CMLWorkerState | `TimedResourceState` (base class change) | ✅ | AD-P2-E01, AD-P2-E02 |
+| F | LabletSessionState | `TimedResourceState` (base class change) | ✅ | AD-P2-F01, AD-P2-F02 — 10-phase lifecycle, backward-compatible timeslot properties |
+| G | LabRecordState | `ResourceState` (Layer 1) | ✅ | AD-G0 — open-ended lifetimes, no timeslots |
+| **I** | **LabletDefinitionState** | **`TimedResourceState` (Layer 2)** | ⬜ | **AD-I0** — Last aggregate on raw `AggregateState[str]`. Timeslot-bounded definitions with automatic expiry. |
+
+**Remaining gap:** `LabletDefinitionState` is the only managed aggregate still extending
+raw `AggregateState[str]`. Batch I will promote it to `TimedResourceState` (Layer 2) —
+definitions are time-bounded templates that expire when their timeslot ends. `desired_status`
+initially unused (None), reserved for future reconciliation. `created_by` → `owner_id` mapping.
 
 ---
 
@@ -1143,7 +1168,8 @@ The following sections track per-service implementation status for every functio
 ## Revision History
 
 | Version | Date | Author | Changes |
-|---------|------|--------|---------|
+|---------|------|--------|--------|
+| 2.7.0 | 2026-03-10 | Architecture Team | Added **ADR-036 Resource Hierarchy Migration** tracking section: Batches A–G ✅ complete, Batch I ⬜ (LabletDefinitionState → TimedResourceState Layer 2, AD-I0). LabletDefinition identified as last aggregate on raw `AggregateState[str]`. Time-bounded definitions with automatic timeslot expiry. |
 | 2.6.0 | 2026-02-20 | Architecture Team | Added **Session Entity Model Migration** (MVP Phase 7) section: 11/12 sub-phases complete (7I deferred), LabletSession aggregate + 3 child entities, 8 architectural decisions (AD-P7-01 through AD-P7-08), verification results (933 tests pass across 4 services). Updated FR-2.2 header from LabletInstance → LabletSession. Progress bar updated. Plan reference updated to MVP v4.1.0. |
 | 2.7.0 | 2025-07-08 | Architecture Team | Phase 12 ✅ COMPLETE (16/17 tasks, P12-16 Vitest deferred). LDS Session Integration: `LdsReservationsAdapter` (httpx + HTTP Basic Auth), 5 LDS CQRS commands (provision/start/pause/resume/end), 1 query (getLdsStatus), 6 BFF controller endpoints, SSE broadcasting from handlers, 30 backend tests. Frontend: `LcmLdsSessionPanel` (IFRAME + postMessage bridge), `LcmCmlDashboardPanel` (read-only CML IFRAME), 4 SSE event types + toast configs, 6 API client functions, store slice `updateRunLds` reducer + 2 selectors + 6 action creators, `LabletRecordRunCard` interactive LDS controls, session page wiring. Build verified (682 kB). AD-33 (postMessage protocol), AD-34 (SSE from handlers), AD-35 (dual IFRAME panels), AD-36 (Vitest deferred). |
 | 2.6.0 | 2026-02-13 | Architecture Team | Phase 11 ✅ COMPLETE (25/25 tasks). LabletRecordRun entity + CQRS (5 command/query handlers), Sessions page (5 web components), 2 state slices, 2 API clients, Vitest infrastructure. 102 backend tests (pytest) + 136 frontend tests (Vitest). WorkerDetailsModal binding cross-reference, LabletInstanceCard active runs. Bug fix: `not_found()` string→class. AD-30 (Vitest in CPA UI), AD-31 (binding cross-reference), AD-32 (lazy-load runs). |

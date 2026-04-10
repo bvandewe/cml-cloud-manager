@@ -74,6 +74,24 @@ nav:
                 - ADR-020 Session Entity Model: architecture/adr/ADR-020-session-entity-model.md
                 - ADR-021 Child Entity Architecture: architecture/adr/ADR-021-child-entity-architecture.md
                 - ADR-022 CloudEvent Ingestion: architecture/adr/ADR-022-cloudevent-ingestion-lablet-controller.md
+                - ADR-023 Content Sync Trigger: architecture/adr/ADR-023-content-sync-trigger.md
+                - ADR-024 Content Package Storage: architecture/adr/ADR-024-content-package-storage.md
+                - ADR-025 Content Metadata Storage: architecture/adr/ADR-025-content-metadata-storage.md
+                - ADR-026 Upstream Notifier Pattern: architecture/adr/ADR-026-upstream-notifier-pattern.md
+                - ADR-027 Content Version Auto-Increment: architecture/adr/ADR-027-content-version-auto-increment.md
+                - ADR-028 Definition Initial Status: architecture/adr/ADR-028-definition-initial-status.md
+                - ADR-029 Port Template Extraction: architecture/adr/ADR-029-port-template-extraction-from-cml-yaml.md
+                - ADR-030 Resource Observation: architecture/adr/ADR-030-resource-observation-learn-from-live.md
+                - ADR-031 Checkpoint Pipeline: architecture/adr/ADR-031-checkpoint-instantiation-pipeline.md
+                - ADR-032 Port Allocation LabRecord: architecture/adr/ADR-032-port-allocation-labrecord-topology.md
+                - ADR-033 CML Node Tag Sync: architecture/adr/ADR-033-cml-node-tag-sync.md
+                - ADR-034 Pipeline Executor Lifecycle: architecture/adr/ADR-034-pipeline-executor-lifecycle-handlers.md
+                - ADR-035 Legacy Scheduler Removal: architecture/adr/ADR-035-legacy-scheduler-service-removal.md
+                - ADR-036 Resource Management Abstraction: architecture/adr/ADR-036-resource-management-abstraction-layer.md
+                - ADR-037 Timeslot Management: architecture/adr/ADR-037-timeslot-management.md
+                - ADR-038 Step Handler Registry: architecture/adr/ADR-038-step-handler-registry-and-reconciler-decomposition.md
+                - ADR-039 SSE Race Condition Fix: architecture/adr/ADR-039-sse-race-condition-fix.md
+                - ADR-040 LDS CloudEvent via CPA: architecture/adr/ADR-040-lds-cloudevent-direct-ingestion-cpa.md
     - Specifications:
           - LRM Requirements: specs/lablet-resource-manager-requirements.md
     - Implementation:

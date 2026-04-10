@@ -1,6 +1,6 @@
 # Real-Time Updates Architecture
 
-> **Updated:** 2026-01-19 (Post-refactoring per [ADR-013](./adr/ADR-013-sse-protocol-improvements.md))
+> **Updated:** 2026-04-10 (SSE race condition fix per [ADR-039](./adr/ADR-039-sse-race-condition-fix.md))
 >
 > Delivering low-latency UI changes for worker lifecycle, metrics, lablet definitions,
 > and lablet instances using Server-Sent Events (SSE).
@@ -82,15 +82,21 @@ GET /api/events/stream?worker_ids=worker-1&event_types=worker.metrics.updated,wo
 | `lablet-definition.updated` | Update command | Definition specification changed |
 | `lablet-definition.deleted` | Delete command | Definition removed |
 
-### Lablet Instance Events (ADR-013)
+### Lablet Session Events (ADR-013, ADR-039)
 
 | SSE Event | Source | Description |
 |-----------|--------|-------------|
-| `lablet-instance.created` | Domain event handler | New lablet instance scheduled |
-| `lablet-instance.status.updated` | Status command / reconciler | Instance lifecycle change |
-| `lablet-instance.assignment.updated` | Scheduler | Worker assignment changed |
-| `lablet-instance.metrics.updated` | Metrics collection | Instance resource usage |
-| `lablet-instance.deleted` | Delete command | Instance terminated and removed |
+| `lablet.session.created` | Domain event handler | New lablet session created (enriched payload: status, definition, timeslot) |
+| `lablet.session.status.changed` | Domain event handler | **Generic** — handles ALL lifecycle transitions (PENDING→…→ARCHIVED) |
+| `lablet.session.timeslot.extended` | Timeslot command | Session timeslot extended (`new_timeslot_end` field) |
+| `lablet.session.score.recorded` | Score command | Score report recorded (`score_report_id`, `grade_result` fields) |
+| `lablet.session.deleted` | Delete command | Session removed |
+
+!!! warning "Wire Type Consolidation (ADR-039)"
+    The backend emits a **single** `lablet.session.status.changed` wire type for all lifecycle
+    transitions. Per-status wire types (`lablet.session.scheduled`, `.instantiating`, `.ready`,
+    `.running`, etc.) are **not emitted** and should not be subscribed to. The frontend's
+    `LABLET_SESSION_STATUS_CHANGED` handler is generic and covers every state.
 
 ## Flow Diagram
 
@@ -256,6 +262,7 @@ Current design targets moderate connection counts (< hundreds). Future enhanceme
 | Batching | Batch multiple metric events into single frame | ✅ ADR-013 |
 | Filtering | Server-side filtering by worker_ids/event_types | ✅ ADR-013 |
 | Extended Events | Worker template, lablet definition/instance CRUD | ✅ ADR-013 |
+| Race Condition Fix | Timestamp-guarded `mergeAll` prevents stale HTTP overwriting SSE data | ✅ ADR-039 |
 | Security | Per-event auth filtering / claim-based masking | 🔜 Planned |
 | Observability | Emit OTEL spans for relay broadcast durations | 🔜 Planned |
 
@@ -284,3 +291,4 @@ Remove the SSE connection call in `workers.js` or provide a settings flag to ski
 - [Worker Monitoring](worker-monitoring.md) - Background metrics collection
 - [ADR-001: API-Centric State Management](./adr/ADR-001-api-centric-state-management.md)
 - [ADR-013: SSE Protocol Improvements](./adr/ADR-013-sse-protocol-improvements.md)
+- [ADR-039: SSE Race Condition Fix](./adr/ADR-039-sse-race-condition-fix.md)
