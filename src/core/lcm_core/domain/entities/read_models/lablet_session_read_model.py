@@ -16,27 +16,32 @@ Backward-compatible aliases (Phase 7B — will be removed in Phase 7C):
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
+
+from lcm_core.domain.entities.read_models.timed_resource_read_model import TimedResourceReadModel
 
 
 @dataclass
-class LabletSessionReadModel:
+class LabletSessionReadModel(TimedResourceReadModel):
     """Read model for a LabletSession from the Control Plane API.
+
+    Extends TimedResourceReadModel with session-specific fields.
 
     Used by:
     - resource-scheduler: For placement decisions (needs worker_id, status)
     - lablet-controller: For lab lifecycle management (needs CML-related fields)
     - frontend: For session display (needs status, user_login_url)
 
-    All fields are optional except id, name, definition_id, status which are always present.
+    Fields inherited from TimedResourceReadModel:
+        id, resource_type, status, desired_status, owner_id,
+        timeslot_start, timeslot_end, started_at, ended_at,
+        duration_seconds, terminated_at, pipeline_progress,
+        created_at, updated_at
     """
 
-    # Core identity (always present)
-    id: str
-    name: str
-    definition_id: str
-    status: str
+    # Session identity (defaults for dataclass MRO compatibility)
+    name: str = ""
+    definition_id: str = ""
 
     # Worker assignment
     worker_id: str | None = None
@@ -49,23 +54,8 @@ class LabletSessionReadModel:
     lab_record_id: str | None = None  # Direct 1:1 FK (was via LabletLabBinding)
     cml_lab_id: str | None = None  # CML lab identifier on worker
 
-    # Scheduling (matches domain entity field names)
-    timeslot_start: datetime | None = None
-    timeslot_end: datetime | None = None
-
     # Port allocation (absorbed from LabletRecordRun — ADR-020 §2)
     allocated_ports: dict[str, int] = field(default_factory=dict)
-
-    # Instantiation pipeline progress (ADR-031)
-    # Serialized InstantiationProgress dict from CPA. Contains:
-    #   steps: list[StepResult], started_at, current_step, completed_at, pipeline_version
-    # The lablet-controller reads this to resume the pipeline after restart;
-    # the frontend reads it to render step-level progress indicators.
-    instantiation_progress: dict[str, Any] | None = None
-
-    # Runtime tracking (absorbed from LabletRecordRun — ADR-020 §2)
-    started_at: datetime | None = None  # When RUNNING state entered
-    ended_at: datetime | None = None  # When session completed
 
     # Lab topology
     topology_yaml: str | None = None
@@ -111,6 +101,7 @@ class LabletSessionReadModel:
             name=data.get("name", ""),
             definition_id=data.get("definition_id", ""),
             status=data.get("status", ""),
+            desired_status=data.get("desired_status"),
             worker_id=data.get("worker_id"),
             worker_ip=worker_data.get("ip_address") or data.get("worker_ip"),
             worker_aws_region=worker_data.get("aws_region") or data.get("worker_aws_region"),
@@ -121,7 +112,7 @@ class LabletSessionReadModel:
             timeslot_start=data.get("timeslot_start"),
             timeslot_end=data.get("timeslot_end"),
             allocated_ports=data.get("allocated_ports", {}),
-            instantiation_progress=data.get("instantiation_progress"),
+            pipeline_progress=data.get("pipeline_progress"),
             started_at=data.get("started_at"),
             ended_at=data.get("ended_at"),
             topology_yaml=data.get("topology_yaml"),

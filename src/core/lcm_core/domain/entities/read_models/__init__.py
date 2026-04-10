@@ -14,6 +14,7 @@ from lcm_core.domain.entities.read_models.lab_record_read_model import LabRecord
 from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
 from lcm_core.domain.entities.read_models.lablet_session_read_model import LabletSessionReadModel
 from lcm_core.domain.entities.read_models.score_report_read_model import ScoreReportReadModel, ScoreSectionReadModel
+from lcm_core.domain.entities.read_models.timed_resource_read_model import TimedResourceReadModel
 from lcm_core.domain.entities.read_models.user_session_read_model import UserSessionReadModel
 from lcm_core.domain.entities.read_models.worker_template_read_model import WorkerTemplateReadModel
 
@@ -25,6 +26,7 @@ __all__ = [
     "LabletSessionReadModel",
     "ScoreReportReadModel",
     "ScoreSectionReadModel",
+    "TimedResourceReadModel",
     "UserSessionReadModel",
     "WorkerTemplateReadModel",
 ]

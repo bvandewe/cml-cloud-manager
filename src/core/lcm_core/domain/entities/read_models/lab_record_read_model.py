@@ -53,6 +53,9 @@ class LabRecordReadModel:
     pending_action_at: str | None = None
     pending_action_error: str | None = None
 
+    # Port allocation (ADR-032)
+    allocated_ports: dict[str, int] = field(default_factory=dict)
+
     # Error tracking
     last_error: str | None = None
     last_error_at: str | None = None
@@ -81,6 +84,7 @@ class LabRecordReadModel:
             modified_at=_safe_str(data.get("modified_at")),
             last_synced_at=_safe_str(data.get("last_synced_at")),
             first_seen_at=_safe_str(data.get("first_seen_at")),
+            allocated_ports=data.get("allocated_ports", {}),
             pending_action=data.get("pending_action"),
             pending_action_at=_safe_str(data.get("pending_action_at")),
             pending_action_error=data.get("pending_action_error"),

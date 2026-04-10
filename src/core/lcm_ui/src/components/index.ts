@@ -61,6 +61,31 @@ export type { ActionEventDetail, FilterRemoveEventDetail, ButtonVariant } from '
 export { DataTable } from './DataTable.js';
 export type { ColumnDefinition, RowAction, BulkAction, SortDirection, PaginationInfo, RowClickEventDetail, RowActionEventDetail, BulkActionEventDetail, SelectionChangeEventDetail, SortChangeEventDetail, PageChangeEventDetail } from './DataTable.js';
 
+// ===================== Resource Status (A1) =====================
+export { ResourceStatus } from './ResourceStatus.js';
+
+// ===================== State History (A2) =====================
+export { StateHistory } from './StateHistory.js';
+
+// ===================== Lifecycle Tracker (A3) =====================
+export { LifecycleTracker } from './LifecycleTracker.js';
+
+// ===================== Pipeline Log (A4) =====================
+export { PipelineLog } from './PipelineLog.js';
+
+// ===================== Revision Indicator (A5) =====================
+export { RevisionIndicator } from './RevisionIndicator.js';
+
+// ===================== Timeslot Badge (A6) =====================
+export { TimeslotBadge } from './TimeslotBadge.js';
+
+// ===================== Resource Observation (A7) =====================
+export { ResourceObservation } from './ResourceObservation.js';
+
+// ===================== Column Picker (A8) =====================
+export { ColumnPicker } from './ColumnPicker.js';
+export type { ColumnsChangedEventDetail } from './ColumnPicker.js';
+
 // ===================== Shared Types =====================
 
 /**
@@ -120,6 +145,14 @@ export function registerAllComponents(): void {
     import('./Modal.js');
     import('./ActionBar.js');
     import('./DataTable.js');
+    import('./ResourceStatus.js');
+    import('./StateHistory.js');
+    import('./LifecycleTracker.js');
+    import('./PipelineLog.js');
+    import('./RevisionIndicator.js');
+    import('./TimeslotBadge.js');
+    import('./ResourceObservation.js');
+    import('./ColumnPicker.js');
 
     console.log('[UI Components] All components registered');
 }

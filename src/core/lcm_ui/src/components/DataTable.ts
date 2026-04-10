@@ -35,6 +35,8 @@
  */
 
 import { BaseComponent } from './BaseComponent.js';
+import type { ExpandableRowConfig, SchemaColumn } from '../types/columns.js';
+import { resolveAttrValue } from '../types/columns.js';
 
 /**
  * Column definition
@@ -60,6 +62,27 @@ export interface ColumnDefinition<T = Record<string, unknown>> {
     hidden?: boolean;
     /** CSS class for cells */
     className?: string;
+
+    // ── Schema-driven extensions (B1) ──
+
+    /** Alias for key (used in column registries) */
+    field?: string;
+    /** Column group name for two-level headers */
+    group?: string;
+    /** Default visibility (true = shown by default). Inverse of hidden. */
+    visible?: boolean;
+    /** Pin column to left or right edge */
+    pinned?: 'left' | 'right';
+    /** Allow column resize (future) */
+    resizable?: boolean;
+    /** Tooltip text on column header */
+    description?: string;
+    /** Category for column picker grouping */
+    category?: string;
+    /** Custom element tag to render the cell content */
+    component?: string;
+    /** Attribute mapping for the component (see SchemaColumn docs) */
+    componentAttrs?: Record<string, string | boolean>;
 }
 
 /**
@@ -166,7 +189,7 @@ export interface PageChangeEventDetail {
  */
 export class DataTable<T extends Record<string, unknown> = Record<string, unknown>> extends BaseComponent {
     static get observedAttributes(): string[] {
-        return ['page-size', 'selectable', 'loading', 'empty-message', 'id-field', 'striped', 'hover', 'bordered', 'compact'];
+        return ['page-size', 'selectable', 'loading', 'empty-message', 'id-field', 'striped', 'hover', 'bordered', 'compact', 'table-id', 'show-column-picker'];
     }
 
     // Data state
@@ -175,6 +198,17 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
     private _columns: ColumnDefinition<T>[] = [];
     private _bulkActions: BulkAction[] = [];
     private _rowActions: RowAction[] = [];
+
+    // Column visibility state (B2)
+    private _columnVisibility: Map<string, boolean> = new Map();
+    private _defaultVisibleColumns: string[] = [];
+
+    // Expandable row state (B4)
+    private _expandedRowIds: Set<string> = new Set();
+    private _expandableConfig: ExpandableRowConfig<T> | null = null;
+
+    // Column groups (B5)
+    private _columnGroups: Map<string, string[]> = new Map();
 
     // Selection state
     private _selectedIds: Set<string> = new Set();
@@ -201,6 +235,7 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
 
     protected override onMount(): void {
         this._pageSize = this.getNumberAttr('page-size', 25);
+        this.loadColumnVisibility();
         this.render();
     }
 
@@ -464,6 +499,105 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
         this.applyFiltersAndSort();
     }
 
+    // ── Schema-driven column API (B1/B2) ──
+
+    /**
+     * Set schema-driven column configuration with default visibility.
+     * Accepts a record of SchemaColumn definitions keyed by column ID.
+     */
+    setSchemaColumns(columns: Record<string, SchemaColumn<T>>, defaults?: string[]): void {
+        this._columns = Object.entries(columns).map(([key, col]) => ({
+            ...col,
+            key: col.field || key,
+        }));
+
+        if (defaults) {
+            this._defaultVisibleColumns = defaults;
+            for (const col of this._columns) {
+                const colKey = col.field || col.key;
+                if (!this._columnVisibility.has(colKey)) {
+                    this._columnVisibility.set(colKey, defaults.includes(colKey));
+                }
+            }
+        }
+
+        this._columnGroups.clear();
+        for (const col of this._columns) {
+            if (col.group) {
+                const existing = this._columnGroups.get(col.group) || [];
+                existing.push(col.field || col.key);
+                this._columnGroups.set(col.group, existing);
+            }
+        }
+
+        if (this._mounted) this.render();
+    }
+
+    /**
+     * Set visibility for a single column.
+     */
+    setColumnVisibility(columnKey: string, visible: boolean): void {
+        this._columnVisibility.set(columnKey, visible);
+        this.saveColumnVisibility();
+        if (this._mounted) this.render();
+    }
+
+    /**
+     * Set visibility for multiple columns at once.
+     */
+    setColumnsVisibility(visibility: Record<string, boolean>): void {
+        for (const [key, visible] of Object.entries(visibility)) {
+            this._columnVisibility.set(key, visible);
+        }
+        this.saveColumnVisibility();
+        if (this._mounted) this.render();
+    }
+
+    /**
+     * Reset column visibility to defaults.
+     */
+    resetColumnVisibility(): void {
+        this._columnVisibility.clear();
+        if (this._defaultVisibleColumns.length > 0) {
+            for (const col of this._columns) {
+                const key = col.field || col.key;
+                this._columnVisibility.set(key, this._defaultVisibleColumns.includes(key));
+            }
+        }
+        this.saveColumnVisibility();
+        if (this._mounted) this.render();
+    }
+
+    // ── Expandable rows API (B4) ──
+
+    /**
+     * Configure expandable row detail rendering.
+     */
+    setExpandableConfig(config: ExpandableRowConfig<T>): void {
+        this._expandableConfig = config;
+        if (this._mounted) this.render();
+    }
+
+    /**
+     * Toggle expansion of a specific row.
+     */
+    toggleRowExpand(rowId: string): void {
+        if (this._expandedRowIds.has(rowId)) {
+            this._expandedRowIds.delete(rowId);
+        } else {
+            this._expandedRowIds.add(rowId);
+        }
+        if (this._mounted) this.render();
+    }
+
+    /**
+     * Collapse all expanded rows.
+     */
+    collapseAllRows(): void {
+        this._expandedRowIds.clear();
+        if (this._mounted) this.render();
+    }
+
     // ===================== Private Methods =====================
 
     private getRowId(row: T): string {
@@ -575,6 +709,96 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
         this.emit('ui:table-bulk-action', detail);
     }
 
+    // ── Column visibility helpers (B2/B6) ──
+
+    /**
+     * Get columns that should be visible, respecting visibility map and column config.
+     */
+    private getVisibleColumns(): ColumnDefinition<T>[] {
+        return this._columns.filter(col => {
+            const key = col.field || col.key;
+            if (this._columnVisibility.has(key)) {
+                return this._columnVisibility.get(key);
+            }
+            if (col.visible !== undefined) return col.visible;
+            if (col.hidden !== undefined) return !col.hidden;
+            return true;
+        });
+    }
+
+    private get tableId(): string {
+        return this.getAttr('table-id', '');
+    }
+
+    private get showColumnPicker(): boolean {
+        return this.getBoolAttr('show-column-picker');
+    }
+
+    /**
+     * Total column count including utility columns (select, expand, actions).
+     */
+    private getTotalColumnCount(): number {
+        return this.getVisibleColumns().length + (this.isSelectable ? 1 : 0) + (this._rowActions.length > 0 ? 1 : 0) + (this._expandableConfig ? 1 : 0);
+    }
+
+    private loadColumnVisibility(): void {
+        if (!this.tableId) return;
+        try {
+            const stored = localStorage.getItem(`lcm.columns.${this.tableId}`);
+            if (stored) {
+                const visibility = JSON.parse(stored) as Record<string, boolean>;
+                this._columnVisibility = new Map(Object.entries(visibility));
+            }
+        } catch {
+            /* ignore corrupted localStorage data */
+        }
+    }
+
+    private saveColumnVisibility(): void {
+        if (!this.tableId) return;
+        const obj: Record<string, boolean> = {};
+        this._columnVisibility.forEach((v, k) => {
+            obj[k] = v;
+        });
+        localStorage.setItem(`lcm.columns.${this.tableId}`, JSON.stringify(obj));
+    }
+
+    // ── Component cell rendering (B3) ──
+
+    /**
+     * Render cell content: custom render function > component element > formatted value.
+     */
+    private renderCellContent(col: ColumnDefinition<T>, value: unknown, row: T, index: number): string {
+        if (col.render) {
+            return col.render(value, row, index);
+        }
+        if (col.component) {
+            return this.renderComponentCell(col, row);
+        }
+        return this.formatValue(value, col);
+    }
+
+    /**
+     * Render a custom element for a cell using component + componentAttrs.
+     */
+    private renderComponentCell(col: ColumnDefinition<T>, row: T): string {
+        const tag = col.component!;
+        const attrParts: string[] = [];
+
+        if (col.componentAttrs) {
+            for (const [attrName, attrValue] of Object.entries(col.componentAttrs)) {
+                const resolved = resolveAttrValue(attrValue, row as Record<string, unknown>);
+                if (typeof resolved === 'boolean') {
+                    if (resolved) attrParts.push(attrName);
+                } else if (resolved !== null && resolved !== undefined) {
+                    attrParts.push(`${attrName}="${String(resolved).replace(/"/g, '&quot;')}"`);
+                }
+            }
+        }
+
+        return `<${tag} ${attrParts.join(' ')}></${tag}>`;
+    }
+
     // ===================== Rendering =====================
 
     private formatValue(value: unknown, column: ColumnDefinition<T>): string {
@@ -595,7 +819,10 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
     }
 
     private renderHeader(): string {
-        const cols = this._columns.filter(c => !c.hidden);
+        const cols = this.getVisibleColumns();
+
+        // Expand column header (B4)
+        const expandCol = this._expandableConfig ? `<th class="table-expand-col" style="width: 30px;" aria-label="Expand"></th>` : '';
 
         const selectAllCheckbox = this.isSelectable
             ? `<th class="table-select-col" style="width: 40px;">
@@ -608,23 +835,30 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
 
         const headers = cols
             .map(col => {
+                const colKey = col.field || col.key;
                 const sortable = col.sortable ? 'sortable' : '';
-                const sorted = this._sortField === col.key;
+                const sorted = this._sortField === colKey;
                 const sortIcon = sorted ? (this._sortDirection === 'asc' ? 'bi-sort-up' : 'bi-sort-down') : 'bi-chevron-expand';
                 const sortBtn = col.sortable ? `<i class="${sortIcon} ms-1 opacity-50"></i>` : '';
                 const width = col.width ? `style="width: ${col.width}"` : '';
+                const tooltip = col.description ? `title="${col.description}"` : '';
 
                 return `
-        <th class="${sortable} ${sorted ? 'table-sorted' : ''}" ${width} data-key="${col.key}">
+        <th class="${sortable} ${sorted ? 'table-sorted' : ''}" ${width} ${tooltip} data-key="${colKey}">
           ${col.label}${sortBtn}
         </th>
       `;
             })
             .join('');
 
+        // Column group header row (B5)
+        const groupHeaderRow = this.renderGroupHeaders(cols);
+
         return `
       <thead class="table-light">
+        ${groupHeaderRow}
         <tr>
+          ${expandCol}
           ${selectAllCheckbox}
           ${headers}
           ${actionsCol}
@@ -633,9 +867,52 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
     `;
     }
 
+    /**
+     * Render column group header row (B5).
+     * Returns empty string if no columns have groups defined.
+     */
+    private renderGroupHeaders(cols: ColumnDefinition<T>[]): string {
+        const hasGroups = cols.some(c => c.group);
+        if (!hasGroups) return '';
+
+        const groups: { name: string; colspan: number }[] = [];
+        let currentGroup = '';
+        let currentSpan = 0;
+
+        for (const col of cols) {
+            const group = col.group || '';
+            if (group === currentGroup) {
+                currentSpan++;
+            } else {
+                if (currentSpan > 0) {
+                    groups.push({ name: currentGroup, colspan: currentSpan });
+                }
+                currentGroup = group;
+                currentSpan = 1;
+            }
+        }
+        if (currentSpan > 0) {
+            groups.push({ name: currentGroup, colspan: currentSpan });
+        }
+
+        const expandPlaceholder = this._expandableConfig ? '<th></th>' : '';
+        const selectPlaceholder = this.isSelectable ? '<th></th>' : '';
+        const actionsPlaceholder = this._rowActions.length > 0 ? '<th></th>' : '';
+
+        const groupCells = groups.map(g => (g.name ? `<th colspan="${g.colspan}" class="text-center border-bottom-0 fw-semibold text-muted small">${g.name}</th>` : `<th colspan="${g.colspan}" class="border-bottom-0"></th>`)).join('');
+
+        return `
+        <tr class="table-group-header">
+            ${expandPlaceholder}
+            ${selectPlaceholder}
+            ${groupCells}
+            ${actionsPlaceholder}
+        </tr>`;
+    }
+
     private renderBody(): string {
         if (this._isLoading) {
-            const colCount = this._columns.filter(c => !c.hidden).length + (this.isSelectable ? 1 : 0) + (this._rowActions.length > 0 ? 1 : 0);
+            const colCount = this.getTotalColumnCount();
 
             return `
         <tbody>
@@ -655,7 +932,7 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
         const pageData = this._filteredData.slice(start, start + this._pageSize);
 
         if (pageData.length === 0) {
-            const colCount = this._columns.filter(c => !c.hidden).length + (this.isSelectable ? 1 : 0) + (this._rowActions.length > 0 ? 1 : 0);
+            const colCount = this.getTotalColumnCount();
 
             return `
         <tbody>
@@ -669,12 +946,24 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
       `;
         }
 
-        const cols = this._columns.filter(c => !c.hidden);
+        const cols = this.getVisibleColumns();
 
         const rows = pageData
             .map((row, index) => {
                 const rowId = this.getRowId(row);
                 const isSelected = this._selectedIds.has(rowId);
+                const isExpanded = this._expandedRowIds.has(rowId);
+
+                // Expand toggle cell (B4)
+                const expandCell = this._expandableConfig
+                    ? `<td class="table-expand-col">
+             <button class="btn btn-link btn-sm p-0 row-expand" data-id="${rowId}"
+                     aria-label="${isExpanded ? 'Collapse' : 'Expand'} row details"
+                     aria-expanded="${isExpanded}">
+               <i class="bi-chevron-${isExpanded ? 'down' : 'right'}"></i>
+             </button>
+           </td>`
+                    : '';
 
                 const selectCell = this.isSelectable
                     ? `<td class="table-select-col">
@@ -684,8 +973,9 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
 
                 const cells = cols
                     .map(col => {
-                        const value = this.getNestedValue(row, col.key);
-                        const content = col.render ? col.render(value, row, start + index) : this.formatValue(value, col);
+                        const colKey = (col.field || col.key) as string;
+                        const value = this.getNestedValue(row, colKey);
+                        const content = this.renderCellContent(col, value, row, start + index);
                         const align = col.align ? `text-${col.align}` : '';
                         const className = col.className || '';
 
@@ -701,23 +991,35 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
                    .filter(a => !a.condition || a.condition(row))
                    .map(a => {
                        const icon = a.icon ? `<i class="${a.icon}"></i>` : '';
-                       const label = a.label || '';
-                       const title = a.title ? `title="${a.title}"` : '';
+                       const tooltip = a.title || a.label || a.id;
                        const variant = a.variant || 'outline-secondary';
-                       return `<button class="btn btn-${variant} row-action" data-action="${a.id}" data-id="${rowId}" ${title}>${icon}${label}</button>`;
+                       return `<button class="btn btn-${variant} row-action p-1" data-action="${a.id}" data-id="${rowId}" title="${tooltip}">${icon}</button>`;
                    })
                    .join('')}
              </div>
            </td>`
                         : '';
 
-                return `
+                // Main data row
+                const mainRow = `
         <tr class="${isSelected ? 'table-primary' : ''}" data-id="${rowId}">
+          ${expandCell}
           ${selectCell}
           ${cells}
           ${actionsCell}
-        </tr>
-      `;
+        </tr>`;
+
+                // Expandable detail row (B4)
+                const detailRow =
+                    this._expandableConfig && isExpanded
+                        ? `<tr class="table-detail-row" data-detail-for="${rowId}">
+             <td colspan="${this.getTotalColumnCount()}" class="p-0">
+               <div class="p-3 bg-light border-top">${this._expandableConfig.renderDetail(row)}</div>
+             </td>
+           </tr>`
+                        : '';
+
+                return mainRow + detailRow;
             })
             .join('');
 
@@ -726,7 +1028,18 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
 
     private renderPagination(): string {
         const totalPages = Math.ceil(this._totalItems / this._pageSize);
-        if (totalPages <= 1) return '';
+
+        // Always show a footer with item count
+        if (totalPages <= 1) {
+            if (this._totalItems === 0) return '';
+            return `
+      <div class="d-flex justify-content-between align-items-center mt-2 px-2">
+        <div class="text-muted small">
+          ${this._totalItems} ${this._totalItems === 1 ? 'entry' : 'entries'}
+        </div>
+      </div>
+    `;
+        }
 
         const start = (this._currentPage - 1) * this._pageSize + 1;
         const end = Math.min(this._currentPage * this._pageSize, this._totalItems);
@@ -830,8 +1143,17 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
         if (this.isBordered) tableClass += ' table-bordered';
         if (this.isCompact) tableClass += ' table-sm';
 
+        // Column picker toolbar (B2)
+        const columnPickerHtml =
+            this.showColumnPicker && this.tableId
+                ? `<div class="d-flex justify-content-end mb-2">
+                <ui-column-picker table-id="${this.tableId}"></ui-column-picker>
+              </div>`
+                : '';
+
         this.innerHTML = `
       ${this.renderBulkActions()}
+      ${columnPickerHtml}
       <div class="table-responsive">
         <table class="${tableClass}">
           ${this.renderHeader()}
@@ -914,6 +1236,33 @@ export class DataTable<T extends Record<string, unknown> = Record<string, unknow
                 const page = parseInt((link as HTMLElement).dataset.page || '1', 10);
                 this.goToPage(page);
             });
+        }
+
+        // Expand toggle buttons (B4)
+        const expandBtns = this.$$('.row-expand');
+        for (const btn of expandBtns) {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                const id = (btn as HTMLElement).dataset.id;
+                if (id) this.toggleRowExpand(id);
+            });
+        }
+
+        // Column picker integration (B2)
+        const picker = this.$('ui-column-picker');
+        if (picker) {
+            picker.addEventListener('columns-changed', ((e: CustomEvent) => {
+                const visibility = e.detail?.visibility as Record<string, boolean> | undefined;
+                if (visibility) {
+                    this.setColumnsVisibility(visibility);
+                }
+            }) as EventListener);
+
+            // Provide column definitions to the picker
+            const pickerEl = picker as HTMLElement & { setColumns?: (cols: ColumnDefinition<T>[], defaults?: string[]) => void };
+            if (typeof pickerEl.setColumns === 'function') {
+                pickerEl.setColumns(this._columns, this._defaultVisibleColumns);
+            }
         }
     }
 }

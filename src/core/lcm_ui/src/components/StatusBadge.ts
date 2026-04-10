@@ -52,6 +52,9 @@ export const STATUS_COLORS: Record<string, string> = {
 
     provisioning: 'info',
     initializing: 'info',
+    instantiating: 'info',
+    collecting: 'info',
+    grading: 'info',
     processing: 'info',
     loading: 'info',
     created: 'info',
@@ -63,6 +66,7 @@ export const STATUS_COLORS: Record<string, string> = {
     critical: 'danger',
     unhealthy: 'danger',
     terminated: 'danger',
+    expired: 'danger',
     deleted: 'danger',
 
     imported: 'primary',
@@ -106,6 +110,9 @@ export const STATUS_ICONS: Record<string, string> = {
 
     provisioning: 'bi-gear-wide-connected',
     initializing: 'bi-gear',
+    instantiating: 'bi-cloud-arrow-up',
+    collecting: 'bi-clipboard-data',
+    grading: 'bi-mortarboard',
     processing: 'bi-arrow-clockwise',
     loading: 'bi-hourglass',
     created: 'bi-plus-circle',
@@ -117,6 +124,7 @@ export const STATUS_ICONS: Record<string, string> = {
     critical: 'bi-x-octagon-fill',
     unhealthy: 'bi-heart-pulse-fill',
     terminated: 'bi-x-circle-fill',
+    expired: 'bi-hourglass-bottom',
     deleted: 'bi-trash',
 
     imported: 'bi-box-arrow-in-down',

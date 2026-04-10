@@ -400,34 +400,36 @@ class ControlPlaneApiClient:
         return dict(result) if result else {}
 
     # -------------------------------------------------------------------------
-    # Instantiation Pipeline Operations (ADR-031)
+    # Pipeline Progress Operations (ADR-034)
     # -------------------------------------------------------------------------
 
-    async def update_instantiation_progress(
+    async def update_pipeline_progress(
         self,
         session_id: str,
+        pipeline_name: str,
         step_name: str,
         step_status: str,
         result_data: dict[str, Any] | None = None,
         error: str | None = None,
     ) -> dict[str, Any]:
-        """Update a pipeline step on a session's instantiation progress.
+        """Update a pipeline step on a session's pipeline progress.
 
-        ADR-031: Called by lablet-controller after each pipeline step
-        completes, fails, or is skipped. The CPA applies the delta to
-        the full InstantiationProgress stored on the LabletSession.
+        ADR-034 Sprint E: Supports all pipeline types
+        (instantiate, teardown, collect_evidence, compute_grading).
 
         Args:
             session_id: ID of the session.
-            step_name: Pipeline step name (e.g., "ports_alloc", "tags_sync").
+            pipeline_name: Pipeline type (e.g., "instantiate", "teardown").
+            step_name: Pipeline step name (e.g., "stop_lab", "wipe_lab").
             step_status: Step status ("completed", "failed", "skipped").
-            result_data: Step-specific evidence dict (e.g., {"cml_lab_id": "..."}).
+            result_data: Step-specific evidence dict.
             error: Error message if step_status is "failed".
 
         Returns:
             Updated progress summary.
         """
         body: dict[str, Any] = {
+            "pipeline_name": pipeline_name,
             "step_name": step_name,
             "step_status": step_status,
         }
@@ -438,7 +440,42 @@ class ControlPlaneApiClient:
 
         result = await self._request(
             "POST",
-            f"/api/internal/lablet-sessions/{session_id}/instantiation-progress",
+            f"/api/internal/lablet-sessions/{session_id}/pipeline-progress",
+            json=body,
+        )
+        return dict(result) if result else {}
+
+    async def set_session_desired_status(
+        self,
+        session_id: str,
+        desired_status: str,
+        requested_by: str | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Set the desired lifecycle state (spec) for a LabletSession.
+
+        ADR-034 Sprint E / ADR-015 pattern: Follows the Kubernetes-like
+        reconciliation model. The desired_status triggers etcd watch-based
+        reconciliation in the lablet-controller.
+
+        Args:
+            session_id: ID of the session.
+            desired_status: Target lifecycle state ("running", "stopped", "terminated").
+            requested_by: User or system requesting the change.
+            reason: Optional reason for the change.
+
+        Returns:
+            Dict with session_id, desired_status, and changed flag.
+        """
+        body: dict[str, Any] = {"desired_status": desired_status}
+        if requested_by is not None:
+            body["requested_by"] = requested_by
+        if reason is not None:
+            body["reason"] = reason
+
+        result = await self._request(
+            "POST",
+            f"/api/internal/lablet-sessions/{session_id}/desired-status",
             json=body,
         )
         return dict(result) if result else {}
@@ -479,6 +516,8 @@ class ControlPlaneApiClient:
         session_id: str,
         worker_id: str,
         lab_record_id: str,
+        cml_lab_id: str | None = None,
+        cml_lab_title: str | None = None,
     ) -> dict[str, Any]:
         """Bind a LabRecord to a session during the instantiation pipeline.
 
@@ -493,17 +532,24 @@ class ControlPlaneApiClient:
             session_id: ID of the session to bind.
             worker_id: Worker hosting the lab.
             lab_record_id: LabRecord aggregate ID to bind.
+            cml_lab_id: CML lab identifier on the worker.
+            cml_lab_title: CML lab title for display.
 
         Returns:
             Dict with ``lab_record_id``, ``run_id``, and ``allocated_ports``.
         """
+        body: dict[str, Any] = {
+            "worker_id": worker_id,
+            "lab_record_id": lab_record_id,
+        }
+        if cml_lab_id is not None:
+            body["cml_lab_id"] = cml_lab_id
+        if cml_lab_title is not None:
+            body["cml_lab_title"] = cml_lab_title
         result = await self._request(
             "POST",
             f"/api/internal/lablet-sessions/{session_id}/bind-lab",
-            json={
-                "worker_id": worker_id,
-                "lab_record_id": lab_record_id,
-            },
+            json=body,
         )
         return dict(result) if result else {}
 
@@ -1257,6 +1303,7 @@ class ControlPlaneApiClient:
         worker_id: str,
         labs: list[dict[str, Any]],
         source: str = "lab-discovery-service",
+        partial_scan: bool = False,
     ) -> dict[str, Any]:
         """Discover lab records for a worker.
 
@@ -1268,6 +1315,7 @@ class ControlPlaneApiClient:
             worker_id: ID of the worker hosting these labs.
             labs: List of lab data from CML scan.
             source: Source of the discovery.
+            partial_scan: If True, skip orphan sweep (single-lab registration).
 
         Returns:
             Discovery results (synced, discovered, updated, orphaned, revisions_created, errors).
@@ -1276,6 +1324,7 @@ class ControlPlaneApiClient:
             "worker_id": worker_id,
             "labs": labs,
             "source": source,
+            "partial_scan": partial_scan,
         }
         result = await self._request("POST", "/api/internal/lab-records/discover", json=body)
         return dict(result) if result else {}
@@ -1385,6 +1434,73 @@ class ControlPlaneApiClient:
         result = await self._request(
             "POST",
             f"/api/internal/lab-records/{lab_record_id}/run-completed",
+            json=body,
+        )
+        return dict(result) if result else {}
+
+    async def append_pipeline_run(
+        self,
+        lab_record_id: str,
+        pipeline_name: str,
+        status: str = "completed",
+        started_at: str | None = None,
+        completed_at: str | None = None,
+        duration_seconds: float | None = None,
+        steps_completed: int = 0,
+        steps_failed: int = 0,
+        steps_skipped: int = 0,
+        step_results: dict | None = None,
+        error_message: str | None = None,
+        triggered_by: str = "lablet-controller",
+        lablet_session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Record a completed pipeline execution on a LabRecord.
+
+        Sprint F (ADR-034): Called by lablet-controller after a lifecycle
+        pipeline completes (instantiate, teardown, collect_evidence,
+        compute_grading). Appends a PipelineRunRecord to the aggregate.
+
+        Args:
+            lab_record_id: LabRecord aggregate ID.
+            pipeline_name: Name of the pipeline (e.g., "instantiate", "teardown").
+            status: Terminal status ("completed", "failed", "partial").
+            started_at: ISO 8601 pipeline start time.
+            completed_at: ISO 8601 pipeline completion time.
+            duration_seconds: Total pipeline duration in seconds.
+            steps_completed: Number of successfully completed steps.
+            steps_failed: Number of failed steps.
+            steps_skipped: Number of skipped steps.
+            step_results: Per-step outcome dict.
+            error_message: Pipeline-level error message if failed.
+            triggered_by: Who triggered the pipeline.
+            lablet_session_id: LabletSession ID that owns this run.
+
+        Returns:
+            Created pipeline run record summary.
+        """
+        body: dict[str, Any] = {
+            "pipeline_name": pipeline_name,
+            "status": status,
+            "steps_completed": steps_completed,
+            "steps_failed": steps_failed,
+            "steps_skipped": steps_skipped,
+            "triggered_by": triggered_by,
+        }
+        if started_at is not None:
+            body["started_at"] = started_at
+        if completed_at is not None:
+            body["completed_at"] = completed_at
+        if duration_seconds is not None:
+            body["duration_seconds"] = duration_seconds
+        if step_results is not None:
+            body["step_results"] = step_results
+        if error_message is not None:
+            body["error_message"] = error_message
+        if lablet_session_id is not None:
+            body["lablet_session_id"] = lablet_session_id
+        result = await self._request(
+            "POST",
+            f"/api/internal/lab-records/{lab_record_id}/pipeline-run",
             json=body,
         )
         return dict(result) if result else {}

@@ -10,3 +10,4 @@
 export * from './events.js';
 export * from './store.js';
 export * from './components.js';
+export * from './columns.js';

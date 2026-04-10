@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from lcm_core.domain.entities.read_models.timed_resource_read_model import TimedResourceReadModel
+
 
 @dataclass
 class CMLLicenseReadModel:
@@ -32,8 +34,10 @@ class CMLLicenseReadModel:
 
 
 @dataclass
-class CMLWorkerReadModel:
+class CMLWorkerReadModel(TimedResourceReadModel):
     """Read model for a CMLWorker from the Control Plane API.
+
+    Extends TimedResourceReadModel with worker-specific fields.
 
     Used by worker-controller for:
     - EC2 instance lifecycle management
@@ -41,12 +45,16 @@ class CMLWorkerReadModel:
     - Capacity tracking
     - Activity detection and auto-pause
     - License reconciliation (ADR-016)
+
+    Fields inherited from TimedResourceReadModel:
+        id, resource_type, status, desired_status, owner_id,
+        timeslot_start, timeslot_end, started_at, ended_at,
+        duration_seconds, terminated_at, pipeline_progress,
+        created_at, updated_at
     """
 
-    id: str
-    name: str
-    status: str
-    desired_status: str
+    # Worker identity (default for dataclass MRO compatibility)
+    name: str = ""
     ec2_instance_id: str | None = None
     ip_address: str | None = None
     template_id: str | None = None

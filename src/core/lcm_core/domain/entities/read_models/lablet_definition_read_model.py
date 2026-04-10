@@ -1,5 +1,7 @@
 """Read model for LabletDefinition entities."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -51,9 +53,31 @@ class LabletDefinitionReadModel:
     # Pipeline definitions (ADR-034)
     pipelines: dict | None = None  # Pipeline DAG definitions keyed by lifecycle phase
 
+    # Port template (AD-029) — serialized PortTemplate dict or None
+    # Normalized: empty templates (no ports) are stored as None for correct
+    # truthiness in skip_when expressions (e.g. 'not $DEFINITION.port_template')
+    port_template: dict[str, Any] | None = None
+
+    @property
+    def has_port_template(self) -> bool:
+        """Whether this definition has a non-empty port template with defined ports."""
+        if not self.port_template:
+            return False
+        ports = self.port_template.get("ports", []) if isinstance(self.port_template, dict) else []
+        return len(ports) > 0
+
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "LabletDefinitionReadModel":
+    def from_dict(cls, data: dict[str, Any]) -> LabletDefinitionReadModel:
         """Create from API response dictionary."""
+        # Normalize port_template: empty templates (no ports) become None
+        # so that skip_when expressions like 'not $DEFINITION.port_template'
+        # evaluate correctly (None is falsy → step skipped).
+        port_template_raw = data.get("port_template")
+        if isinstance(port_template_raw, dict) and port_template_raw.get("ports"):
+            port_template = port_template_raw
+        else:
+            port_template = None
+
         return cls(
             id=data.get("id", ""),
             name=data.get("name", ""),
@@ -80,4 +104,5 @@ class LabletDefinitionReadModel:
             multi_lab_enabled=data.get("multi_lab_enabled", False),
             boot_lead_time_minutes=data.get("boot_lead_time_minutes"),
             pipelines=data.get("pipelines"),
+            port_template=port_template,
         )
