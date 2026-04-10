@@ -1,0 +1,85 @@
+<rules id="LIBRARY">
+    <config id="AWS">
+        <action name="post_init">
+            <task id='1' timeout='30'>tPause</task>
+            <!--  Create the /home/cisco/Desktop/tmp/ folder on workstation  -->
+            <task id="5"
+                chunk="mkdir -p /home/cisco/Desktop/tmp/ \n"
+                timeout="5"
+                error="5.error.msg">
+                workstation_22::tExecute
+            </task>
+            <!--  Transfer desktop_package.tgz file to ~/Desktop/tmp/ -->
+            <task id="10"
+                from="${config.core.paths.lab_root}/desktop_package.tgz"
+                to=":/home/cisco/Desktop/tmp/desktop_package.tgz"
+                port="5067"
+                timeout="30">
+                workstation_22::tScp
+            </task>
+            <!-- Transfer terraform-provider-null_3.2.1_linux_amd64.zip file to ~/Desktop/tmp/ -->
+            <task id="15"
+                from="${config.core.paths.lab_root}/terraform-provider-null_3.2.1_linux_amd64.zip"
+                to=":/home/cisco/Desktop/tmp/terraform-provider-null_3.2.1_linux_amd64.zip"
+                port="5067"
+                timeout="30">
+                workstation_22::tScp
+            </task>
+            <!--  Unpack the /home/cisco/Desktop/tmp/desktop_package.tgz into the /home/cisco/Desktop/tasks/  -->
+            <task id="20"
+                chunk="tar -v -C /home/cisco/Desktop/tasks/ -xzf /home/cisco/Desktop/tmp/desktop_package.tgz \n"
+                timeout="10"
+                error="20.error.msg">
+                workstation_22::tExecute
+            </task>
+            <!--  Unpack the /home/cisco/Desktop/tmp/terraform-provider-null_3.2.1_linux_amd64.zip into the /home/cisco/Desktop/tasks/terraform/  -->
+            <task id="25"
+                chunk="unzip /home/cisco/Desktop/tmp/terraform-provider-null_3.2.1_linux_amd64.zip -d /home/cisco/Desktop/tasks/terraform/ \n"
+                timeout="10"
+                error="25.error.msg">
+                workstation_22::tExecute
+            </task>
+            <task id="26"
+                chunk="mkdir -p /home/cisco/Desktop/tasks/terraform/registry.terraform.io/hashicorp/null/3.2.1/linux_amd64 \n"
+                timeout="5"
+                error="26.error.msg">
+                workstation_22::tExecute
+            </task>
+            <task id="27"
+                chunk="mv /home/cisco/Desktop/tasks/terraform/terraform-provider-null_v3.2.1_x5 /home/cisco/Desktop/tasks/terraform/registry.terraform.io/hashicorp/null/3.2.1/linux_amd64 \n"
+                timeout="5"
+                error="27.error.msg">
+                workstation_22::tExecute
+            </task>
+
+            <!-- Delete distractions, poor candidates!! -->
+            <task id="30"
+                chunk="rm -rf /home/cisco/Desktop/tmp/ \n"
+                timeout="10"
+                error="30.error.msg">
+                workstation_22::tExecute
+            </task>
+
+            <!-- Bounce interface Vlan 1 on both switches -->
+            <task id="60"
+                chunk="bounce_interface --interface-name Vl1 --device-prompt sw01 --serial-port 5063 \n"
+                timeout="15"
+                error="60.error.msg">
+                cmlctl-0::tExecute
+            </task>
+            <task id="61"
+                chunk="bounce_interface --interface-name Vl1 --device-prompt sw02 --serial-port 5064 \n"
+                timeout="15"
+                error="61.error.msg">
+                cmlctl-0::tExecute
+            </task>
+            <!-- Shutdown Internet access for the workstation -->
+            <task id="70"
+                chunk="cmlctl --cml-password trackNMC50 --device-name ext-conn-0 --action stop \n"
+                timeout="15"
+                error="70.error.msg">
+                cmlctl-0::tExecute
+            </task>
+        </action>
+    </config>
+</rules>

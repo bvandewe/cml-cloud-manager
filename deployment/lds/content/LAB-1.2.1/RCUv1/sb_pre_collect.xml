@@ -1,0 +1,46 @@
+<rules id="LIBRARY">
+    <config id="AWS">
+        <action name="pre_collect">
+            <!--  Wipe out all relevant devices (takes about 50 seconds) -->
+            <task
+                id="10"
+                chunk="cmlctl --cml-password trackNMC50 --device-name rtr01,rtr02,sw01,sw02 --action wipe \n"
+                timeout="120"
+                error="10.error.msg">
+                cmlctl-0::tExecute
+            </task>
+
+            <!--  Bounce interface Vl1 on sw01 and sw02 to ensure connectivity -->
+            <task
+                id="20"
+                chunk="bounce_interface --interface-name Vl1 --device-prompt sw01 --serial-port 5063 \n"
+                timeout="30"
+                error="20.error.msg">
+                cmlctl-0::tExecute
+            </task>
+            <task
+                id="21"
+                chunk="bounce_interface --interface-name Vl1 --device-prompt sw02 --serial-port 5064 \n"
+                timeout="30"
+                error="21.error.msg">
+                cmlctl-0::tExecute
+            </task>
+
+            <!-- Execute Candidate solutions via console (activate/deactivate venv to leave prompt as default) -->
+            <task
+                id="30"
+                chunk="(cd /home/cisco/Desktop/tasks/; source venv/bin/activate ; cd restconf; python ./restconf_push.py ; deactivate ; echo done ; echo ) \n"
+                timeout="15"
+                error="30.error.msg">
+                workstation_serial::tExecute
+            </task>
+            <task
+                id="31"
+                chunk="(cd /home/cisco/Desktop/tasks/; source venv/bin/activate ; cd terraform ; terraform destroy -auto-approve ; terraform apply -auto-approve ; deactivate ; echo done ) \n"
+                timeout="15"
+                error="31.error.msg">
+                workstation_serial::tExecute
+            </task>
+        </action>
+    </config>
+</rules>

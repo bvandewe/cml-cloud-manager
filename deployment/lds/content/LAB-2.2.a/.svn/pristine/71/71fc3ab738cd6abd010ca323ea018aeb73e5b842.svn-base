@@ -1,0 +1,53 @@
+<rules id="LIBRARY">
+    <config id="AWS">
+        <action name="pre_collect">
+            <!--  Wipe out all relevant devices (takes about 50 seconds) -->
+            <task
+                id="10"
+                chunk="cmlctl --cml-password trackNMC50 --device-name rtr01,rtr02,sw01,sw02 --action wipe \n"
+                timeout="120"
+                error="10.error.msg">
+                cmlctl-0::tExecute
+            </task>
+
+            <!-- wait 40s for the bootup of the wiped devices -->
+            <task id='15' timeout='40'>tPause</task>
+
+            <!--  Bounce interface Vl1 on sw01 and sw02 to ensure connectivity -->
+            <task
+                id="20"
+                chunk="bounce_interface --interface-name Vl1 --device-prompt sw01 --serial-port 5083 \n"
+                timeout="30"
+                error="20.error.msg">
+                cmlctl-0::tExecute
+            </task>
+            <task
+                id="21"
+                chunk="bounce_interface --interface-name Vl1 --device-prompt sw02 --serial-port 5084 \n"
+                timeout="30"
+                error="21.error.msg">
+                cmlctl-0::tExecute
+            </task>
+
+            <!-- Execute Candidate solutions via console (activate/deactivate venv to leave prompt as default) -->
+            <!-- <task
+                id="30"
+                chunk="(cd /home/cisco/Desktop/CandidateTasks/; source .venv/bin/activate; python scripts/deploy.py -i inventory.yaml; deactivate; echo done ) \n"
+                timeout="15"
+                error="30.error.msg">
+                workstation_serial::tExecute
+            </task>
+            -->
+            <task
+                id="31"
+                chunk="/home/cisco/rerunDeploy.py \n"
+                timeout="40"
+                error="31.error.msg">
+                gitlab-ce::tExecute
+            </task>
+
+            <!-- wait 35s for the ospf neighbor negotiation -->
+            <task id='90' timeout='35'>tPause</task>
+        </action>
+    </config>
+</rules>

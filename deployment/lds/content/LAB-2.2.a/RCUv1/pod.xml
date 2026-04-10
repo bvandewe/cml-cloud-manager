@@ -1,0 +1,36 @@
+<lab id="ALL">
+    <templates id="LABLETS">
+        <unit-template pattern='rtr01' class='CiscoCommon' continue='1'>
+            <connector class='Telnet' timeout='3' enablepassword='cisco' prompt='rtr01#' />
+        </unit-template>
+        <unit-template pattern='rtr02' class='CiscoCommon' continue='1'>
+            <connector class='Telnet' timeout='3' enablepassword='cisco' prompt='rtr02#' />
+        </unit-template>
+        <unit-template pattern='sw01' class='CiscoCommon' continue='1'>
+            <connector class='Telnet' timeout='3' enablepassword='cisco' prompt='sw01#' />
+        </unit-template>
+        <unit-template pattern='sw02' class='CiscoCommon' continue='1'>
+            <connector class='Telnet' timeout='3' enablepassword='cisco' prompt='sw02#' />
+        </unit-template>
+        <unit-template pattern="workstation_22" class="Unix" continue="1">
+            <connector class="UnixSSH" timeout="5" username="cisco" password="cisco"
+                prompt="#goodmorningstartshine#" />
+        </unit-template>
+        <unit-template pattern="workstation_serial" class="Unix" continue="1">
+            <connector class="Telnet" timeout="5" username="cisco" password="cisco"
+                prompt="#goodmorningstartshine#" />
+        </unit-template>
+        <unit-template pattern="gitlab-ce_22" class="Unix" continue="1">
+            <connector class="UnixSSH" timeout="5" username="cisco" password="cisco"
+                prompt="#goodmorningstartshine#" />
+        </unit-template>
+        <unit-template pattern="gitlab-ce" class="Unix" continue="1">
+            <connector class="Telnet" timeout="5" username="cisco" password="cisco"
+                prompt="#goodmorningstartshine#" />
+        </unit-template>
+        <unit-template pattern="cmlctl-0" class="Unix" continue="1">
+            <connector class="Telnet" timeout="5" username="cisco" password="cisco"
+                prompt="#goodmorningstartshine#" />
+        </unit-template>
+    </templates>
+</lab>

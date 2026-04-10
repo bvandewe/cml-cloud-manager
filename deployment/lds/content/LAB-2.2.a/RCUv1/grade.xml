@@ -1,0 +1,73 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
+<grading-rules xmlns='http://www.w3.org/2009/grading'>
+    <lab title='R_350-901_LAB-2.2.a' version='LAB-2.2.a' reportClass='Reports::LabletReport'/>
+    <!-- Section 0 : Concurrent Statements -->
+     <section index='0' tag='invariant' description='INVARIANT' mode='concurrent' >
+        <!-- Device: gitlab-ce - Concurrent Statements -->
+         <subsection index='1' description='gitlab-ce' >
+            <!-- Verification - Question - 0: Tasks - Output  8.1: verify gitlab pipeline -->
+                 <verify subject='commandOutput' device='gitlab-ce' command='/home/cisco/verifyGitlabPipeline.py' match='/^(.*)$/msig' status='positive' out='gitlabpipeline' timeout='10' suppressIssue='true'/>
+         </subsection>
+        <!-- Device: rtr01 - Concurrent Statements -->
+         <subsection index='2' description='rtr01' >
+            <!-- Verification - Question - 0: Tasks - Output  1.1: rtr01 Loopback0 up/up (10.255.255.1/32) -->
+                 <verify subject='commandOutput' device='rtr01' command='show ip interface brief | include Loopback0' match='/^(.*)$/msig' status='positive' out='rtr01102552551upup' suppressIssue='true'/>
+             <!-- Verification - Question - 0: Tasks - Output  5.1: rtr01 ospf full -->
+                 <verify subject='commandOutput' device='rtr01' command='show ip ospf neighbor' match='/^(.*)$/msig' status='positive' out='rtr01ospf' suppressIssue='true'/>
+             <!-- Verification - Question - 0: Tasks - Output  6.1: ntp output rtr01 -->
+                 <verify subject='commandOutput' device='rtr01' command='show running-config | include ntp server' match='/^(.*)$/msig' status='positive' out='ntp01' suppressIssue='true'/>
+         </subsection>
+        <!-- Device: rtr02 - Concurrent Statements -->
+         <subsection index='3' description='rtr02' >
+            <!-- Verification - Question - 0: Tasks - Output  2.1: rtr02 Loopback0 up/up (10.255.255.2/32) -->
+                 <verify subject='commandOutput' device='rtr02' command='show ip interface brief | include Loopback0' match='/^(.*)$/msig' status='positive' out='rtr01102552552upup' suppressIssue='true'/>
+             <!-- Verification - Question - 0: Tasks - Output  7.1: ntp output rtr02 -->
+                 <verify subject='commandOutput' device='rtr02' command='show running-config | include ntp server' match='/^(.*)$/msig' status='positive' out='ntp02' suppressIssue='true'/>
+         </subsection>
+        <!-- Device: sw01 - Concurrent Statements -->
+         <subsection index='4' description='sw01' >
+            <!-- Verification - Question - 0: Tasks - Output  3.1: sw01 vlan40 AUTOMATION -->
+                 <verify subject='commandOutput' device='sw01' command='show vlan brief' match='/^(.*)$/msig' status='positive' out='sw01vlan40AUTOMATION' suppressIssue='true'/>
+         </subsection>
+        <!-- Device: sw02 - Concurrent Statements -->
+         <subsection index='5' description='sw02' >
+            <!-- Verification - Question - 0: Tasks - Output  4.1: sw02 vlan40 AUTOMATION -->
+                 <verify subject='commandOutput' device='sw02' command='show vlan brief' match='/^(.*)$/msig' status='positive' out='sw02vlan40AUTOMATION' suppressIssue='true'/>
+         </subsection>
+    </section>
+     <!-- Content -->
+     <section index='1' points='10' description='Content'>
+        <!-- Question - rtr01 Loopback0 up/up (10.255.255.1/32) -->
+         <subsection index='1' points='1' description='rtr01 Loopback0 up/up (10.255.255.1/32)' domain='2.0 Infrastructure as Code'>
+                    <verify subject='parse' device='rtr01' string='$(rtr01102552551upup)' regexp='/10\.255\.255\.1.*up\s+up/msig' mode='positive'/>
+        </subsection>
+        <!-- Question - rtr02 Loopback0 up/up (10.255.255.2/32) -->
+         <subsection index='2' points='1' description='rtr02 Loopback0 up/up (10.255.255.2/32)' domain='2.0 Infrastructure as Code'>
+                    <verify subject='parse' device='rtr02' string='$(rtr01102552552upup)' regexp='/10\.255\.255\.2.*up\s+up/msig' mode='positive'/>
+        </subsection>
+        <!-- Question - sw01 vlan40 AUTOMATION -->
+         <subsection index='3' points='1' description='sw01 vlan40 AUTOMATION' domain='2.0 Infrastructure as Code'>
+                    <verify subject='parse' device='sw01' string='$(sw01vlan40AUTOMATION)' regexp='/40\s+AUTOMATION/msig' mode='positive'/>
+        </subsection>
+        <!-- Question - sw02 vlan40 AUTOMATION -->
+         <subsection index='4' points='1' description='sw02 vlan40 AUTOMATION' domain='2.0 Infrastructure as Code'>
+                    <verify subject='parse' device='sw02' string='$(sw02vlan40AUTOMATION)' regexp='/40\s+AUTOMATION/msig' mode='positive'/>
+        </subsection>
+        <!-- Question - rtr01 ospf full -->
+         <subsection index='5' points='1' description='rtr01 ospf full' domain='2.0 Infrastructure as Code'>
+                    <verify subject='parse' device='rtr01' string='$(rtr01ospf)' regexp='/FULL/msig' mode='positive'/>
+        </subsection>
+        <!-- Question - rtr01 ntp output -->
+         <subsection index='6' points='1' description='rtr01 ntp output' domain='2.0 Infrastructure as Code'>
+                    <verify subject='parse' device='rtr01' string='$(ntp01)' regexp='/ntp server 192.168.10.254/msig' mode='positive'/>
+        </subsection>
+        <!-- Question - rtr02 ntp output -->
+         <subsection index='7' points='1' description='rtr02 ntp output' domain='2.0 Infrastructure as Code'>
+                    <verify subject='parse' device='rtr02' string='$(ntp02)' regexp='/ntp server 192.168.10.254/msig' mode='positive'/>
+        </subsection>
+        <!-- Question - verify gitlab pipeline -->
+         <subsection index='8' points='3' description='verify gitlab pipeline' domain='2.0 Infrastructure as Code'>
+                    <verify subject='parse' device='gitlab-ce' string='$(gitlabpipeline)' regexp='/The latest pipeline status is: success/msig' mode='positive'/>
+        </subsection>
+    </section>
+</grading-rules>

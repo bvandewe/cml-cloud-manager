@@ -1,0 +1,89 @@
+<rules id="LIBRARY">
+    <config id="AWS">
+        <action name="post_init">
+            <task id='1' timeout='30'>tPause</task>
+            <!--  Create the /home/cisco/tmp/ directory on the remote host  -->
+            <task id="3"
+                chunk="mkdir -p /home/cisco/Desktop/tmp/ \n"
+                timeout="5"
+                set="CMD0.OK"
+                error="0.error.msg">
+                workstation_22::tExecute
+            </task>
+            <!--  Copy the desktop_package.tgz file to the remote host  -->
+            <task id="5"
+                from="${config.core.paths.lab_root}/desktop_package.tgz"
+                to=":/home/cisco/Desktop/tmp/desktop_package.tgz"
+                port="5052"
+                timeout="30"
+                set="SCP.OK">
+                workstation_22::tScp
+            </task>
+            <!--  List and collect the contents of the /home/cisco/tmp/ directory  -->
+            <task id="10"
+                chunk="ls -la /home/cisco/Desktop/tmp/ \n"
+                timeout="5"
+                out="files"
+                set="CMD1.OK"
+                error="10.error.msg">
+                workstation_22::tExecute
+            </task>
+            <!--  Check if the desktop_package.tgz file exists in the /home/cisco/tmp/  -->
+            <task id="30"
+                if="CMD1.OK"
+                string="{files}"
+                regexp="/desktop_package\.tgz/ms"
+                set="file.OK">
+                workstation_22::tVerify
+            </task>
+            <!--  Unpack the /home/cisco/tmp/desktop_package.tgz into the /home/cisco/Desktop/tasks/  -->
+            <task id="40"
+                if="file.OK"
+                chunk="tar -v -C /home/cisco/Desktop/tasks/ -xzf /home/cisco/Desktop/tmp/desktop_package.tgz \n"
+                timeout="10"
+                out="tgz_out"
+                set="CMD2.OK"
+                error="40.error.msg">
+                workstation_22::tExecute
+            </task>
+
+            <!-- Delete distractions, poor candidates!! -->
+            <task id="45"
+                chunk="rm -rf /home/cisco/Desktop/tmp/ \n"
+                timeout="10"
+                out="tgz_out"
+                set="CMD45.OK"
+                error="45.error.msg">
+                workstation_22::tExecute
+            </task>
+
+            <!-- Bounce interface Vlan 99 on both switches -->
+            <task id="50"
+                chunk="bounce_interface --interface-name Vl99 --device-prompt sw01 --serial-port 5048 \n"
+                timeout="15"
+                out="sw01.bounce"
+                set="CMD3.1.OK"
+                error="3.1.error.msg">
+                cmlctl-0::tExecute
+            </task>
+            <task id="51"
+                chunk="bounce_interface --interface-name Vl99 --device-prompt sw02 --serial-port 5049 \n"
+                timeout="15"
+                out="sw02.bounce"
+                set="CMD3.2.OK"
+                error="3.2.error.msg">
+                cmlctl-0::tExecute
+            </task>
+
+            <!-- Shutdown Internet access for the workstation -->
+            <task id="70"
+                chunk="cmlctl --cml-password trackNMC50 --device-name ext-conn-0 --action stop \n"
+                timeout="15"
+                out="tgz_out"
+                set="CMD4.OK"
+                error="4.error.msg">
+                cmlctl-0::tExecute
+            </task>
+        </action>
+    </config>
+</rules>

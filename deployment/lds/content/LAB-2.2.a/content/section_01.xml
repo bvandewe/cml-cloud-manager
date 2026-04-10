@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<section id="1">
+    <title>Content</title>
+    <item id="1" scored="true" points="10">
+        <title>1: Tasks</title>
+        <text><![CDATA[<p>For this lablet, fix the failing CI/CD pipeline that deploys OSPF/NTP/VLAN changes. The last run failed due to a missing interface configuration, OSPF not converged, and artifacts not preserved. Search the files below for the sections marked<b> #TODO</b>. These are the only sections that should be modified in the code to fix the pipeline.&nbsp;</p><p><b>Workstation Credentials</b>: username:<b>cisco</b>, password:<b>cisco</b></p><p><b><u>Task 1</u></b>: Open the <b>.gitlab-ci.yml</b> file in the <b>CandidateTasks </b>folder on the desktop and complete the #TODO note in the code.</p><p><b><u>Task 2</u></b>: Open the <b>scripts/deploy.py</b> file in the scripts folder and complete the five #TODO notes in the code.&nbsp;</p><p><b><u>Task 3</u></b>: Open the <b>scripts/post_validate.py</b> file and complete the two #TODO notes in the code.</p><p><b><u>Task 4</u></b>: Commit the changes to GitLab-CE Candidate Tasks repository with a "fixed" message and push.  The repository is already cloned to GitLab-CE. You can commit changes using either the workstation's terminal or the VS Code terminal. If committing from the VS Code terminal, set Git identity first: <b>git config --global user.name "root"</b> and <b>git config --global user.email "gitlab_admin_b63792@example.com"</b>.</p><p><b><u>Task 5</u></b>: Confirm that the latest pipeline succeeds for all stages. You can achieve this by either opening the GitLab-CE Candidate Tasks repository using the bookmark in the browser (username: <b>root</b>, password: <b>Cisc01@3</b>) or by running python <b>scripts/post_validate.py</b>. </p>]]></text>
+        <resources/>
+    </item>
+</section>

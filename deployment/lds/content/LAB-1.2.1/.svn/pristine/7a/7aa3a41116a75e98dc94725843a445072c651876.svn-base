@@ -1,0 +1,56 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
+<grading-rules xmlns='http://www.w3.org/2009/grading'>
+    <lab title='R_350-901_LAB-1.2.1' version='LAB-1.2.1' reportClass='Reports::LabletReport'/>
+    <!-- Section 0 : Concurrent Statements -->
+     <section index='0' mode='sequential' />
+     <!-- Content -->
+     <section index='1' points='10' description='Content'>
+        <!-- Question - sw01 must have VLAN 70 -->
+         <subsection index='1' points='1' description='sw01 must have VLAN 70' domain='1.0 Network Automation'>
+                    <verify subject='commandOutput' device='sw01' command='show vlan brief' match='/^(.*)$/msig' status='positive' out='sw1.show_vlan_brief' suppressIssue='true'/>
+                    <verify subject='parse' device='sw01' string='$(sw1.show_vlan_brief)' regexp='/^70\s+LAB70/m' mode='positive'/>
+        </subsection>
+        <!-- Question - sw02 must have VLAN 70 -->
+         <subsection index='2' points='1' description='sw02 must have VLAN 70' domain='1.0 Network Automation'>
+                    <verify subject='commandOutput' device='sw02' command='show vlan brief' match='/^(.*)$/msig' status='positive' out='sw2.show_vlan_brief' suppressIssue='true'/>
+                    <verify subject='parse' device='sw02' string='$(sw2.show_vlan_brief)' regexp='/^70\s+LAB70/m' mode='positive'/>
+        </subsection>
+        <!-- Question - rtr01 must have an access-list MGMTNET configured -->
+         <subsection index='3' points='1' description='rtr01 must have an access-list MGMTNET configured' domain='1.0 Network Automation'>
+                    <verify subject='commandOutput' device='rtr01' command='show access-list' match='/^(.*)$/msig' status='positive' out='rtr01.show_access_list' suppressIssue='true'/>
+                    <verify subject='parse' device='rtr01' string='$(rtr01.show_access_list)' regexp='/MGMTNET/m' mode='positive' issue_replace='MGMTNET ACL not found'/>
+        </subsection>
+        <!-- Question - rtr02 must have an access-list MGMTNET configured -->
+         <subsection index='4' points='1' description='rtr02 must have an access-list MGMTNET configured' domain='1.0 Network Automation'>
+                    <verify subject='commandOutput' device='rtr02' command='show access-list' match='/^(.*)$/msig' status='positive' out='rtr02.show_access_list' suppressIssue='true'/>
+                    <verify subject='parse' device='rtr02' string='$(rtr02.show_access_list)' regexp='/MGMTNET/m' mode='positive' issue_replace='MGMTNET ACL not found'/>
+        </subsection>
+        <!-- Question - Interface description is present -->
+         <subsection index='5' points='1' description='Interface description is present' domain='1.0 Network Automation'>
+                    <verify subject='commandOutput' device='rtr01' command='show interface gi2' match='/^(.*)$/msig' status='positive' out='rtr01.show_int_gi2' suppressIssue='true'/>
+                    <verify subject='parse' device='rtr01' string='$(rtr01.show_int_gi2)' regexp='/Description: to-rtr02/m' mode='positive' issue_replace='Expected interface descriptoin to-rtr02 not found'/>
+        </subsection>
+        <!-- Question - Interface description is present -->
+         <subsection index='6' points='1' description='Interface description is present' domain='1.0 Network Automation'>
+                    <verify subject='commandOutput' device='rtr02' command='show interface gi2' match='/^(.*)$/msig' status='positive' out='rtr02.show_int_gi2' suppressIssue='true'/>
+                    <verify subject='parse' device='rtr02' string='$(rtr02.show_int_gi2)' regexp='/Description: to-rtr01/m' mode='positive' issue_replace='Expected interface descriptoin not found'/>
+        </subsection>
+        <!-- Question - rtr01 Loopback0 ip address -->
+         <subsection index='7' points='1' description='rtr01 Loopback0 ip address' domain='1.0 Network Automation'>
+                    <verify subject='commandOutput' device='rtr01' command='show interface Loopback0' match='/^(.*)$/msig' status='positive' out='rtr01.show_int_loop0' suppressIssue='true'/>
+                    <verify subject='parse' device='rtr01' string='$(rtr01.show_int_loop0)' regexp='/Loopback0 is up, line protocol is up/m' mode='positive' issue_replace='Lo0 is not up/up'/>
+                    <verify subject='parse' device='rtr01' string='$(rtr01.show_int_loop0)' regexp='/Internet address is 10.255.71.1\/32/m' mode='positive' issue_replace='Internet address is 10.255.71.1/32 was not found.'/>
+        </subsection>
+        <!-- Question - rtr02 Loopback0 ip address -->
+         <subsection index='8' points='1' description='rtr02 Loopback0 ip address' domain='1.0 Network Automation'>
+                    <verify subject='commandOutput' device='rtr02' command='show interface Loopback0' match='/^(.*)$/msig' status='positive' out='rtr02.show_int_loop0' suppressIssue='true'/>
+                    <verify subject='parse' device='rtr02' string='$(rtr02.show_int_loop0)' regexp='/Loopback0 is up, line protocol is up/m' mode='positive' issue_replace='Lo0 is not up/up'/>
+                    <verify subject='parse' device='rtr02' string='$(rtr02.show_int_loop0)' regexp='/Internet address is 10.255.71.2\/32/m' mode='positive' issue_replace='Internet address is 10.255.81.2/32 was not found.'/>
+        </subsection>
+        <!-- Question - rtr01 has one OSPF neighor -->
+         <subsection index='9' points='2' description='rtr01 has one OSPF neighor' domain='1.0 Network Automation'>
+                    <verify subject='commandOutput' device='rtr01' command='show ip ospf neighbor' match='/^(.*)$/msig' status='positive' out='rtr01.sh_ip_os_nei' suppressIssue='true'/>
+                    <verify subject='parse' device='rtr01' string='$(rtr01.sh_ip_os_nei)' regexp='/FULL.*GigabitEthernet2/msig' mode='positive' issue_replace='OSPF neighbor in state FULL not found'/>
+        </subsection>
+    </section>
+</grading-rules>

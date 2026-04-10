@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab_content version="3">
+    <title>Lablet</title>
+    <timing>
+        <min_length_minutes>0</min_length_minutes>
+        <max_length_minutes>0</max_length_minutes>
+        <warning_minutes>0</warning_minutes>
+        <warning_message></warning_message>
+    </timing>
+    <exercise_type>Lablet</exercise_type>
+    <intro_message>Welcome to the Lablet environment. If you see this ask exam admin to restart the browser!</intro_message>
+    <main_page>
+        <text></text>
+        <alert></alert>
+        <progress_indicator>false</progress_indicator>
+        <diagram auto_title="true">images/AC_1.1.png</diagram>
+    </main_page>
+    <background_file wrap="true" start_here="true" title="Guidelines">resources/guidelines.html</background_file>
+    <sections item_title_visible="false" score_visible="false" backward_nav="true">
+        <section>content/section_01.xml</section>
+    </sections>
+    <resources/>
+    <backend/>
+    <variables/>
+    <device>
+        <device category="" device_label="workstation" coords="552,674,737,812" user_access_mode="web"/>
+    </device>
+    <feedback enabled="false"/>
+</lab_content>

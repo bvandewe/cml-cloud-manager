@@ -15,7 +15,6 @@ redis = ">=7.0.1,<8.0.0"
 motor = "^3.7.1"
 httpx = ">=0.24.0,<0.28.0"  # Added for JWKS fetching (RS256 verification)
 boto3 = "^1.40.74"
-apscheduler = "^3.11.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0.0"

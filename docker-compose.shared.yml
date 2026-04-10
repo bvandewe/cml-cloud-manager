@@ -479,6 +479,8 @@ services:
             SKIP_TVP_HEALTHCHECK: 'true'
             SKIP_CLOUDEVENTS_CLIENT: 'false'
             GUACAMOLE_ENABLE: 'false'
+            # Disable Secure cookie flag for local dev (plain HTTP on localhost)
+            SESSION_HTTPS_ONLY: 'false'
             CLIENT_ACCESS_BASE_URL: http://localhost:${PYLDS_FRONTEND_PORT:-8048}/
         restart: unless-stopped
         networks:

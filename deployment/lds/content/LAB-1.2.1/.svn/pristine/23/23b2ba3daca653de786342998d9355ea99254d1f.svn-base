@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<section id="1">
+    <title>Content</title>
+    <item id="1" scored="true" points="10">
+        <title>1: [1.2 and 1.3] Terraform and RESTCONF</title>
+        <text><![CDATA[<p>For this lablet, complete the network automation workflow that deploys VLAN, router link, OSPF, loopback, and ACL changes. The current run fails because required Terraform variables are not filled and the RESTCONF model is incomplete. Search <b>variables.tf</b> and <b>model.yaml</b> for sections marked <b>#TODO</b> these are the only sections that must be modified to make the automation and post-validation pass.</p><p><span><b>Workstation Credentials:</b> username:<b>cisco</b>, password:<b>cisco</b></span></p><p><span><b><u>Task 1</u></b>: Open the <b>variables.tf</b> file in the <b>Desktop/tasks/terraform</b> folder on the desktop and complete the #TODO section in the code.</span></p><p><span><b><u>Task 2</u></b>: After completing the #TODO values in <b>variables.tf</b>, go to the terraform directory and run <b>terraform init -plugin-dir=</b>. followed by <b>terraform apply</b> to push the configuration.</span></p><p><span><b><u>Task 3</u></b>: Open the <b>model.yaml</b> file in the <b>Desktop/tasks/restconf</b> folder and complete the #TODO section in the code.</span></p><p><span><b><u>Task 4</u></b>: After completing the #TODO values in <b>model.yaml</b>, go to the restconf directory and run python <b>restconf_push.py</b>, and confirm it prints Success.</span></p><p><span><b><u>Task 5</u></b>: Confirm that the devices have been configured. You can achieve this by navigating to <b>Desktop/tasks/scripts/</b> and running python <b>post_validate.py</b></span></p>]]></text>
+        <resources/>
+    </item>
+</section>

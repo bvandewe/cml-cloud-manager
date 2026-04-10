@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<section id="1">
+    <title>Content</title>
+    <item id="1" scored="true" points="8">
+        <title>1: Tasks</title>
+        <text><![CDATA[<p>Complete these tasks on the Desktop (username: cisco, password: cisco) to collect the list of devices managed by the <b>SD WAN Manager</b>:<br></p>
+
+
+
+
+
+
+
+<ol>
+	
+	
+	
+	
+	
+	
+	
+	<li>Use either <b>Bruno or Swagger</b> as an API client on the desktop console - you can use <b>Bruno</b> by clicking the dog icon on the left menu bar <b>OR</b> use <b>Swagger</b> in Chrome by entering this address (http://192.168.10.1:8000/docs) or using the browser shortcut.</li>
+	
+	<li><span>Establish a session with the </span><b>SD WAN Manager API </b><span>using the credentials listed below to get a valid token.</span><br></li>
+	
+	
+	
+	
+	
+	
+	
+	<li>Query the <b>SD WAN Manager API</b><span> using the preconfigured request to pull the list of devices.</span></li>
+	
+	
+	
+	
+	
+	
+	
+	<li>Ensure that the <b>SD WAN Manager API</b><span> returned a list of devices similar to the sample response shown below (so that logs can be found later when grading the task).</span></li>
+
+
+
+
+
+
+
+</ol>
+
+
+
+
+
+
+
+<p><span>Do not modify anything on the desktop except what is needed to perform the tasks because it will affect the grading process.</span></p>
+
+
+
+
+<p><b><br></b></p>
+
+<p><b>API Credentials</b></p>
+
+
+
+
+
+
+
+
+
+
+<table class="ccie-table" style="border-collapse: collapse; border: 1px solid black;">
+  <colgroup>
+    <col>
+    <col>
+  </colgroup>
+  <tbody>
+    <tr>
+      <th style="background-color: #004d40; color: white; border: 1px solid black; padding: 8px;">Parameter</th>
+      <th style="background-color: #004d40; color: white; border: 1px solid black; padding: 8px;">Value</th>
+    </tr>
+    <tr>
+      <td style="border: 1px solid black; padding: 8px;"><b>j_username</b></td>
+      <td style="border: 1px solid black; padding: 8px;"><b>user1</b></td>
+    </tr>
+    <tr>
+      <td style="border: 1px solid black; padding: 8px;"><b>j_password</b></td>
+      <td style="border: 1px solid black; padding: 8px;"><b>password1</b></td>
+    </tr>
+  </tbody>
+</table>
+
+
+
+
+
+
+
+
+<p>​</p>
+
+
+
+
+
+
+
+
+<p><b>Sample Response</b></p>
+
+
+
+
+
+
+
+
+
+<pre>GET http://192.168.10.1:8000/dataservice/device/monitor
+{<br>  "data": [<br>    {<br>      "device_id": "C8K-001",<br>      "hostname": "vEdge-C8K-001",<br>      "device_type": "vedge",<br>      "device_model": "vedge-C8000V",<br>      "status": "normal",<br>      "system_ip": "1.1.1.1",<br>      "site_id": "100",<br>      "version": "20.6.3",<br>      "uptime": "15:23:45:10",<br>      "last_updated": "2025-08-20T21:30:42.392898+00:00Z"<br>    },<br>    {<br>      "device_id": "vSmart-001",<br>      "hostname": "vSmart-001",<br>      "device_type": "vsmart",<br>      "device_model": "vsmart",<br>      "status": "normal",<br>      "system_ip": "1.1.1.10",<br>      "site_id": "1000",<br>      "version": "20.6.3",<br>      "uptime": "30:12:34:56",<br>      "last_updated": "2025-08-20T21:48:42.393129+00:00Z"<br>    }<br>  ]<br>}<br></pre>]]></text>
+        <resources/>
+    </item>
+</section>

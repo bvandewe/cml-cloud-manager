@@ -1,0 +1,108 @@
+<rules id="LIBRARY">
+    <config id="AWS">
+        <action name="post_init">
+            <task id='1' timeout='30'>tPause</task>
+            <!-- Transfer candidate_repo_20251125.zip file to ~/Desktop/CandidateTasks/ -->
+            <task id="15"
+                from="${config.core.paths.lab_root}/candidate_repo_20251125.zip"
+                to=":/home/cisco/Desktop/CandidateTasks/candidate_repo_20251125.zip"
+                port="5089"
+                timeout="20">
+                workstation_22::tScp
+            </task>
+            <!-- Transfer files to gitlab-ce -->
+            <task id="16"
+                from="${config.core.paths.lab_root}/verifyGitlabPipeline.py"
+                to=":/home/cisco/verifyGitlabPipeline.py"
+                port="5080"
+                timeout="15">
+                gitlab-ce_22::tScp
+            </task>
+            <task id="17"
+                from="${config.core.paths.lab_root}/createGitlabToken.sh"
+                to=":/home/cisco/createGitlabToken.sh"
+                port="5080"
+                timeout="15">
+                gitlab-ce_22::tScp
+            </task>
+            <task id="18"
+                from="${config.core.paths.lab_root}/rerunDeploy.py"
+                to=":/home/cisco/rerunDeploy.py"
+                port="5080"
+                timeout="15">
+                gitlab-ce_22::tScp
+            </task>
+            <task id="19"
+                chunk="chmod +x /home/cisco/rerunDeploy.py \n"
+                timeout="10"
+                error="19.error.msg">
+                gitlab-ce::tExecute
+            </task>
+           <task id="20"
+                chunk="chmod +x /home/cisco/verifyGitlabPipeline.py \n"
+                timeout="10"
+                error="20.error.msg">
+                gitlab-ce::tExecute
+            </task>
+            <task id="21"
+                chunk="chmod +x /home/cisco/createGitlabToken.sh \n"
+                timeout="10"
+                error="21.error.msg">
+                gitlab-ce::tExecute
+            </task>
+ 
+            <!--  Unpack the zip -->
+            <task id="25"
+                chunk="(unzip /home/cisco/Desktop/CandidateTasks/candidate_repo_20251125.zip -d /home/cisco/Desktop/CandidateTasks/; rm -f /home/cisco/Desktop/CandidateTasks/candidate_repo_20251125.zip; sudo chmod -R a+w /home/cisco/Desktop/CandidateTasks/.git) \n"
+                timeout="20"
+                error="25.error.msg">
+                workstation_serial::tExecute
+            </task>
+
+            <task id='50' timeout='20'>tPause</task>
+            <!-- Bounce interface Vlan 1 on both switches -->
+            <task id="60"
+                chunk="bounce_interface --interface-name Vl1 --device-prompt sw01 --serial-port 5083 \n"
+                timeout="25"
+                error="60.error.msg">
+                cmlctl-0::tExecute
+            </task>
+            <task id="61"
+                chunk="bounce_interface --interface-name Vl1 --device-prompt sw02 --serial-port 5084 \n"
+                timeout="25"
+                error="61.error.msg">
+                cmlctl-0::tExecute
+            </task>
+            <!-- Shutdown Internet access for the workstation -->
+            <task id="70"
+                chunk="cmlctl --cml-password trackNMC50 --device-name ext-conn-0 --action stop \n"
+                timeout="15"
+                error="70.error.msg">
+                cmlctl-0::tExecute
+            </task>
+            <task id="71"
+                chunk="cmlctl --cml-password trackNMC50 --device-name ext-conn-2 --action stop \n"
+                timeout="15"
+                error="71.error.msg">
+                cmlctl-0::tExecute
+            </task>
+            <task
+                id="73"
+                chunk="(cd /home/cisco/Desktop/CandidateTasks; git add -u; git commit -m Initial; GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git push; gsettings set org.gnome.DejaDup periodic false; gsettings set org.gnome.shell.extensions.ding start-corner top-right; gsettings set org.gnome.shell.extensions.ding keep-arranged true; gsettings set org.gnome.desktop.notifications show-banners false; sudo reboot) \n"
+                timeout="40"
+                error="73.error.msg">
+                workstation_serial::tExecute
+            </task>
+
+            <!-- add gitlab token -->
+            <task
+                id="74"
+                chunk="/home/cisco/createGitlabToken.sh \n"
+                timeout="60"
+                error="74.error.msg">
+                gitlab-ce::tExecute
+            </task>
+
+        </action>
+    </config>
+</rules>
