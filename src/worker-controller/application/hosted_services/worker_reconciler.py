@@ -25,13 +25,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-from infrastructure.observability import (
-    record_scale_down_evaluation,
-    record_scaling_event,
-)
-from integration.services.aws_cloudwatch_spi import AwsCloudWatchSpiClient
-from integration.services.aws_ec2_spi import AwsCredentials, AwsEc2SpiClient
-from integration.services.cml_system_spi import CmlSystemSpiClient
 from lcm_core.domain.entities import CMLWorkerReadModel
 from lcm_core.domain.enums import CMLWorkerStatus
 from lcm_core.infrastructure.hosted_services import (
@@ -45,6 +38,13 @@ from lcm_core.integration.clients import ControlPlaneApiClient, EtcdClient
 from lcm_core.integration.clients.etcd_client import EtcdEvent
 
 from application.settings import Settings
+from infrastructure.observability import (
+    record_scale_down_evaluation,
+    record_scaling_event,
+)
+from integration.services.aws_cloudwatch_spi import AwsCloudWatchSpiClient
+from integration.services.aws_ec2_spi import AwsCredentials, AwsEc2SpiClient
+from integration.services.cml_system_spi import CmlSystemSpiClient
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection

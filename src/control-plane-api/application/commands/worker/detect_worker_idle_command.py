@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from neuroglia.mediation import Command, CommandHandler, Mediator
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
 from application.queries.get_worker_idle_status_query import GetWorkerIdleStatusQuery
 from application.services.system_configuration_service import SystemConfigurationService
 from application.settings import Settings
@@ -13,9 +17,6 @@ from application.utils.telemetry_filter import (
     get_latest_activity_timestamp,
     get_most_recent_events,
 )
-from neuroglia.mediation import Command, CommandHandler, Mediator
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
 
 from .pause_worker_command import PauseWorkerCommand
 from .update_worker_activity_command import UpdateWorkerActivityCommand
@@ -89,7 +90,7 @@ class DetectWorkerIdleCommandHandler(CommandHandler[DetectWorkerIdleCommand, dic
             try:
                 # Step 1: Process telemetry events (provided by worker-controller per ADR-015)
                 if command.raw_telemetry_events is None:
-                    log.warning(f"No telemetry events provided for worker {command.worker_id}. " "Worker-controller should fetch telemetry from CML and pass it inline.")
+                    log.warning(f"No telemetry events provided for worker {command.worker_id}. Worker-controller should fetch telemetry from CML and pass it inline.")
                     detection_result["error"] = "No telemetry events provided"
                     return self.ok(detection_result)
 
@@ -119,7 +120,7 @@ class DetectWorkerIdleCommandHandler(CommandHandler[DetectWorkerIdleCommand, dic
                 }
 
                 detection_result["telemetry_fetched"] = True
-                log.info(f"Filtered {len(filtered_events)} relevant events from {len(raw_events)} total " f"for worker {command.worker_id}")
+                log.info(f"Filtered {len(filtered_events)} relevant events from {len(raw_events)} total for worker {command.worker_id}")
 
                 # Step 2: Update worker activity state (scheduling calculated below)
                 log.info(f"Updating activity state for worker {command.worker_id}")

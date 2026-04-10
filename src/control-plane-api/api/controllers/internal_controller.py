@@ -10,6 +10,17 @@ All other services request mutations via these internal endpoints.
 import logging
 from typing import Annotated, Any
 
+from classy_fastapi.decorators import get, post
+from classy_fastapi.routable import Routable
+from fastapi import Depends, HTTPException, Path, Query, status
+from fastapi.security import APIKeyHeader
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
+from neuroglia.serialization.json import JsonSerializer
+from pydantic import BaseModel, Field
+
 from application.commands.lab import (
     AppendPipelineRunCommand,
     BindLabToLabletCommand,
@@ -48,16 +59,6 @@ from application.queries.list_cml_workers_internal_query import ListCMLWorkersIn
 from application.queries.list_lablet_definitions_query import ListLabletDefinitionsQuery
 from application.queries.list_worker_templates_query import ListWorkerTemplatesQuery
 from application.settings import Settings
-from classy_fastapi.decorators import get, post
-from classy_fastapi.routable import Routable
-from fastapi import Depends, HTTPException, Path, Query, status
-from fastapi.security import APIKeyHeader
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
-from neuroglia.serialization.json import JsonSerializer
-from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,7 @@ class DetectIdleRequest(BaseModel):
     force_check: bool = Field(default=False, description="Skip next_idle_check_at validation")
     raw_telemetry_events: list[dict[str, Any]] | None = Field(
         default=None,
-        description="Raw telemetry events fetched by worker-controller from CML API. " "Per ADR-015, CPA does not make external CML calls directly.",
+        description="Raw telemetry events fetched by worker-controller from CML API. Per ADR-015, CPA does not make external CML calls directly.",
     )
 
 
@@ -1475,7 +1476,7 @@ class InternalController(ControllerBase):
         """
         force_check = request.force_check if request else False
         raw_telemetry_events = request.raw_telemetry_events if request else None
-        logger.info(f"[Internal] Detecting idle state for worker {worker_id} " f"(force={force_check}, telemetry_events={len(raw_telemetry_events) if raw_telemetry_events else 'none'})")
+        logger.info(f"[Internal] Detecting idle state for worker {worker_id} (force={force_check}, telemetry_events={len(raw_telemetry_events) if raw_telemetry_events else 'none'})")
 
         command = DetectWorkerIdleCommand(
             worker_id=worker_id,
