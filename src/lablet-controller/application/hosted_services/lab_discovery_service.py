@@ -22,11 +22,11 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from integration.services.cml_labs_spi import CmlLabsSpiClient, LabInfo, LabState
 from lcm_core.domain.enums import LabRecordStatus
 from lcm_core.integration.clients import ControlPlaneApiClient
 
 from application.settings import Settings
+from integration.services.cml_labs_spi import CmlLabsSpiClient, LabInfo, LabState
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -443,7 +443,7 @@ class LabDiscoveryService:
                 logger.warning(f"Tag sync failed for lab {lab.id} on worker {worker_id}: {e}")
 
         if result.ports_registered > 0 or result.tags_synced > 0:
-            logger.info(f"🔌 Worker {worker_id}: ports_registered={result.ports_registered}, " f"tags_synced={result.tags_synced}")
+            logger.info(f"🔌 Worker {worker_id}: ports_registered={result.ports_registered}, tags_synced={result.tags_synced}")
 
         return result
 

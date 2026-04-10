@@ -44,6 +44,7 @@ def make_reconciler() -> LabletReconciler:
     r._runs_recorded = 0
     r._lab_run_started_at = {}
     r._resolved_lab_ids = {}
+    r._freshly_imported_sessions = set()
     r._worker_cache = {}
     r._resource_observer = None
     r._content_sync_service = None

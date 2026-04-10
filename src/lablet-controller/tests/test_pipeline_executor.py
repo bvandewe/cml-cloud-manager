@@ -20,6 +20,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from application.models.pipeline_context import PipelineContext
 from application.services.pipeline_executor import PipelineDefinitionError, PipelineExecutor, PipelineStepError
 
@@ -51,7 +52,6 @@ def make_context(
     definition.pipelines = pipelines
 
     api = AsyncMock()
-    api.update_instantiation_progress = AsyncMock()
 
     cml = AsyncMock()
     lds = AsyncMock()
@@ -79,7 +79,7 @@ def make_dispatcher(results: dict[str, dict] | None = None, side_effects: dict[s
     results = results or {}
     side_effects = side_effects or {}
 
-    async def _dispatch(handler_name: str, session: Any, progress: dict) -> dict:
+    async def _dispatch(handler_name: str, session: Any, progress: dict, context: Any = None, params: Any = None) -> dict:
         if handler_name in side_effects:
             raise side_effects[handler_name]
         return results.get(handler_name, {"step": handler_name, "status": "completed"})
@@ -284,7 +284,7 @@ class TestRetryLogic:
         }
         call_count = 0
 
-        async def flaky_dispatcher(handler_name, session, progress):
+        async def flaky_dispatcher(handler_name, session, progress, context=None, params=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -338,7 +338,7 @@ class TestTimeoutHandling:
             "timeout_seconds": 0.05,  # 50ms timeout
         }
 
-        async def slow_dispatcher(handler_name, session, progress):
+        async def slow_dispatcher(handler_name, session, progress, context=None, params=None):
             await asyncio.sleep(1.0)  # Way longer than timeout
             return {"status": "completed"}
 
@@ -357,7 +357,7 @@ class TestTimeoutHandling:
         }
         call_count = 0
 
-        async def timeout_then_ok(handler_name, session, progress):
+        async def timeout_then_ok(handler_name, session, progress, context=None, params=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -510,7 +510,7 @@ class TestProgressPersistence:
     """Tests for progress persistence via CPA API."""
 
     async def test_progress_persisted_after_each_step(self):
-        """CPA update_instantiation_progress called after every step."""
+        """CPA update_pipeline_progress called after every step."""
         executor = PipelineExecutor()
         context = make_context()
         pipeline_def = {
@@ -525,10 +525,10 @@ class TestProgressPersistence:
             results={"a": {"ok": True}, "b": {"ok": True}},
         )
 
-        await executor.execute(pipeline_def, context, dispatcher)
+        await executor.execute(pipeline_def, context, dispatcher, pipeline_name="instantiate")
 
         # Should have been called for each step completion
-        assert context.api.update_instantiation_progress.call_count >= 2
+        assert context.api.update_pipeline_progress.call_count >= 2
 
     async def test_progress_persisted_on_failure(self):
         """Progress is persisted even when a step fails."""
@@ -543,15 +543,15 @@ class TestProgressPersistence:
         }
         dispatcher = make_dispatcher(side_effects={"a": RuntimeError("boom")})
 
-        result = await executor.execute(pipeline_def, context, dispatcher)
+        result = await executor.execute(pipeline_def, context, dispatcher, pipeline_name="instantiate")
         assert result.status == "failed"
-        assert context.api.update_instantiation_progress.call_count >= 1
+        assert context.api.update_pipeline_progress.call_count >= 1
 
     async def test_progress_persist_failure_does_not_abort(self):
         """If progress persistence fails, the pipeline continues."""
         executor = PipelineExecutor()
         context = make_context()
-        context.api.update_instantiation_progress = AsyncMock(side_effect=RuntimeError("CPA down"))
+        context.api.update_pipeline_progress = AsyncMock(side_effect=RuntimeError("CPA down"))
         pipeline_def = {
             "description": "test",
             "steps": [
@@ -567,7 +567,7 @@ class TestProgressPersistence:
         assert result.steps_completed == 2
 
     async def test_progress_persisted_with_per_step_params(self):
-        """Verify _persist_progress calls api.update_instantiation_progress with per-step params."""
+        """Verify _persist_progress calls api.update_pipeline_progress with per-step params."""
         executor = PipelineExecutor()
         context = make_context()
         pipeline_def = {
@@ -577,10 +577,11 @@ class TestProgressPersistence:
         }
         dispatcher = make_dispatcher(results={"a": {"val": 42}})
 
-        await executor.execute(pipeline_def, context, dispatcher)
+        await executor.execute(pipeline_def, context, dispatcher, pipeline_name="instantiate")
 
-        call_kwargs = context.api.update_instantiation_progress.call_args.kwargs
+        call_kwargs = context.api.update_pipeline_progress.call_args.kwargs
         assert call_kwargs["session_id"] == "sess-001"
+        assert call_kwargs["pipeline_name"] == "instantiate"
         assert call_kwargs["step_name"] == "a"
         assert call_kwargs["step_status"] == "completed"
         assert call_kwargs["result_data"] == {"val": 42}
@@ -1213,7 +1214,7 @@ class TestPipelineDefinitionEdgeCases:
         context = make_context()
         step = {"name": "weird", "handler": "weird"}
 
-        async def non_dict_dispatcher(handler_name, session, progress):
+        async def non_dict_dispatcher(handler_name, session, progress, context=None, params=None):
             return "string_result"  # type: ignore[return-value]
 
         result = await executor._execute_step(step, context, AsyncMock(side_effect=non_dict_dispatcher), {})
@@ -1263,3 +1264,445 @@ class TestBuildInitialProgress:
         assert progress["a"]["order"] == 0
         assert progress["b"]["order"] == 1
         assert progress["c"]["order"] == 2
+
+
+# =============================================================================
+# Handler Status Propagation Tests (AD-PIPELINE-STATUS-01)
+# =============================================================================
+
+
+class TestHandlerStatusPropagation:
+    """Tests for executor honoring step handler return statuses.
+
+    Step handlers may return {"status": "skipped"} or {"status": "failed", "error": "..."}
+    instead of raising exceptions. The executor must propagate these statuses correctly
+    rather than blindly marking every non-exception return as "completed".
+
+    This is critical for pipeline steps like ports_alloc and tags_sync that gracefully
+    skip or fail when preconditions aren't met (e.g. no port_template defined).
+    """
+
+    async def test_handler_returns_skipped_marks_step_skipped(self):
+        """Handler returning {"status": "skipped"} → step is tracked as skipped."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "handler-skip test",
+            "steps": [
+                {"name": "a", "handler": "a"},
+                {"name": "b", "handler": "b", "needs": ["a"]},
+            ],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(
+            results={
+                "a": {"status": "skipped", "reason": "no port_template"},
+                "b": {"status": "completed", "ok": True},
+            },
+        )
+
+        result = await executor.execute(pipeline_def, context, dispatcher)
+        assert result.steps_skipped == 1
+        assert result.steps_completed == 1
+        assert result.status == "completed"
+
+    async def test_handler_returns_skipped_result_data_available_downstream(self):
+        """Skipped step's result_data is stored in context.steps_data for downstream access."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "skip data test",
+            "steps": [
+                {"name": "ports_alloc", "handler": "ports_alloc"},
+                {"name": "tags_sync", "handler": "tags_sync", "needs": ["ports_alloc"]},
+            ],
+            "outputs": {},
+        }
+        skip_data = {"status": "skipped", "reason": "no port_template defined"}
+        dispatcher = make_dispatcher(
+            results={
+                "ports_alloc": skip_data,
+                "tags_sync": {"status": "completed"},
+            },
+        )
+
+        await executor.execute(pipeline_def, context, dispatcher)
+        assert context.steps_data["ports_alloc"] == skip_data
+
+    async def test_handler_returns_failed_required_aborts_pipeline(self):
+        """Required handler returning {"status": "failed"} → pipeline aborts, remaining skipped."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "handler-fail test",
+            "steps": [
+                {"name": "a", "handler": "a"},
+                {"name": "b", "handler": "b", "needs": ["a"]},
+                {"name": "c", "handler": "c", "needs": ["b"]},
+            ],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(
+            results={
+                "a": {"status": "completed", "ok": True},
+                "b": {"status": "failed", "error": "No lab_record_id available"},
+            },
+        )
+
+        result = await executor.execute(pipeline_def, context, dispatcher)
+        assert result.status == "failed"
+        assert result.steps_completed == 1  # only 'a'
+        assert result.steps_failed == 1  # 'b'
+        assert result.steps_skipped == 1  # 'c' skipped due to abort
+        assert "b" in result.error
+
+    async def test_handler_returns_failed_optional_continues(self):
+        """Optional handler returning {"status": "failed"} → pipeline continues, status is 'partial'."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "optional handler-fail test",
+            "steps": [
+                {"name": "a", "handler": "a"},
+                {"name": "b", "handler": "b", "needs": ["a"], "optional": True},
+                {"name": "c", "handler": "c", "needs": ["a"]},
+            ],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(
+            results={
+                "a": {"status": "completed"},
+                "b": {"status": "failed", "error": "Optional step failed gracefully"},
+                "c": {"status": "completed"},
+            },
+        )
+
+        result = await executor.execute(pipeline_def, context, dispatcher)
+        assert result.status == "partial"
+        assert result.steps_completed == 2
+        assert result.steps_failed == 1
+
+    async def test_handler_returns_completed_normal_flow(self):
+        """Handler returning {"status": "completed"} → normal completion (backward compat)."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "explicit-completed test",
+            "steps": [{"name": "a", "handler": "a"}],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(results={"a": {"status": "completed", "data": "ok"}})
+
+        result = await executor.execute(pipeline_def, context, dispatcher)
+        assert result.status == "completed"
+        assert result.steps_completed == 1
+        assert context.steps_data["a"] == {"status": "completed", "data": "ok"}
+
+    async def test_handler_returns_dict_without_status_treated_as_completed(self):
+        """Handler returning dict without "status" key → treated as completed (backward compat)."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "no-status test",
+            "steps": [{"name": "a", "handler": "a"}],
+            "outputs": {"val": "$STEPS.a.value"},
+        }
+        dispatcher = make_dispatcher(results={"a": {"value": 42}})
+
+        result = await executor.execute(pipeline_def, context, dispatcher)
+        assert result.status == "completed"
+        assert result.steps_completed == 1
+        assert result.outputs["val"] == 42
+
+    async def test_handler_skipped_progress_persisted(self):
+        """Handler-skipped step has progress persisted via CPA API."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "skip-persist test",
+            "steps": [{"name": "ports_alloc", "handler": "ports_alloc"}],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(
+            results={"ports_alloc": {"status": "skipped", "reason": "no port_template"}},
+        )
+
+        await executor.execute(pipeline_def, context, dispatcher)
+
+        # Verify progress was persisted with "skipped" status
+        call_kwargs = context.api.update_pipeline_progress.call_args.kwargs
+        assert call_kwargs["step_name"] == "ports_alloc"
+        assert call_kwargs["step_status"] == "skipped"
+
+    async def test_handler_failed_progress_persisted(self):
+        """Handler-failed step has progress persisted with error detail."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "fail-persist test",
+            "steps": [{"name": "ports_alloc", "handler": "ports_alloc"}],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(
+            results={"ports_alloc": {"status": "failed", "error": "API returned 404"}},
+        )
+
+        result = await executor.execute(pipeline_def, context, dispatcher)
+        assert result.status == "failed"
+
+        # Find the call for ports_alloc (first call should be for it)
+        calls = context.api.update_pipeline_progress.call_args_list
+        ports_call = next(c for c in calls if c.kwargs.get("step_name") == "ports_alloc")
+        assert ports_call.kwargs["step_status"] == "failed"
+        assert "API returned 404" in ports_call.kwargs["error"]
+
+    async def test_skip_when_plus_handler_skip_deduplication(self):
+        """Step skipped by skip_when is not executed — handler skip is a separate path."""
+        executor = PipelineExecutor()
+        context = make_context()
+        context.definition.port_template = None  # Makes skip_when 'not $DEFINITION.port_template' → True
+        pipeline_def = {
+            "description": "skip_when vs handler skip",
+            "steps": [
+                {
+                    "name": "ports_alloc",
+                    "handler": "ports_alloc",
+                    "skip_when": "not $DEFINITION.port_template",
+                },
+            ],
+            "outputs": {},
+        }
+        # Dispatcher should NOT be called — step is skipped by skip_when
+        dispatcher = make_dispatcher(results={"ports_alloc": {"status": "completed"}})
+
+        result = await executor.execute(pipeline_def, context, dispatcher)
+        assert result.steps_skipped == 1
+        assert result.steps_completed == 0
+        # Dispatcher should not have been called
+        assert dispatcher.call_count == 0
+
+    async def test_ports_alloc_tags_sync_skip_when_no_port_template(self):
+        """Realistic test: ports_alloc and tags_sync both skipped via skip_when when no port_template."""
+        executor = PipelineExecutor()
+        context = make_context()
+        context.definition.port_template = None
+
+        pipeline_def = {
+            "description": "No port template pipeline",
+            "steps": [
+                {"name": "lab_resolve", "handler": "lab_resolve"},
+                {
+                    "name": "ports_alloc",
+                    "handler": "ports_alloc",
+                    "needs": ["lab_resolve"],
+                    "skip_when": "not $DEFINITION.port_template",
+                    "timeout_seconds": 30,
+                },
+                {
+                    "name": "tags_sync",
+                    "handler": "tags_sync",
+                    "needs": ["ports_alloc"],
+                    "skip_when": "not $DEFINITION.port_template",
+                    "timeout_seconds": 30,
+                },
+                {"name": "lab_binding", "handler": "lab_binding", "needs": ["lab_resolve", "tags_sync"]},
+            ],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(
+            results={
+                "lab_resolve": {"cml_lab_id": "lab-001", "status": "completed"},
+                "lab_binding": {"status": "completed"},
+            },
+        )
+
+        result = await executor.execute(pipeline_def, context, dispatcher)
+        assert result.status == "completed"
+        assert result.steps_completed == 2  # lab_resolve + lab_binding
+        assert result.steps_skipped == 2  # ports_alloc + tags_sync
+        # Dispatcher called only for lab_resolve and lab_binding
+        assert dispatcher.call_count == 2
+
+    async def test_ports_alloc_tags_sync_execute_when_port_template_present(self):
+        """Realistic test: ports_alloc and tags_sync execute when port_template is present."""
+        executor = PipelineExecutor()
+        context = make_context()
+        # make_context() already sets port_template = {"ssh": 22, "telnet": 23}
+
+        pipeline_def = {
+            "description": "With port template pipeline",
+            "steps": [
+                {"name": "lab_resolve", "handler": "lab_resolve"},
+                {
+                    "name": "ports_alloc",
+                    "handler": "ports_alloc",
+                    "needs": ["lab_resolve"],
+                    "skip_when": "not $DEFINITION.port_template",
+                    "timeout_seconds": 30,
+                },
+                {
+                    "name": "tags_sync",
+                    "handler": "tags_sync",
+                    "needs": ["ports_alloc"],
+                    "skip_when": "not $DEFINITION.port_template",
+                    "timeout_seconds": 30,
+                },
+                {"name": "lab_binding", "handler": "lab_binding", "needs": ["lab_resolve", "tags_sync"]},
+            ],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(
+            results={
+                "lab_resolve": {"cml_lab_id": "lab-001", "status": "completed"},
+                "ports_alloc": {"status": "completed", "allocated_ports": {"ssh": 2001}},
+                "tags_sync": {"status": "completed", "tags_written": 2},
+                "lab_binding": {"status": "completed"},
+            },
+        )
+
+        result = await executor.execute(pipeline_def, context, dispatcher)
+        assert result.status == "completed"
+        assert result.steps_completed == 4
+        assert result.steps_skipped == 0
+
+
+# =============================================================================
+# Pipeline Name Routing Tests (ADR-034 Sprint E)
+# =============================================================================
+
+
+class TestPipelineNameRouting:
+    """Tests for pipeline_name parameter controlling progress routing.
+
+    All progress is persisted via update_pipeline_progress.
+    When pipeline_name is None, it defaults to "unnamed".
+    """
+
+    async def test_without_pipeline_name_uses_unnamed_default(self):
+        """Default (pipeline_name=None) → update_pipeline_progress called with 'unnamed'."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "test",
+            "steps": [{"name": "a", "handler": "a"}],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(results={"a": {"ok": True}})
+
+        # No pipeline_name → defaults to "unnamed"
+        await executor.execute(pipeline_def, context, dispatcher)
+
+        assert context.api.update_pipeline_progress.call_count >= 1
+        call_kwargs = context.api.update_pipeline_progress.call_args.kwargs
+        assert call_kwargs["pipeline_name"] == "unnamed"
+
+    async def test_with_pipeline_name_uses_generic_endpoint(self):
+        """Explicit pipeline_name → update_pipeline_progress called."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "test",
+            "steps": [{"name": "a", "handler": "a"}],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(results={"a": {"ok": True}})
+
+        await executor.execute(pipeline_def, context, dispatcher, pipeline_name="teardown")
+
+        assert context.api.update_pipeline_progress.call_count >= 1
+
+    async def test_pipeline_name_passed_in_generic_call(self):
+        """update_pipeline_progress receives the correct pipeline_name."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "test",
+            "steps": [{"name": "stop_lab", "handler": "stop_lab"}],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(results={"stop_lab": {"stopped": True}})
+
+        await executor.execute(pipeline_def, context, dispatcher, pipeline_name="teardown")
+
+        call_kwargs = context.api.update_pipeline_progress.call_args.kwargs
+        assert call_kwargs["pipeline_name"] == "teardown"
+        assert call_kwargs["step_name"] == "stop_lab"
+        assert call_kwargs["step_status"] == "completed"
+        assert call_kwargs["result_data"] == {"stopped": True}
+
+    async def test_pipeline_name_on_failure_uses_generic_endpoint(self):
+        """Failed step with pipeline_name → update_pipeline_progress with status=failed."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "test",
+            "steps": [{"name": "a", "handler": "a"}],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(side_effects={"a": RuntimeError("boom")})
+
+        result = await executor.execute(pipeline_def, context, dispatcher, pipeline_name="collect_evidence")
+
+        assert result.status == "failed"
+        assert context.api.update_pipeline_progress.call_count >= 1
+        # Verify the failure details
+        call_kwargs = context.api.update_pipeline_progress.call_args.kwargs
+        assert call_kwargs["pipeline_name"] == "collect_evidence"
+        assert call_kwargs["step_status"] == "failed"
+        assert "boom" in call_kwargs["error"]
+
+    async def test_pipeline_name_on_skipped_step(self):
+        """Skipped step with pipeline_name → update_pipeline_progress with status=skipped."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "test",
+            "steps": [
+                {"name": "a", "handler": "a", "skip_when": "True"},
+            ],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(results={"a": {}})
+
+        await executor.execute(pipeline_def, context, dispatcher, pipeline_name="compute_grading")
+
+        assert context.api.update_pipeline_progress.call_count >= 1
+        call_kwargs = context.api.update_pipeline_progress.call_args.kwargs
+        assert call_kwargs["step_name"] == "a"
+        assert call_kwargs["step_status"] == "skipped"
+        assert call_kwargs["pipeline_name"] == "compute_grading"
+
+    async def test_generic_persist_failure_does_not_abort(self):
+        """If update_pipeline_progress fails, the pipeline continues."""
+        executor = PipelineExecutor()
+        context = make_context()
+        context.api.update_pipeline_progress = AsyncMock(side_effect=RuntimeError("CPA down"))
+        pipeline_def = {
+            "description": "test",
+            "steps": [
+                {"name": "a", "handler": "a"},
+                {"name": "b", "handler": "b", "needs": ["a"]},
+            ],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(results={"a": {"ok": True}, "b": {"ok": True}})
+
+        result = await executor.execute(pipeline_def, context, dispatcher, pipeline_name="teardown")
+        assert result.status == "completed"
+        assert result.steps_completed == 2
+
+    async def test_pipeline_label_independent_of_pipeline_name(self):
+        """PipelineResult.pipeline_name uses the description, not the pipeline_name param."""
+        executor = PipelineExecutor()
+        context = make_context()
+        pipeline_def = {
+            "description": "My Teardown Pipeline",
+            "steps": [{"name": "a", "handler": "a"}],
+            "outputs": {},
+        }
+        dispatcher = make_dispatcher(results={"a": {"ok": True}})
+
+        result = await executor.execute(pipeline_def, context, dispatcher, pipeline_name="teardown")
+
+        # PipelineResult.pipeline_name comes from the description, not the routing param
+        assert result.pipeline_name == "My Teardown Pipeline"

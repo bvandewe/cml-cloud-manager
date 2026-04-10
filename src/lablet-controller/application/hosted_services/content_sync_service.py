@@ -28,19 +28,20 @@ import hashlib
 import io
 import json
 import logging
+import re
 import zipfile
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from integration.services.environment_resolver_client import EnvironmentResolverClient
-from integration.services.lds_spi import LdsSpiClient
-from integration.services.mosaic_client import MosaicClient
-from integration.services.s3_client import S3Client
 from lcm_core.integration.clients import ControlPlaneApiClient
 from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
 
 from application.settings import Settings
+from integration.services.environment_resolver_client import EnvironmentResolverClient
+from integration.services.lds_spi import LdsSpiClient
+from integration.services.mosaic_client import MosaicClient
+from integration.services.s3_client import S3Client
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -438,6 +439,8 @@ class ContentSyncService:
                 "cml_yaml_content": metadata.get("cml_yaml_content"),
                 "devices_json": metadata.get("devices_json"),
                 "port_template": metadata.get("port_template"),
+                "node_count": metadata.get("node_count"),
+                "node_definitions_required": metadata.get("node_definitions_required"),
                 "upstream_sync_status": upstream_status,
             }
 
@@ -614,6 +617,11 @@ class ContentSyncService:
                 # Extract port_template from CML topology nodes[].tags (ADR-029)
                 metadata["port_template"] = self._extract_port_template(cml_content)
 
+                # Extract topology metadata: node_count and node_definitions (AD-SEED-001)
+                node_count, node_defs = self._extract_topology_metadata(cml_content)
+                metadata["node_count"] = node_count
+                metadata["node_definitions_required"] = node_defs
+
             # Find grade.xml (anywhere in the archive)
             grade_files = [n for n in names if n.endswith("grade.xml")]
             if grade_files:
@@ -628,7 +636,9 @@ class ContentSyncService:
         logger.info(
             f"Extracted metadata: version={metadata.get('upstream_version')}, "
             f"cml={metadata.get('cml_yaml_path')}, grade={metadata.get('grade_xml_path')}, "
-            f"devices={'yes' if metadata.get('devices_json') else 'no'}"
+            f"devices={'yes' if metadata.get('devices_json') else 'no'}, "
+            f"node_count={metadata.get('node_count')}, "
+            f"node_definitions={metadata.get('node_definitions_required')}"
         )
         return metadata
 
@@ -636,8 +646,22 @@ class ContentSyncService:
     def _extract_port_template(cml_yaml_content: str) -> dict[str, Any] | None:
         """Extract port template from CML YAML topology nodes.
 
-        Parses the CML YAML to find nodes with port-related tags and
-        builds a port_template dict structure for CPA consumption.
+        Parses the CML YAML to find nodes with port-related tags and builds
+        a port_template dict compatible with ``PortTemplate.from_dict()``.
+
+        Supports two tag formats used in CML topologies:
+
+        - ``protocol:port_number`` — e.g., ``serial:5041``, ``vnc:5044``
+          (standard CML convention; port number is a placeholder)
+        - ``port:protocol:port_number`` — legacy three-part format
+
+        Port names follow the ``PortTemplate.from_cml_nodes()`` convention::
+
+            {sanitized_node_label}_{protocol}
+
+        Only recognised TCP-based protocols are included (serial, vnc, ssh,
+        telnet, tcp, http, https).  Duplicate ``(label, protocol)`` pairs
+        are silently de-duplicated.
 
         ADR-029: PortTemplate auto-extraction from CML nodes[].tags.
 
@@ -645,8 +669,13 @@ class ContentSyncService:
             cml_yaml_content: Raw CML YAML content string.
 
         Returns:
-            Port template dict, or None if no port info found.
+            Port template dict (compatible with PortTemplate.from_dict),
+            or None if no port tags found.
         """
+        TCP_PROTOCOLS = frozenset({"serial", "vnc", "ssh", "telnet", "tcp", "http", "https"})
+        # Matches "protocol:port_number" — port number may be absent
+        TAG_PATTERN = re.compile(r"^([a-zA-Z][a-zA-Z0-9_-]*):(\d+)?$")
+
         try:
             parsed = yaml.safe_load(cml_yaml_content)
             if not isinstance(parsed, dict):
@@ -656,12 +685,17 @@ class ContentSyncService:
             if not isinstance(nodes, list):
                 return None
 
-            port_definitions: list[dict[str, Any]] = []
+            ports: list[dict[str, Any]] = []
+            seen: set[str] = set()  # track "label_protocol" to avoid duplicates
+
             for node in nodes:
                 if not isinstance(node, dict):
                     continue
 
-                node_label = node.get("label", "")
+                label = node.get("label", "")
+                if not label:
+                    continue
+
                 tags = node.get("tags", [])
                 if not isinstance(tags, list):
                     continue
@@ -669,25 +703,90 @@ class ContentSyncService:
                 for tag in tags:
                     if not isinstance(tag, str):
                         continue
-                    # Parse tags like "port:ssh:22", "port:telnet:23", "port:vnc:5900"
-                    if tag.startswith("port:"):
-                        parts = tag.split(":")
-                        if len(parts) >= 3:
-                            port_definitions.append(
-                                {
-                                    "device_label": node_label,
-                                    "protocol": parts[1],
-                                    "port": int(parts[2]) if parts[2].isdigit() else 0,
-                                }
-                            )
 
-            if port_definitions:
-                return {"port_definitions": port_definitions}
+                    tag = tag.strip()
+                    protocol: str | None = None
+
+                    # Standard CML format: "protocol:port_number" (e.g. serial:5041)
+                    match = TAG_PATTERN.match(tag)
+                    if match:
+                        protocol = match.group(1).lower()
+                    # Legacy three-part format: "port:protocol:port_number"
+                    elif tag.startswith("port:"):
+                        parts = tag.split(":")
+                        if len(parts) >= 2:
+                            protocol = parts[1].lower()
+
+                    if not protocol or protocol not in TCP_PROTOCOLS:
+                        continue
+
+                    # Sanitise label: preserve hyphens, replace other specials
+                    # (matches PortTemplate.from_cml_nodes convention)
+                    safe_label = re.sub(r"[^a-zA-Z0-9_-]", "_", label)
+                    port_name = f"{safe_label}_{protocol}"
+
+                    if port_name in seen:
+                        continue
+                    seen.add(port_name)
+
+                    ports.append(
+                        {
+                            "name": port_name,
+                            "protocol": "tcp",
+                            "description": f"{protocol} on {label}",
+                        }
+                    )
+
+            if ports:
+                return {"ports": ports}
             return None
 
         except Exception as e:
             logger.warning(f"Failed to extract port_template from CML YAML: {e}")
             return None
+
+    @staticmethod
+    def _extract_topology_metadata(cml_yaml_content: str) -> tuple[int | None, list[str] | None]:
+        """Extract node count and node definitions from CML YAML topology.
+
+        Parses the CML YAML ``nodes`` list to derive:
+        - **node_count**: Total number of nodes.
+        - **node_definitions_required**: Unique ``node_definition`` values.
+
+        These are sent to CPA via ``record_content_sync_result`` so the
+        LabletDefinition stays in sync with the actual CML topology
+        (AD-SEED-001: CML YAML is source of truth).
+
+        Args:
+            cml_yaml_content: Raw CML YAML content string.
+
+        Returns:
+            Tuple of (node_count, node_definitions_required), or (None, None)
+            if the CML YAML cannot be parsed.
+        """
+        try:
+            parsed = yaml.safe_load(cml_yaml_content)
+            if not isinstance(parsed, dict):
+                return None, None
+
+            nodes = parsed.get("nodes", [])
+            if not isinstance(nodes, list):
+                return None, None
+
+            node_count = len(nodes)
+            node_defs: set[str] = set()
+            for node in nodes:
+                if isinstance(node, dict):
+                    node_def = node.get("node_definition", "")
+                    if node_def:
+                        node_defs.add(node_def)
+
+            node_definitions_required = sorted(node_defs) if node_defs else None
+            return node_count, node_definitions_required
+
+        except Exception as e:
+            logger.warning(f"Failed to extract topology metadata from CML YAML: {e}")
+            return None, None
 
     # =========================================================================
     # Observability

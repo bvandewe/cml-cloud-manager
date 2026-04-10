@@ -17,6 +17,11 @@ deployments:
     us-east-1:
         # LDS instance serving US East region
         base_url: 'http://localhost:8048' # Replace with actual URL in production
+        # frontend_base_url: Browser-facing URL for launch URLs (if different from base_url).
+        # When set, the internal base_url in LDS-generated launch URLs is rewritten
+        # to this value so they are reachable from the end-user's browser.
+        # Example: frontend_base_url: 'https://lds.example.com'
+        frontend_base_url: '' # Empty = use base_url as-is (local dev: same host)
         username: 'testuser1'
         password: 'testpass1'
         # Timeouts
@@ -26,6 +31,7 @@ deployments:
 
     us-west-2:
         base_url: 'http://localhost:8048' # Replace with actual URL in production
+        frontend_base_url: ''
         username: 'testuser1'
         password: 'testpass1'
         timeout_seconds: 30

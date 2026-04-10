@@ -31,14 +31,11 @@ Watch Pattern (ADR-006):
 
 import asyncio
 import logging
-import re
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState, NodeInfo
-from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
 from lcm_core.domain.entities import LabletSessionReadModel
-from lcm_core.domain.entities.read_models.lab_record_read_model import LabRecordReadModel
 from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
 from lcm_core.domain.enums import LabletSessionStatus
 from lcm_core.domain.enums.lab_record_status import LabRecordStatus
@@ -54,6 +51,8 @@ from lcm_core.integration.clients.etcd_client import EtcdEvent
 
 from application.services.resource_observer import ResourceObserver
 from application.settings import Settings
+from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState, NodeInfo
+from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -64,9 +63,23 @@ if TYPE_CHECKING:
     from application.hosted_services.timeslot_watcher_service import TimeslotWatcherService
 
 # Sprint C (ADR-034) — pipeline execution imports
+# ADR-038: Import step_handlers package to trigger @step_handler registration
+import application.services.step_handlers  # noqa: F401
 from application.models.pipeline_context import PipelineContext
+from application.models.pipeline_result import PipelineResult
 from application.services.lifecycle_phase_handler import LifecyclePhaseHandler
 from application.services.pipeline_executor import PipelineExecutor, StepDispatcher
+from application.services.pipeline_template_resolver import PipelineTemplateResolver
+
+# ADR-038 Task 3: Extracted reconciler helpers
+from application.services.reconciler_helpers import definition_cache as _def_cache
+from application.services.reconciler_helpers import lab_record_helpers as _lab_rec
+from application.services.reconciler_helpers import lab_resolution as _lab_res
+from application.services.reconciler_helpers import lds_helpers as _lds_h
+from application.services.reconciler_helpers import observation_helpers as _obs_h
+from application.services.reconciler_helpers import run_history as _run_hist
+from application.services.reconciler_helpers import worker_helpers as _worker_h
+from application.services.step_registry import get_handler
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +204,14 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
         # Bridges the gap between lab resolution and mark_session_ready,
         # since update_instance_lab_id was removed in Phase 7G.
         self._resolved_lab_ids: dict[str, str] = {}
+
+        # ADR-038: Pipeline template resolver for extends/insert/override support
+        self._template_resolver = PipelineTemplateResolver()
+
+        # Track sessions whose labs were freshly imported (not reused).
+        # Used by failure cleanup to decide whether to delete the CML lab
+        # and LabRecord (freshly imported) vs. just stop/wipe (reused).
+        self._freshly_imported_sessions: set[str] = set()
 
         # Lab discovery service (started when this instance becomes leader)
         self._lab_discovery_service: LabDiscoveryService | None = lab_discovery_service
@@ -493,6 +514,8 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
                 LabletSessionStatus.INSTANTIATING,
                 LabletSessionStatus.READY,
                 LabletSessionStatus.RUNNING,
+                LabletSessionStatus.COLLECTING,
+                LabletSessionStatus.GRADING,
                 LabletSessionStatus.STOPPING,
             ):
                 logger.warning(f"Session {instance_id} has worker_id={instance.worker_id} but no worker_ip — worker details resolution may have failed")
@@ -507,6 +530,10 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
                 return await self._handle_ready(instance)
             elif status == LabletSessionStatus.RUNNING:
                 return await self._handle_running(instance)
+            elif status == LabletSessionStatus.COLLECTING:
+                return await self._handle_collecting(instance)
+            elif status == LabletSessionStatus.GRADING:
+                return await self._handle_grading(instance)
             elif status == LabletSessionStatus.STOPPING:
                 return await self._handle_stopping(instance)
             else:
@@ -568,97 +595,176 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
 
         return ReconciliationResult.success()
 
-    async def _handle_instantiating(self, instance: LabletSessionReadModel) -> ReconciliationResult:
-        """Handle INSTANTIATING session — delegate to LifecyclePhaseHandler (ADR-034 Sprint C).
+    # =========================================================================
+    # GENERIC PIPELINE PHASE HANDLER (ADR-038 Task 4)
+    # =========================================================================
 
-        Fire-and-check pattern:
+    async def _handle_pipeline_phase(
+        self,
+        instance: LabletSessionReadModel,
+        pipeline_name: str,
+        *,
+        on_max_retry_exhausted: Callable | None = None,
+    ) -> ReconciliationResult:
+        """Generic fire-and-check handler for pipeline-driven lifecycle phases.
+
+        Implements the common pattern shared by _handle_instantiating,
+        _handle_collecting, _handle_grading, and _handle_stopping:
+
         1. If handler exists and is running → return success (self-driving)
         2. If handler finished → check result, retry or terminate
         3. If no handler → start new one with pipeline from definition
 
-        AD-PIPELINE-009: No backward compatibility — definitions MUST have pipelines.
-        AD-PIPELINE-007: Failed pipelines are retried by reconciler, not auto-terminated.
+        Args:
+            instance: The session to handle.
+            pipeline_name: Pipeline name in the definition (e.g., "instantiate", "teardown").
+            on_max_retry_exhausted: Optional async callback ``(instance, result, retry_count)``
+                invoked before termination when the pipeline has exhausted its retry budget.
+                Used by _handle_instantiating for lab cleanup.
         """
-        handler_key = f"{instance.id}:instantiate"
+        handler_key = f"{instance.id}:{pipeline_name}"
 
         # --- Check existing handler ---
         if handler_key in self._active_handlers:
             handler = self._active_handlers[handler_key]
 
             if handler.is_running:
-                # Handler is self-driving — no action needed
-                return ReconciliationResult.success("Pipeline handler running")
+                return ReconciliationResult.success(f"{pipeline_name} pipeline handler running")
 
             # Handler finished — inspect result
             result = handler.result
             del self._active_handlers[handler_key]
 
             if result is None:
-                # Handler crashed (unhandled exception) — treat as failure
-                logger.error(f"Pipeline handler for session {instance.id} finished with no result (crash)")
-                # Fall through to restart
+                logger.error(f"{pipeline_name} pipeline handler for session {instance.id} finished with no result (crash)")
             elif result.status in ("completed", "partial"):
-                # Pipeline succeeded — transition already handled by mark_ready step
-                logger.info(f"Pipeline completed for session {instance.id} ({result.status})")
-                return ReconciliationResult.success(f"Pipeline {result.status}")
+                logger.info(f"{pipeline_name} pipeline completed for session {instance.id} ({result.status})")
+                return ReconciliationResult.success(f"{pipeline_name} pipeline {result.status}")
             elif result.status == "failed":
-                # Pipeline failed — check retry budget
                 retry_count = self._pipeline_retry_counts.get(handler_key, 0) + 1
-                max_retries = result.max_retries  # From pipeline_def, 0 = unlimited
+                max_retries = result.max_retries
 
                 if max_retries > 0 and retry_count >= max_retries:
-                    logger.error(f"Pipeline for session {instance.id} exhausted {retry_count}/{max_retries} retries: {result.error}")
+                    logger.error(f"{pipeline_name} pipeline for session {instance.id} exhausted {retry_count}/{max_retries} retries: {result.error}")
+                    if on_max_retry_exhausted:
+                        await on_max_retry_exhausted(instance, result, retry_count)
                     try:
                         await self._api.terminate_session(
                             session_id=instance.id,
                             terminated_by="lablet-controller",
-                            reason=f"Pipeline failed after {retry_count} attempts: {result.error}",
+                            reason=f"{pipeline_name} pipeline failed after {retry_count} attempts: {result.error}",
                         )
                     except Exception as e:
                         logger.error(f"Failed to terminate session {instance.id}: {e}")
-                    return ReconciliationResult.failed("Max pipeline retries exhausted")
+                    return ReconciliationResult.failed(f"Max {pipeline_name} pipeline retries exhausted")
 
-                # Budget remaining — record retry count and fall through to restart
                 self._pipeline_retry_counts[handler_key] = retry_count
-                logger.warning(f"Pipeline for session {instance.id} failed (attempt {retry_count}), will retry: {result.error}")
+                logger.warning(f"{pipeline_name} pipeline for session {instance.id} failed (attempt {retry_count}), will retry: {result.error}")
 
         # --- Get pipeline definition ---
-        pipeline_def = await self._get_pipeline_def(instance, "instantiate")
+        pipeline_def = await self._get_pipeline_def(instance, pipeline_name)
         if not pipeline_def:
-            logger.error(f"No 'instantiate' pipeline defined for session {instance.id} (definition_id={instance.definition_id})")
+            logger.error(f"No '{pipeline_name}' pipeline defined for session {instance.id} (definition_id={instance.definition_id})")
             try:
                 await self._api.terminate_session(
                     session_id=instance.id,
                     terminated_by="lablet-controller",
-                    reason="No 'instantiate' pipeline defined in LabletDefinition",
+                    reason=f"No '{pipeline_name}' pipeline defined in LabletDefinition",
                 )
             except Exception as e:
                 logger.error(f"Failed to terminate session {instance.id}: {e}")
-            return ReconciliationResult.failed("No pipeline defined")
+            return ReconciliationResult.failed(f"No {pipeline_name} pipeline defined")
 
         # --- Start new handler ---
         context = await self._build_pipeline_context(instance)
         step_dispatcher = self._build_step_dispatcher()
-
-        # Restore existing progress for resumability (AD-PIPELINE-007)
-        existing_progress = instance.instantiation_progress if instance.instantiation_progress else None
+        existing_progress = self._get_existing_progress(instance, pipeline_name)
 
         handler = LifecyclePhaseHandler(
             session_id=instance.id,
-            pipeline_name="instantiate",
+            pipeline_name=pipeline_name,
             pipeline_def=pipeline_def,
             context=context,
             executor=self._pipeline_executor,
             step_dispatcher=step_dispatcher,
             existing_progress=existing_progress,
+            on_complete=self._make_pipeline_run_callback(instance, pipeline_name),
         )
         self._active_handlers[handler_key] = handler
         await handler.start()
-        logger.info(f"Started pipeline handler for session {instance.id} (key={handler_key})")
-        return ReconciliationResult.success("Pipeline handler started")
+        logger.info(f"Started {pipeline_name} pipeline handler for session {instance.id} (key={handler_key})")
+        return ReconciliationResult.success(f"{pipeline_name} pipeline handler started")
+
+    async def _cleanup_failed_instantiation(self, instance: LabletSessionReadModel, result: PipelineResult, retry_count: int) -> None:
+        """Clean up lab resources after instantiation pipeline exhausts retry budget.
+
+        Strategy differs based on lab origin:
+        - Reused lab: stop + wipe only (preserve CML lab & LabRecord)
+        - Freshly imported lab: stop + wipe + delete CML lab + mark LabRecord deleted
+        """
+        cleanup_lab_id = instance.cml_lab_id or self._resolved_lab_ids.get(instance.id)
+        is_freshly_imported = instance.id in self._freshly_imported_sessions
+
+        if cleanup_lab_id and instance.worker_ip:
+            lab_origin = "freshly imported" if is_freshly_imported else "reused"
+            logger.info(f"🧹 Cleaning up {lab_origin} lab {cleanup_lab_id} on worker {instance.worker_ip} before termination (session {instance.id})")
+            # Step 1: Stop the lab (common to both paths)
+            try:
+                await self._cml_labs.stop_lab(
+                    host=instance.worker_ip,
+                    lab_id=cleanup_lab_id,
+                    username=instance.worker_cml_username,
+                    password=instance.worker_cml_password,
+                )
+            except Exception as stop_err:
+                logger.warning(f"Failed to stop lab {cleanup_lab_id} during cleanup: {stop_err}")
+            # Step 2: Wipe the lab (common to both paths)
+            try:
+                await self._cml_labs.wipe_lab(
+                    host=instance.worker_ip,
+                    lab_id=cleanup_lab_id,
+                    username=instance.worker_cml_username,
+                    password=instance.worker_cml_password,
+                )
+            except Exception as wipe_err:
+                logger.warning(f"Failed to wipe lab {cleanup_lab_id} during cleanup: {wipe_err}")
+
+            if is_freshly_imported:
+                # Freshly imported lab: delete the CML lab from the worker
+                # and mark the LabRecord as deleted (terminal state).
+                try:
+                    await self._cml_labs.delete_lab(
+                        host=instance.worker_ip,
+                        lab_id=cleanup_lab_id,
+                        username=instance.worker_cml_username,
+                        password=instance.worker_cml_password,
+                    )
+                    logger.info(f"🗑️ Deleted freshly imported lab {cleanup_lab_id} from worker {instance.worker_ip}")
+                except Exception as del_err:
+                    logger.warning(f"Failed to delete lab {cleanup_lab_id} during cleanup: {del_err}")
+                await self._update_lab_record_status(
+                    cml_lab_id=cleanup_lab_id,
+                    worker_id=instance.worker_id,
+                    new_status=LabRecordStatus.DELETED.value,
+                )
+            else:
+                # Reused lab: keep the CML lab and LabRecord intact.
+                # Update LabRecord status to WIPED so it can be reused again.
+                await self._update_lab_record_status(
+                    cml_lab_id=cleanup_lab_id,
+                    worker_id=instance.worker_id,
+                    new_status=LabRecordStatus.WIPED.value,
+                )
+
+        self._resolved_lab_ids.pop(instance.id, None)
+        self._freshly_imported_sessions.discard(instance.id)
+
+    async def _handle_instantiating(self, instance: LabletSessionReadModel) -> ReconciliationResult:
+        """Handle INSTANTIATING session — fire-and-check with lab cleanup on failure."""
+        return await self._handle_pipeline_phase(instance, "instantiate", on_max_retry_exhausted=self._cleanup_failed_instantiation)
 
     async def _provision_lds_session(self, instance: LabletSessionReadModel, cml_lab_id: str) -> ReconciliationResult:
-        """Provision an LDS session for a BOOTED lab.
+        """Provision an LDS session for a running (STARTED) lab.
 
         After successful provisioning, creates a UserSession child entity via CPA,
         then calls mark_session_ready to atomically transition to READY.
@@ -670,7 +776,7 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
         by ``_step_lds_provision()`` in the pipeline.
 
         Args:
-            instance: The LabletSession with a BOOTED lab.
+            instance: The LabletSession with a running lab.
             cml_lab_id: The CML lab ID (from instance or local tracking).
 
         Returns:
@@ -741,6 +847,7 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
 
             # Clean up local lab ID tracking (now persisted in CPA)
             self._resolved_lab_ids.pop(instance.id, None)
+            self._freshly_imported_sessions.discard(instance.id)
 
             self._lds_sessions_created += 1
             self._labs_started += 1
@@ -783,12 +890,15 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
     async def _get_pipeline_def(self, instance: LabletSessionReadModel, pipeline_name: str) -> dict[str, Any] | None:
         """Fetch the named pipeline definition from the LabletDefinition.
 
+        If the definition uses ``extends`` (ADR-038 pipeline templates),
+        the template is resolved before returning.
+
         Args:
             instance: Session read model (carries definition_id).
             pipeline_name: Key into definition.pipelines (e.g. "instantiate").
 
         Returns:
-            Pipeline dict (steps, max_retries, retry_backoff, …) or None.
+            Fully-resolved pipeline dict (steps, max_retries, retry_backoff, …) or None.
         """
         definition = await self._get_definition(instance.definition_id)
         if not definition:
@@ -799,13 +909,115 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
         pipeline_def = pipelines.get(pipeline_name)
         if not pipeline_def:
             logger.warning(f"No '{pipeline_name}' pipeline in definition {instance.definition_id}")
+            return None
+
+        # ADR-038: Resolve template references (extends/insert_after/overrides/remove)
+        try:
+            pipeline_def = self._template_resolver.resolve(pipeline_def)
+        except Exception:
+            logger.exception(
+                "Failed to resolve pipeline template for '%s' in definition %s — using raw definition",
+                pipeline_name,
+                instance.definition_id,
+            )
+            # Fall through with the unresolved definition
         return pipeline_def
+
+    def _make_pipeline_run_callback(
+        self,
+        instance: LabletSessionReadModel,
+        pipeline_name: str,
+    ) -> Callable[[PipelineResult], Any]:
+        """Create an on_complete callback that records the pipeline run via CPA.
+
+        Sprint F (ADR-034): After any lifecycle pipeline completes, we record
+        the execution result on the LabRecord via the Control Plane API. The
+        callback is fire-and-forget — errors are logged but do not affect
+        pipeline outcome.
+
+        Args:
+            instance: The LabletSession being processed.
+            pipeline_name: Name of the pipeline (e.g. "instantiate", "teardown").
+
+        Returns:
+            Async callable accepting PipelineResult.
+        """
+        lab_record_id = instance.lab_record_id
+        session_id = instance.id
+
+        async def _record_pipeline_run(result: PipelineResult) -> None:
+            if not lab_record_id:
+                logger.debug(
+                    "No lab_record_id for session %s — skipping pipeline run recording",
+                    session_id,
+                )
+                return
+            try:
+                started_at = None
+                completed_at = None
+                if result.duration_seconds and result.duration_seconds > 0:
+                    completed_at_dt = datetime.now(timezone.utc)
+                    started_at_dt = completed_at_dt - timedelta(seconds=result.duration_seconds)
+                    started_at = started_at_dt.isoformat()
+                    completed_at = completed_at_dt.isoformat()
+
+                await self._api.append_pipeline_run(
+                    lab_record_id=lab_record_id,
+                    pipeline_name=pipeline_name,
+                    status=result.status,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    duration_seconds=result.duration_seconds,
+                    steps_completed=result.steps_completed,
+                    steps_failed=result.steps_failed,
+                    steps_skipped=result.steps_skipped,
+                    step_results=result.outputs if result.outputs else None,
+                    error_message=result.error,
+                    triggered_by="lablet-controller",
+                    lablet_session_id=session_id,
+                )
+                logger.info(
+                    "Recorded pipeline run: session=%s, pipeline=%s, status=%s, duration=%.1fs",
+                    session_id,
+                    pipeline_name,
+                    result.status,
+                    result.duration_seconds,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to record pipeline run for session %s pipeline %s: %s",
+                    session_id,
+                    pipeline_name,
+                    e,
+                )
+
+        return _record_pipeline_run
+
+    def _get_existing_progress(self, instance: LabletSessionReadModel, pipeline_name: str) -> dict[str, Any] | None:
+        """Get existing pipeline progress for resumability (ADR-034 Sprint F).
+
+        Args:
+            instance: Session read model carrying progress dicts.
+            pipeline_name: Pipeline key (e.g. "instantiate", "teardown").
+
+        Returns:
+            Progress dict for the executor, or None if no prior progress.
+        """
+        if instance.pipeline_progress:
+            progress = instance.pipeline_progress.get(pipeline_name)
+            if progress:
+                return progress
+        return None
 
     async def _build_pipeline_context(self, instance: LabletSessionReadModel) -> PipelineContext:
         """Build a PipelineContext from the session and reconciler services.
 
         The context is an immutable bag passed to every step handler
         through the executor.
+
+        ADR-038 Task 1: Enriched with helper callables and shared tracking
+        state so registry step handlers achieve full parity with the
+        reconciler's original ``_step_*`` methods.
 
         Args:
             instance: Session read model being reconciled.
@@ -814,6 +1026,11 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
             Fully-populated PipelineContext.
         """
         definition = await self._get_definition(instance.definition_id)
+
+        # Content sync request callable (wraps optional service)
+        async def _request_content_sync(definition_id: str) -> None:
+            if self._content_sync_service and hasattr(self._content_sync_service, "request_sync"):
+                await self._content_sync_service.request_sync(definition_id)  # type: ignore[attr-defined]
 
         return PipelineContext(
             session=instance,
@@ -824,28 +1041,58 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
             api=self._api,
             cml=self._cml_labs,
             lds=self._lds,
+            # ADR-038 Task 1: Helper callables (bound methods from reconciler)
+            resolve_lab_for_instance=self._resolve_lab_for_instance,
+            find_lab_record_id=self._find_lab_record_id,
+            register_lab_record=self._register_lab_record,
+            update_lab_record_status=self._update_lab_record_status,
+            build_device_access_list=self._build_device_access_list,
+            record_lab_run_completed=self._record_lab_run_completed,
+            request_content_sync=_request_content_sync,
+            # ADR-038 Task 1: Shared mutable tracking state (by reference)
+            resolved_lab_ids=self._resolved_lab_ids,
+            freshly_imported_sessions=self._freshly_imported_sessions,
         )
 
     def _build_step_dispatcher(self) -> StepDispatcher:
         """Build a step dispatcher closure for the pipeline executor.
 
-        The executor calls ``step_dispatcher(handler_name, session, progress)``
-        and expects the return value to be ``result_data: dict``.
+        ADR-038: Resolves handlers from the StepHandlerRegistry instead of
+        using getattr(self, f"_step_{handler_name}"). Handlers are standalone
+        async functions registered via the @step_handler decorator.
 
-        This closure resolves ``_step_{handler_name}`` on the reconciler,
-        invokes it with ``(instance, progress)``, and extracts ``result_data``
-        from the handler's return dict (existing step handlers return
-        ``{"step": ..., "status": ..., "result_data": {...}}``).
+        Falls back to getattr(self, f"_step_{handler_name}") for any handlers
+        not yet migrated to the registry (backward compatibility).
 
-        If the handler reports ``status="failed"``, a RuntimeError is raised
-        so the executor records the step as failed with retry/timeout logic.
+        The dispatcher adapts between the executor's dict-based protocol and
+        the registry's StepResult-based protocol.
         """
         reconciler = self
 
-        async def _dispatch(handler_name: str, session: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
+        async def _dispatch(
+            handler_name: str,
+            session: LabletSessionReadModel,
+            progress: dict[str, Any],
+            context: PipelineContext | None = None,
+            params: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            # ADR-038: Try registry first
+            handler_fn = get_handler(handler_name)
+            if handler_fn is not None:
+                if context is None:
+                    context = await reconciler._build_pipeline_context(session)
+                step_result = await handler_fn(session, progress, context, params)
+                # Convert StepResult to legacy dict format
+                result_dict = step_result.to_dict()
+                status = result_dict.get("status", "completed")
+                if status == "failed":
+                    raise RuntimeError(result_dict.get("error", f"Step {handler_name} failed"))
+                return result_dict.get("result_data", {})
+
+            # Fallback: legacy getattr-based dispatch (backward compat)
             method = getattr(reconciler, f"_step_{handler_name}", None)
             if method is None:
-                raise RuntimeError(f"Unknown pipeline step handler: _step_{handler_name}")
+                raise RuntimeError(f"Unknown pipeline step handler: {handler_name} (not in registry or reconciler)")
 
             result = await method(session, progress)
 
@@ -857,443 +1104,14 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
 
         return _dispatch
 
-    def _get_step_result_data(self, progress: dict[str, Any], step_name: str) -> dict[str, Any] | None:
-        """Extract result_data from a completed step in the progress dict.
-
-        Works with the Sprint C dict-of-dicts progress format used by
-        PipelineExecutor (``{step_name: {status, result_data, ...}}``).
-
-        Args:
-            progress: Full pipeline progress dict.
-            step_name: Name of the step to look up.
-
-        Returns:
-            The result_data dict, or None if step not found / not completed.
-        """
-        step_info = progress.get(step_name)
-        if not step_info or not isinstance(step_info, dict):
-            return None
-        return step_info.get("result_data")
-
     # =========================================================================
-    # PIPELINE STEPS (ADR-031 Option A — inline methods)
+    # STATUS HANDLERS
     # =========================================================================
-
-    async def _step_content_sync(self, instance: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
-        """Step 1: Verify definition content is synced and available (§6).
-
-        Fail-fast prerequisite — if content is not synced, there is no
-        point importing a lab (LDS provisioning requires the form and content).
-        """
-        definition = await self._get_definition(instance.definition_id)
-        if not definition:
-            return {"step": "content_sync", "status": "failed", "error": "Definition not found"}
-
-        if not getattr(definition, "content_sync_enabled", False):
-            return {"step": "content_sync", "status": "skipped"}
-
-        sync_status = getattr(definition, "sync_status", None)
-        if sync_status == "synced":
-            return {
-                "step": "content_sync",
-                "status": "completed",
-                "result_data": {
-                    "sync_status": sync_status,
-                    "form_qualified_name": definition.form_qualified_name,
-                },
-            }
-
-        # Not synced — optionally trigger sync and fail (will retry on next reconcile)
-        if self._content_sync_service and sync_status in (None, "not_synced", "sync_failed"):
-            try:
-                await self._content_sync_service.request_sync(definition.id)
-            except Exception as e:
-                logger.warning(f"Could not trigger content sync for {definition.id}: {e}")
-
-        return {
-            "step": "content_sync",
-            "status": "failed",
-            "error": f"Content not synced (status: {sync_status}). Waiting for sync.",
-        }
-
-    async def _step_variables(self, instance: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
-        """Step 2: Resolve session variables — placeholder (§5).
-
-        Currently a no-op. Future: call variable resolution service.
-        """
-        definition = await self._get_definition(instance.definition_id)
-        variables = getattr(definition, "variables", None) if definition else None
-        if not variables:
-            return {"step": "variables", "status": "skipped"}
-
-        # Future: resolve variables from definition defaults
-        resolved = {var.get("name"): var.get("default_value") for var in variables if var.get("default_value")}
-        return {
-            "step": "variables",
-            "status": "completed",
-            "result_data": {"resolved_variables": resolved},
-        }
-
-    async def _step_lab_resolve(self, instance: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
-        """Step 3: Resolve lab — reuse existing or import fresh (P9-4/5/8).
-
-        Reuses the existing ``_resolve_lab_for_instance()`` logic.
-        Returns ``cml_lab_id`` and ``lab_record_id`` in result_data.
-        """
-        # Resolve topology YAML from definition
-        topology_yaml = instance.topology_yaml
-        if not topology_yaml:
-            definition = await self._get_definition(instance.definition_id)
-            if definition:
-                topology_yaml = getattr(definition, "cml_yaml_content", None) or definition.topology_yaml
-            if not topology_yaml:
-                return {
-                    "step": "lab_resolve",
-                    "status": "failed",
-                    "error": f"No topology YAML found for definition {instance.definition_id}",
-                }
-
-        # Check if lab already resolved (from previous attempts or session state)
-        cml_lab_id = instance.cml_lab_id or self._resolved_lab_ids.get(instance.id)
-
-        if not cml_lab_id:
-            lab_id = await self._resolve_lab_for_instance(instance, topology_yaml=topology_yaml)
-            if not lab_id:
-                return {
-                    "step": "lab_resolve",
-                    "status": "failed",
-                    "error": "Lab resolution failed: unable to import or reuse a lab",
-                }
-            cml_lab_id = lab_id
-            self._resolved_lab_ids[instance.id] = lab_id
-
-            if lab_id != getattr(instance, "_freshly_imported_lab_id", None):
-                self._labs_reused += 1
-                logger.info(f"♻️ Reusing lab {lab_id} for session {instance.id}")
-            else:
-                self._labs_imported += 1
-                logger.info(f"📦 Imported lab {lab_id} for session {instance.id}")
-
-        # Resolve lab_record_id
-        lab_record_id = await self._find_lab_record_id(cml_lab_id, instance.worker_id)
-
-        return {
-            "step": "lab_resolve",
-            "status": "completed",
-            "result_data": {
-                "cml_lab_id": cml_lab_id,
-                "lab_record_id": lab_record_id,
-            },
-        }
-
-    async def _step_ports_alloc(self, instance: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
-        """Step 4: Allocate real ports from worker pool via CPA (§3.6).
-
-        Ports are stored on the LabRecord, keyed by lab_record_id in etcd.
-        """
-        definition = await self._get_definition(instance.definition_id)
-        if not definition or not getattr(definition, "port_template", None):
-            return {"step": "ports_alloc", "status": "skipped"}
-
-        resolve_data = self._get_step_result_data(progress, "lab_resolve")
-        lab_record_id = resolve_data.get("lab_record_id") if resolve_data else None
-        if not lab_record_id:
-            return {"step": "ports_alloc", "status": "failed", "error": "No lab_record_id from lab_resolve"}
-
-        try:
-            result = await self._api.allocate_lab_record_ports(
-                lab_record_id=lab_record_id,
-                worker_id=instance.worker_id,
-            )
-            return {
-                "step": "ports_alloc",
-                "status": "completed",
-                "result_data": result,
-            }
-        except Exception as e:
-            return {"step": "ports_alloc", "status": "failed", "error": str(e)}
-
-    async def _step_tags_sync(self, instance: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
-        """Step 5: Write allocated port numbers to CML node tags (§3.7, AD-TAGS-001).
-
-        After ports_alloc, write protocol:port tags to each CML node via
-        PATCH /api/v0/labs/{lab_id}/nodes/{node_id}.
-        Tags persist across start/stop/wipe — they are topology-level metadata.
-        """
-        ports_data = self._get_step_result_data(progress, "ports_alloc")
-        if not ports_data:
-            return {"step": "tags_sync", "status": "skipped"}
-
-        allocated_ports = ports_data.get("allocated_ports", {})
-        if not allocated_ports:
-            return {"step": "tags_sync", "status": "skipped"}
-
-        resolve_data = self._get_step_result_data(progress, "lab_resolve")
-        cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
-        if not cml_lab_id:
-            return {"step": "tags_sync", "status": "failed", "error": "No cml_lab_id from lab_resolve"}
-
-        # Group allocated ports by node label.
-        # Port names follow convention: "{node_label}_{protocol}"
-        # (from PortTemplate.from_cml_nodes)
-        node_tags: dict[str, list[str]] = {}
-        for port_name, port_number in allocated_ports.items():
-            parts = port_name.rsplit("_", 1)
-            if len(parts) != 2:
-                continue
-            node_label, protocol = parts
-            tag = f"{protocol}:{port_number}"
-            node_tags.setdefault(node_label, []).append(tag)
-
-        # Get CML lab nodes to find node IDs
-        try:
-            nodes = await self._cml_labs.get_lab_nodes(
-                host=instance.worker_ip,
-                lab_id=cml_lab_id,
-                username=instance.worker_cml_username,
-                password=instance.worker_cml_password,
-            )
-        except Exception as e:
-            return {"step": "tags_sync", "status": "failed", "error": f"Failed to get lab nodes: {e}"}
-
-        # Write tags to each matching node via PATCH
-        synced_nodes = []
-        for node in nodes:
-            node_label = node.label
-            # Sanitize label to match port_name convention (replace non-alphanumeric with _)
-            safe_label = re.sub(r"[^a-zA-Z0-9_-]", "_", node_label)
-            if safe_label in node_tags:
-                try:
-                    await self._cml_labs.patch_node_tags(
-                        host=instance.worker_ip,
-                        lab_id=cml_lab_id,
-                        node_id=node.id,
-                        tags=node_tags[safe_label],
-                        username=instance.worker_cml_username,
-                        password=instance.worker_cml_password,
-                    )
-                    synced_nodes.append(node_label)
-                except Exception as e:
-                    # AD-TAGS-001: Tag sync failures are non-fatal warnings
-                    logger.warning(f"Failed to sync tags for node {node_label} in lab {cml_lab_id}: {e}")
-
-        return {
-            "step": "tags_sync",
-            "status": "completed",
-            "result_data": {
-                "synced_nodes": synced_nodes,
-                "tag_count": sum(len(t) for t in node_tags.values()),
-            },
-        }
-
-    async def _step_lab_binding(self, instance: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
-        """Step 6: Bind LabRecord to session and create LabRunRecord (§4.3).
-
-        Calls CPA ``bind_lab_to_session()`` which:
-        1. Creates a LabRunRecord (runtime tracking, NO port fields)
-        2. Sets ``active_lablet_session_id`` on LabRecord
-        3. Denormalizes ``LabRecord.allocated_ports`` onto LabletSession
-        """
-        resolve_data = self._get_step_result_data(progress, "lab_resolve")
-        cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
-        lab_record_id = resolve_data.get("lab_record_id") if resolve_data else None
-
-        if not cml_lab_id or not lab_record_id:
-            return {
-                "step": "lab_binding",
-                "status": "failed",
-                "error": "No cml_lab_id or lab_record_id from lab_resolve",
-            }
-
-        try:
-            result = await self._api.bind_lab_to_session(
-                session_id=instance.id,
-                worker_id=instance.worker_id,
-                lab_record_id=lab_record_id,
-            )
-            self._bindings_created += 1
-            return {
-                "step": "lab_binding",
-                "status": "completed",
-                "result_data": result,
-            }
-        except Exception as e:
-            return {"step": "lab_binding", "status": "failed", "error": str(e)}
-
-    async def _step_lab_start(self, instance: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
-        """Step 7: Start the CML lab and wait for BOOTED.
-
-        If lab is already BOOTED (reuse case), completes immediately.
-        If lab is STOPPED/DEFINED_ON_CORE, starts it.
-        If lab is STARTED/QUEUED, returns ``failed`` to retry on next cycle.
-        """
-        resolve_data = self._get_step_result_data(progress, "lab_resolve")
-        cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
-        if not cml_lab_id:
-            return {"step": "lab_start", "status": "failed", "error": "No cml_lab_id from lab_resolve"}
-
-        try:
-            lab_state = await self._cml_labs.get_lab_state(
-                host=instance.worker_ip,
-                lab_id=cml_lab_id,
-                username=instance.worker_cml_username,
-                password=instance.worker_cml_password,
-            )
-        except Exception as e:
-            return {"step": "lab_start", "status": "failed", "error": f"Failed to get lab state: {e}"}
-
-        if lab_state == LabState.BOOTED:
-            # Lab is running — record run start and complete
-            self._lab_run_started_at[instance.id] = datetime.now(timezone.utc)
-            self._labs_started += 1
-            return {
-                "step": "lab_start",
-                "status": "completed",
-                "result_data": {"lab_state": "BOOTED", "cml_lab_id": cml_lab_id},
-            }
-
-        if lab_state in (LabState.STOPPED, LabState.DEFINED_ON_CORE):
-            # Start the lab
-            try:
-                await self._cml_labs.start_lab(
-                    host=instance.worker_ip,
-                    lab_id=cml_lab_id,
-                    username=instance.worker_cml_username,
-                    password=instance.worker_cml_password,
-                )
-                logger.info(f"Lab {cml_lab_id} start initiated for session {instance.id}")
-            except Exception as e:
-                return {"step": "lab_start", "status": "failed", "error": f"Failed to start lab: {e}"}
-
-        # Lab is starting or queued — retry on next reconcile cycle
-        # Return "failed" so the step stays pending and is retried
-        return {
-            "step": "lab_start",
-            "status": "failed",
-            "error": f"Lab in state {lab_state}, waiting for BOOTED",
-        }
-
-    async def _step_lds_provision(self, instance: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
-        """Step 8: Provision LDS session with device mapping (§2.2).
-
-        Reuses the existing ``_provision_lds_session()`` flow:
-        1. Create LDS session with form_qualified_name
-        2. Map CML nodes to LDS devices
-        3. Get lablet launch URL
-        4. Create UserSession child entity via CPA
-        """
-        resolve_data = self._get_step_result_data(progress, "lab_resolve")
-        cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
-        if not cml_lab_id:
-            return {"step": "lds_provision", "status": "failed", "error": "No cml_lab_id from lab_resolve"}
-
-        definition = await self._get_definition(instance.definition_id)
-        if not definition or not definition.form_qualified_name:
-            return {"step": "lds_provision", "status": "skipped"}
-
-        try:
-            # Get lab topology — nodes with tags for device mapping
-            nodes = await self._cml_labs.get_lab_nodes(
-                host=instance.worker_ip,
-                lab_id=cml_lab_id,
-                username=instance.worker_cml_username,
-                password=instance.worker_cml_password,
-            )
-
-            # Create LDS session
-            region = instance.worker_aws_region
-            session_info = await self._lds.create_session(
-                username=instance.name,
-                first_name="Lablet",
-                last_name="User",
-                scheduled_date=datetime.now(timezone.utc).isoformat(),
-                form_qualified_name=definition.form_qualified_name,
-                region=region,
-            )
-            lds_session_id = session_info.session_id
-            logger.info(f"LDS session {lds_session_id} created for session {instance.id}")
-
-            # Build and set device access info
-            devices = self._build_device_access_list(nodes, instance.worker_ip or "")
-            if devices:
-                await self._lds.set_devices(
-                    session_id=lds_session_id,
-                    part_num=1,
-                    devices=devices,
-                    region=region,
-                )
-                logger.info(f"Set {len(devices)} devices on LDS session {lds_session_id}")
-
-            # Get lablet launch URL
-            launch_url = await self._lds.get_lablet_launch_url(
-                session_id=lds_session_id,
-                region=region,
-            )
-
-            # Create UserSession child entity via CPA
-            user_session_data = await self._api.create_user_session(
-                session_id=instance.id,
-                lds_session_id=lds_session_id,
-                lds_login_url=launch_url,
-                cml_lab_id=cml_lab_id,
-            )
-            user_session_id = user_session_data.get("id", lds_session_id)
-
-            self._lds_sessions_created += 1
-            return {
-                "step": "lds_provision",
-                "status": "completed",
-                "result_data": {
-                    "lds_session_id": lds_session_id,
-                    "user_session_id": user_session_id,
-                    "launch_url": launch_url,
-                    "device_count": len(devices),
-                },
-            }
-
-        except LdsSpiError as e:
-            return {"step": "lds_provision", "status": "failed", "error": f"LDS provisioning failed: {e}"}
-        except Exception as e:
-            return {"step": "lds_provision", "status": "failed", "error": str(e)}
-
-    async def _step_mark_ready(self, instance: LabletSessionReadModel, progress: dict[str, Any]) -> dict[str, Any]:
-        """Step 9: Atomic transition to READY.
-
-        Calls ``mark_session_ready()`` with the resolved CML lab ID
-        and user session ID.
-        """
-        resolve_data = self._get_step_result_data(progress, "lab_resolve")
-        cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
-        if not cml_lab_id:
-            return {"step": "mark_ready", "status": "failed", "error": "No cml_lab_id from lab_resolve"}
-
-        # Get user_session_id from lds_provision (if it ran)
-        lds_data = self._get_step_result_data(progress, "lds_provision")
-        user_session_id = (lds_data.get("user_session_id") if lds_data else None) or ""
-
-        try:
-            await self._api.mark_session_ready(
-                session_id=instance.id,
-                user_session_id=user_session_id,
-                cml_lab_id=cml_lab_id,
-            )
-
-            # Clean up local lab ID tracking (now persisted in CPA)
-            self._resolved_lab_ids.pop(instance.id, None)
-
-            logger.info(f"✅ Session {instance.id} marked READY (pipeline complete)")
-            return {
-                "step": "mark_ready",
-                "status": "completed",
-                "result_data": {"cml_lab_id": cml_lab_id, "user_session_id": user_session_id},
-            }
-        except Exception as e:
-            return {"step": "mark_ready", "status": "failed", "error": str(e)}
 
     async def _handle_ready(self, instance: LabletSessionReadModel) -> ReconciliationResult:
         """Handle READY session - verify LDS session is provisioned.
 
-        In READY state, the lab is BOOTED and LDS session is provisioned.
+        In READY state, the lab is STARTED (running) and LDS session is provisioned.
         The transition to RUNNING will happen via CloudEvent (session.started)
         when the user launches the lab.
 
@@ -1311,8 +1129,8 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
                 password=instance.worker_cml_password,
             )
 
-            if lab_state and lab_state != LabState.BOOTED:
-                logger.warning(f"Lab {instance.cml_lab_id} unexpectedly not BOOTED in READY state (state={lab_state})")
+            if lab_state and lab_state != LabState.STARTED:
+                logger.warning(f"Lab {instance.cml_lab_id} unexpectedly not STARTED in READY state (state={lab_state})")
 
             return ReconciliationResult.success()
 
@@ -1337,6 +1155,9 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
                     timeslot_end = datetime.fromisoformat(instance.timeslot_end.replace("Z", "+00:00"))
                 else:
                     timeslot_end = instance.timeslot_end
+                # Ensure timeslot_end is timezone-aware (assume UTC if naive)
+                if timeslot_end.tzinfo is None:
+                    timeslot_end = timeslot_end.replace(tzinfo=timezone.utc)
 
                 if now >= timeslot_end:
                     # AD-OLR-001: Observe resources before transitioning
@@ -1359,8 +1180,8 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
                 password=instance.worker_cml_password,
             )
 
-            if lab_state and lab_state != LabState.BOOTED:
-                logger.warning(f"Lab {instance.cml_lab_id} is not BOOTED (state={lab_state})")
+            if lab_state and lab_state != LabState.STARTED:
+                logger.warning(f"Lab {instance.cml_lab_id} is not STARTED (state={lab_state})")
                 # Could auto-restart or report error
                 # For now, just log
 
@@ -1372,48 +1193,8 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
             return ReconciliationResult.success()  # Don't fail on sync issues
 
     async def _observe_and_report(self, instance: LabletSessionReadModel) -> None:
-        """Observe live CML lab resources and report to CPA.
-
-        Best-effort: failures are logged but do not block session lifecycle.
-        AD-OLR-001: Observation at COLLECTING/STOPPING boundary.
-        ADR-030: Resource & Port Observation — "Learn from Live"
-        """
-        if not self._settings.resource_observation_enabled:
-            logger.debug(f"Resource observation disabled — skipping for session {instance.id}")
-            return
-
-        if not self._resource_observer:
-            logger.debug(f"Resource observer not configured — skipping observation for session {instance.id}")
-            return
-
-        try:
-            timeout = self._settings.resource_observation_timeout_seconds
-            observation = await asyncio.wait_for(
-                self._resource_observer.observe(
-                    host=instance.worker_ip,
-                    lab_id=instance.cml_lab_id,
-                    username=instance.worker_cml_username,
-                    password=instance.worker_cml_password,
-                ),
-                timeout=timeout,
-            )
-            if observation:
-                await self._api.report_resource_observations(
-                    session_id=instance.id,
-                    observed_resources=observation.to_dict(),
-                    observed_ports=observation.observed_ports,
-                )
-                logger.info(
-                    f"Resource observation reported for session {instance.id}: "
-                    f"cpu={observation.total_cpu_cores}, mem={observation.total_memory_mb}MB, "
-                    f"nodes={observation.actual_node_count}, ports={len(observation.observed_ports)}"
-                )
-            else:
-                logger.warning(f"No resource observation available for session {instance.id}")
-        except TimeoutError:
-            logger.warning(f"Resource observation timed out for session {instance.id} (timeout={self._settings.resource_observation_timeout_seconds}s)")
-        except Exception as e:
-            logger.warning(f"Resource observation failed for session {instance.id}: {e}")
+        """Observe live CML lab resources and report to CPA."""
+        await _obs_h.observe_and_report(instance, self._resource_observer, self._api, self._settings)
 
     async def _handle_observe_resources_event(self, session_id: str, value: str) -> None:
         """Handle manual observation request from etcd watch.
@@ -1453,82 +1234,17 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
             except Exception as e:
                 logger.warning(f"Failed to delete observe_resources key for session {session_id}: {e}")
 
+    async def _handle_collecting(self, instance: LabletSessionReadModel) -> ReconciliationResult:
+        """Handle COLLECTING session — fire-and-check for evidence collection pipeline."""
+        return await self._handle_pipeline_phase(instance, "collect_evidence")
+
+    async def _handle_grading(self, instance: LabletSessionReadModel) -> ReconciliationResult:
+        """Handle GRADING session — fire-and-check for grading pipeline."""
+        return await self._handle_pipeline_phase(instance, "compute_grading")
+
     async def _handle_stopping(self, instance: LabletSessionReadModel) -> ReconciliationResult:
-        """Handle STOPPING session - archive LDS, record run, stop/wipe lab.
-
-        This handler covers the full teardown lifecycle:
-        1. Archive LDS session (graceful - won't block on failure)
-        2. Record lab run completion (P9-7)
-        3. Stop the lab if running
-        4. Wipe the lab (don't delete → available for reuse)
-        5. Transition to ARCHIVED
-
-        Note: Lab binding/unbinding is now handled by session termination
-        lifecycle (Phase 7G). No explicit bind/unbind calls needed.
-
-        CML Labs SPI: PUT /api/v0/labs/{id}/stop, PUT /api/v0/labs/{id}/wipe
-        LDS SPI: POST /lab_session/{id}/release
-        """
-        # Archive LDS session first (graceful — won't block cleanup on failure)
-        await self._archive_lds_session(instance)
-
-        # P9-7: Record lab run completion
-        await self._record_lab_run_completed(instance)
-
-        if not instance.cml_lab_id:
-            await self._api.transition_session(
-                session_id=instance.id,
-                new_status=LabletSessionStatus.ARCHIVED,
-                reason="No lab to clean up",
-            )
-            return ReconciliationResult.success()
-
-        try:
-            lab_state = await self._cml_labs.get_lab_state(
-                host=instance.worker_ip,
-                lab_id=instance.cml_lab_id,
-                username=instance.worker_cml_username,
-                password=instance.worker_cml_password,
-            )
-
-            if lab_state == LabState.BOOTED:
-                # Stop the lab first
-                await self._cml_labs.stop_lab(
-                    host=instance.worker_ip,
-                    lab_id=instance.cml_lab_id,
-                    username=instance.worker_cml_username,
-                    password=instance.worker_cml_password,
-                )
-                return ReconciliationResult.requeue("Lab stop initiated")
-
-            elif lab_state in (LabState.STARTED, LabState.QUEUED):
-                return ReconciliationResult.requeue(f"Lab in state {lab_state}, waiting for stop")
-
-            elif lab_state in (LabState.STOPPED, LabState.DEFINED_ON_CORE):
-                # Lab is stopped — wipe (keep topology for reuse, don't delete)
-                await self._cml_labs.wipe_lab(
-                    host=instance.worker_ip,
-                    lab_id=instance.cml_lab_id,
-                    username=instance.worker_cml_username,
-                    password=instance.worker_cml_password,
-                )
-                # Update lab record status to WIPED (available for reuse)
-                await self._update_lab_record_status(instance.cml_lab_id, instance.worker_id, "wiped")
-                await self._api.transition_session(
-                    session_id=instance.id,
-                    new_status=LabletSessionStatus.ARCHIVED,
-                    reason="Lab wiped and available for reuse",
-                )
-                self._labs_stopped += 1
-                logger.info(f"Session {instance.id} archived (lab {instance.cml_lab_id} wiped for reuse)")
-                return ReconciliationResult.success()
-
-            else:
-                return ReconciliationResult.requeue(f"Lab in state {lab_state}, waiting")
-
-        except Exception as e:
-            logger.error(f"Failed to stop/cleanup lab for instance {instance.id}: {e}")
-            return ReconciliationResult.failed(str(e), e)
+        """Handle STOPPING session — fire-and-check for teardown pipeline."""
+        return await self._handle_pipeline_phase(instance, "teardown")
 
     # NOTE: _handle_pending_cleanup removed — cleanup is now part of _handle_stopping.
     # The canonical state machine uses: STOPPING → ARCHIVED (no PENDING_CLEANUP/CLEANED_UP).
@@ -1538,241 +1254,41 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
     # =========================================================================
 
     async def _resolve_lab_for_instance(self, instance: LabletSessionReadModel, topology_yaml: str | None = None) -> str | None:
-        """Resolve a lab for an instance: reuse existing or import fresh.
-
-        Lab Resolution Strategy (Architecture §5.4):
-        1. Fetch LabletDefinition to check lab_reuse_enabled flag (P9-8)
-        2. If reuse enabled, query CPA for existing LabRecords on this worker
-           matching the definition's topology:
-           a. WIPED lab → bind and start (fastest ~20s)
-           b. STOPPED lab → wipe first, then start (~30s)
-        3. If no reusable lab found or reuse disabled → fresh import (~90s)
-
-        Args:
-            instance: The LabletSession needing a lab.
-            topology_yaml: Resolved topology YAML (from definition or session).
-
-        Returns:
-            CML lab ID (from reuse or import), or None on failure.
-        """
-        definition = await self._get_definition(instance.definition_id)
-
-        # P9-8: Check if lab reuse is enabled for this definition
-        if definition and definition.lab_reuse_enabled:
-            reused_lab_id = await self._try_reuse_existing_lab(instance, definition)
-            if reused_lab_id:
-                return reused_lab_id
-
-        # Fallback: fresh import
-        return await self._import_fresh_lab(instance, topology_yaml=topology_yaml)
+        """Resolve a lab for an instance: reuse existing or import fresh."""
+        return await _lab_res.resolve_lab_for_instance(instance, self._api, self._cml_labs, self._definition_cache, topology_yaml)
 
     async def _try_reuse_existing_lab(
         self,
         instance: LabletSessionReadModel,
         definition: LabletDefinitionReadModel,
     ) -> str | None:
-        """Try to find and reuse an existing lab on the worker.
-
-        Queries CPA for LabRecords on this worker that are in reusable states
-        (WIPED or STOPPED) and match the definition's topology (by node_count).
-
-        Priority: WIPED > STOPPED (wiped is faster to restart).
-
-        Args:
-            instance: The LabletSession needing a lab.
-            definition: The LabletDefinition with topology spec.
-
-        Returns:
-            Reused CML lab ID, or None if no reusable lab found.
-        """
-        if not instance.worker_id:
-            return None
-
-        try:
-            # Query CPA for reusable labs on this worker
-            lab_records = await self._api.get_lab_records_for_worker(
-                worker_id=instance.worker_id,
-            )
-
-            if not lab_records:
-                return None
-
-            # Parse into read models for structured access
-            candidates = [LabRecordReadModel.from_dict(lr) for lr in lab_records]
-
-            # Filter to reusable candidates matching the topology
-            wiped_candidates: list[LabRecordReadModel] = []
-            stopped_candidates: list[LabRecordReadModel] = []
-
-            for lr in candidates:
-                # Must match definition's node count (basic topology match)
-                if definition.node_count and lr.node_count != definition.node_count:
-                    continue
-
-                # Must not already have an active pending action
-                if lr.has_pending_action:
-                    continue
-
-                if lr.status == LabRecordStatus.WIPED.value:
-                    wiped_candidates.append(lr)
-                elif lr.status == LabRecordStatus.STOPPED.value:
-                    stopped_candidates.append(lr)
-
-            # Priority 1: WIPED lab → just start (~20s)
-            if wiped_candidates:
-                lab = wiped_candidates[0]
-                logger.info(f"♻️ Found WIPED lab {lab.lab_id} on worker {instance.worker_id} for reuse (instance={instance.id})")
-                return lab.lab_id
-
-            # Priority 2: STOPPED lab → wipe first, then start (~30s)
-            if stopped_candidates:
-                lab = stopped_candidates[0]
-                logger.info(f"♻️ Found STOPPED lab {lab.lab_id} on worker {instance.worker_id} — wiping for reuse (instance={instance.id})")
-                # Wipe the lab to prepare for reuse
-                await self._cml_labs.wipe_lab(
-                    host=instance.worker_ip,
-                    lab_id=lab.lab_id,
-                    username=instance.worker_cml_username,
-                    password=instance.worker_cml_password,
-                )
-                # Update lab record status to WIPED via CPA
-                await self._update_lab_record_status(lab.lab_id, instance.worker_id, "wiped")
-                return lab.lab_id
-
-            logger.debug(f"No reusable labs found on worker {instance.worker_id}")
-            return None
-
-        except Exception as e:
-            logger.warning(f"Lab reuse lookup failed for instance {instance.id}: {e}")
-            return None
+        """Try to find and reuse an existing lab on the worker."""
+        return await _lab_res.try_reuse_existing_lab(instance, definition, self._api, self._cml_labs)
 
     async def _import_fresh_lab(self, instance: LabletSessionReadModel, topology_yaml: str | None = None) -> str | None:
-        """Import a fresh lab from topology YAML.
-
-        Args:
-            instance: The LabletSession needing a lab.
-            topology_yaml: Resolved topology YAML (from definition or session fallback).
-
-        Returns:
-            New CML lab ID, or None on failure.
-        """
-        effective_yaml = topology_yaml or instance.topology_yaml
-        if not effective_yaml:
-            logger.error(f"No topology YAML available for session {instance.id}")
-            return None
-
-        try:
-            lab_id = await self._cml_labs.import_lab(
-                host=instance.worker_ip,
-                topology_yaml=effective_yaml,
-                title=instance.name,
-                username=instance.worker_cml_username,
-                password=instance.worker_cml_password,
-            )
-            # Tag as freshly imported (used for metrics, not persisted)
-            instance._freshly_imported_lab_id = lab_id  # type: ignore[attr-defined]
-            return lab_id
-        except Exception as e:
-            logger.error(f"Failed to import lab for instance {instance.id}: {e}")
-            return None
-
-    # =========================================================================
-    # LAB BINDING MANAGEMENT (P9-6)
-    # =========================================================================
-
-    async def _bind_lab_to_instance(self, instance: LabletSessionReadModel) -> None:
-        """Lab binding is now handled at schedule time via lab_record_id param.
-
-        Phase 7G: bind_lab_to_lablet() was removed from ControlPlaneApiClient.
-        Lab binding is done implicitly when schedule_session() is called with
-        a lab_record_id. This method is kept as a no-op for backward compatibility
-        with any callers that haven't been updated yet.
-
-        Args:
-            instance: The LabletSession (unused).
-        """
-        # No-op: lab binding absorbed into schedule_session() in Phase 7G
-        pass
-
-    async def _release_lab_binding(self, instance: LabletSessionReadModel) -> None:
-        """Lab unbinding is now handled by session termination lifecycle.
-
-        Phase 7G: unbind_lab_from_lablet() was removed from ControlPlaneApiClient.
-        Unbinding is handled automatically when the session is terminated/archived.
-        This method is kept as a no-op for backward compatibility.
-
-        Args:
-            instance: The LabletSession (unused).
-        """
-        # No-op: unbinding handled by session termination in Phase 7G
-        pass
+        """Import a fresh lab from topology YAML."""
+        return await _lab_res.import_fresh_lab(instance, self._cml_labs, topology_yaml)
 
     # =========================================================================
     # RUN HISTORY (P9-7)
     # =========================================================================
 
     async def _record_lab_run_completed(self, instance: LabletSessionReadModel) -> None:
-        """Record a completed lab run via CPA.
-
-        Called during STOPPING phase. Creates a LabRunRecord documenting
-        the start→stop execution cycle.
-
-        Args:
-            instance: The LabletSession whose run is ending.
-        """
-        if not instance.cml_lab_id or not instance.worker_id:
-            return
-
-        try:
-            lab_record_id = await self._find_lab_record_id(instance.cml_lab_id, instance.worker_id)
-            if not lab_record_id:
-                return
-
-            # Get run start time from tracking dict, or use timeslot_start as fallback
-            started_at = self._lab_run_started_at.pop(instance.id, None)
-            started_at_str = started_at.isoformat() if started_at else None
-            stopped_at_str = datetime.now(timezone.utc).isoformat()
-
-            await self._api.record_lab_run_completed(
-                lab_record_id=lab_record_id,
-                started_at=started_at_str,
-                stopped_at=stopped_at_str,
-                started_by="lablet-controller",
-                stop_reason="timeslot_end",
-                lablet_session_id=instance.id,
-                final_state="stopped",
-            )
+        """Record a completed lab run via CPA."""
+        if await _run_hist.record_lab_run_completed(instance, self._api, self._lab_run_started_at):
             self._runs_recorded += 1
-            logger.info(f"📝 Recorded lab run for session {instance.id}")
-
-        except Exception as e:
-            logger.warning(f"Failed to record lab run for session {instance.id}: {e}")
 
     # =========================================================================
     # LAB RECORD HELPERS
     # =========================================================================
 
     async def _find_lab_record_id(self, cml_lab_id: str, worker_id: str) -> str | None:
-        """Find the LabRecord aggregate ID for a CML lab on a specific worker.
+        """Find the LabRecord aggregate ID for a CML lab on a specific worker."""
+        return await _lab_rec.find_lab_record_id(cml_lab_id, worker_id, self._api)
 
-        Queries CPA for lab records matching the worker and CML lab ID.
-
-        Args:
-            cml_lab_id: CML native lab ID.
-            worker_id: Worker aggregate ID.
-
-        Returns:
-            LabRecord aggregate ID, or None if not found.
-        """
-        try:
-            lab_records = await self._api.get_lab_records_for_worker(worker_id=worker_id)
-            for lr in lab_records:
-                if lr.get("lab_id") == cml_lab_id:
-                    return lr.get("id")
-        except Exception as e:
-            logger.warning(f"Failed to find LabRecord for lab {cml_lab_id} on worker {worker_id}: {e}")
-
-        return None
+    async def _register_lab_record(self, cml_lab_id: str, instance: LabletSessionReadModel) -> str | None:
+        """Register a CML lab as a LabRecord in CPA via discover_lab_records()."""
+        return await _lab_rec.register_lab_record(cml_lab_id, instance, self._api, self._cml_labs)
 
     async def _update_lab_record_status(
         self,
@@ -1780,24 +1296,8 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
         worker_id: str,
         new_status: str,
     ) -> None:
-        """Update a lab record's status via CPA.
-
-        Graceful: logs failures but does not propagate exceptions.
-
-        Args:
-            cml_lab_id: CML native lab ID.
-            worker_id: Worker aggregate ID.
-            new_status: New LabRecordStatus value (lowercase).
-        """
-        try:
-            lab_record_id = await self._find_lab_record_id(cml_lab_id, worker_id)
-            if lab_record_id:
-                await self._api.update_lab_record_status(
-                    lab_record_id=lab_record_id,
-                    new_status=new_status,
-                )
-        except Exception as e:
-            logger.warning(f"Failed to update lab record status for lab {cml_lab_id}: {e}")
+        """Update a lab record's status via CPA."""
+        await _lab_rec.update_lab_record_status(cml_lab_id, worker_id, new_status, self._api)
 
     # =========================================================================
     # LDS HELPERS
@@ -1805,181 +1305,33 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
 
     @staticmethod
     def _build_device_access_list(nodes: list[NodeInfo], worker_ip: str) -> list[DeviceAccessInfo]:
-        """Build LDS device access info from CML node topology.
-
-        AD-P4-03: CML node label = device_label, tags encode protocol:port.
-        Tags format: ["serial:5041", "vnc:5044", "ssh:22"]
-
-        Args:
-            nodes: CML lab nodes with labels and tags.
-            worker_ip: Worker IP address for device host.
-
-        Returns:
-            List of DeviceAccessInfo for LDS device provisioning.
-        """
-        devices: list[DeviceAccessInfo] = []
-
-        for node in nodes:
-            if not node.tags:
-                continue
-
-            for tag in node.tags:
-                # Parse "protocol:port" format
-                if ":" not in tag:
-                    continue
-
-                parts = tag.split(":", 1)
-                if len(parts) != 2:
-                    continue
-
-                protocol = parts[0].strip()
-                try:
-                    port = int(parts[1].strip())
-                except ValueError:
-                    logger.warning(f"Invalid port in tag '{tag}' for node '{node.label}'")
-                    continue
-
-                devices.append(
-                    DeviceAccessInfo(
-                        device_label=node.label,
-                        protocol=protocol,
-                        host=worker_ip,
-                        port=port,
-                    )
-                )
-
-        return devices
+        """Build LDS device access info from CML node topology."""
+        return _lds_h.build_device_access_list(nodes, worker_ip)
 
     async def _get_definition(self, definition_id: str) -> LabletDefinitionReadModel | None:
-        """Fetch lablet definition, using cache for repeated lookups.
-
-        Args:
-            definition_id: The definition ID to fetch.
-
-        Returns:
-            LabletDefinitionReadModel or None.
-        """
-        if definition_id in self._definition_cache:
-            return self._definition_cache[definition_id]
-
-        try:
-            data = await self._api.get_lablet_definition(definition_id)
-            if data:
-                definition = LabletDefinitionReadModel.from_dict(data)
-                self._definition_cache[definition_id] = definition
-                return definition
-        except Exception as e:
-            logger.error(f"Failed to fetch definition {definition_id}: {e}")
-
-        return None
+        """Fetch lablet definition, using cache for repeated lookups."""
+        return await _def_cache.get_definition(definition_id, self._api, self._definition_cache)
 
     async def _archive_lds_session(self, instance: LabletSessionReadModel) -> None:
-        """Archive the LDS session for a session.
-
-        Graceful: logs failures but does not propagate exceptions.
-
-        Args:
-            instance: Session with LDS session to archive.
-        """
-        if not instance.lds_session_id:
-            return
-
-        try:
-            await self._lds.archive_session(
-                session_id=instance.lds_session_id,
-                region=instance.worker_aws_region,
-            )
+        """Archive the LDS session for a session."""
+        if await _lds_h.archive_lds_session(instance, self._lds):
             self._lds_sessions_archived += 1
-            logger.info(f"Archived LDS session {instance.lds_session_id} for instance {instance.id}")
-        except LdsSpiError as e:
-            logger.warning(f"Failed to archive LDS session {instance.lds_session_id}: {e}")
-        except Exception as e:
-            logger.warning(f"Unexpected error archiving LDS session {instance.lds_session_id}: {e}")
 
     # =========================================================================
     # WORKER DETAILS RESOLUTION
     # =========================================================================
 
     async def _enrich_with_worker_details(self, session: LabletSessionReadModel) -> None:
-        """Enrich a session read model with worker connection details.
-
-        The CPA DTO only includes worker_id. Connection details (IP, credentials)
-        are resolved from the CMLWorker aggregate via CPA and cached locally.
-
-        Follows the same caching pattern as LabRecordReconciler._resolve_worker_host()
-        and LabDiscoveryService._resolve_worker_host().
-
-        Args:
-            session: The session to enrich (mutated in-place).
-        """
-        if not session.worker_id:
-            return
-
-        worker = await self._get_cached_worker(session.worker_id)
-        if not worker:
-            return
-
-        # Resolve host IP (private or public based on settings)
-        session.worker_ip = self._extract_host_from_worker(worker)
-
-        # Resolve CML credentials: per-worker or global fallback
-        session.worker_cml_username = self._settings.cml_worker_api_username
-        session.worker_cml_password = self._settings.cml_worker_api_password
-
-        # Resolve AWS region
-        session.worker_aws_region = worker.get("aws_region")
+        """Enrich a session read model with worker connection details."""
+        await _worker_h.enrich_with_worker_details(session, self._api, self._settings, self._worker_cache)
 
     async def _get_cached_worker(self, worker_id: str) -> dict | None:
-        """Get worker data from cache or CPA.
-
-        Uses a local cache to avoid repeated CPA lookups for the same worker.
-
-        Args:
-            worker_id: CML worker ID.
-
-        Returns:
-            Worker data dictionary, or None if unavailable.
-        """
-        if worker_id in self._worker_cache:
-            return self._worker_cache[worker_id]
-
-        try:
-            worker = await self._api.get_worker(worker_id)
-            if not worker:
-                logger.warning(f"Worker {worker_id} not found via CPA")
-                return None
-
-            self._worker_cache[worker_id] = worker
-            return worker
-
-        except Exception as e:
-            logger.error(f"Failed to resolve worker {worker_id}: {e}")
-            return None
+        """Get worker data from cache or CPA."""
+        return await _worker_h.get_cached_worker(worker_id, self._api, self._worker_cache)
 
     def _extract_host_from_worker(self, worker: dict) -> str | None:
-        """Extract host address from worker data.
-
-        Follows the same logic as LabDiscoveryService._resolve_worker_host()
-        and LabRecordReconciler._extract_host_from_worker().
-
-        Args:
-            worker: Worker data from Control Plane API.
-
-        Returns:
-            Host address string, or None if unavailable.
-        """
-        if self._settings.use_private_ip_for_monitoring:
-            host = worker.get("private_ip") or worker.get("public_ip")
-        else:
-            host = worker.get("public_ip") or worker.get("private_ip")
-
-        # Fallback to https_endpoint
-        if not host:
-            https_endpoint = worker.get("https_endpoint", "")
-            if https_endpoint:
-                host = https_endpoint.replace("https://", "").split(":")[0]
-
-        return host or None
+        """Extract host address from worker data."""
+        return _worker_h.extract_host_from_worker(worker, self._settings)
 
     # =========================================================================
     # SERVICE INFO

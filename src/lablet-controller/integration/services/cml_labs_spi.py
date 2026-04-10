@@ -360,6 +360,45 @@ class CmlLabsSpiClient:
         lab = await self.get_lab(host, lab_id, username, password)
         return lab.state if lab else None
 
+    async def check_if_converged(
+        self,
+        host: str,
+        lab_id: str,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> bool:
+        """Check whether all nodes in a lab have converged (booted).
+
+        Mirrors the official CML ``check_if_converged`` endpoint.
+        Returns ``True`` when every node in the lab has finished booting.
+
+        Args:
+            host: CML worker host/IP.
+            lab_id: Lab ID.
+            username: API username.
+            password: API password.
+
+        Returns:
+            True if the lab has converged, False otherwise.
+        """
+        username = username or self._default_username
+        password = password or self._default_password
+
+        async with httpx.AsyncClient(
+            verify=self._verify_ssl,
+            timeout=self._timeout,
+        ) as client:
+            response = await self._authenticated_request(
+                client,
+                "GET",
+                f"https://{host}/api/v0/labs/{lab_id}/check_if_converged",
+                host,
+                username,
+                password,
+            )
+            converged: bool = response.json()
+            return converged
+
     async def import_lab(
         self,
         host: str,

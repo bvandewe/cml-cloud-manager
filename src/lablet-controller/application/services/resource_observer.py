@@ -12,10 +12,11 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from integration.services.cml_labs_spi import CmlLabsSpiClient
 from lcm_core.domain.value_objects.interface_observation import InterfaceObservation
 from lcm_core.domain.value_objects.node_observation import NodeObservation
 from lcm_core.domain.value_objects.resource_observation import ResourceObservation
+
+from integration.services.cml_labs_spi import CmlLabsSpiClient
 
 logger = logging.getLogger(__name__)
 

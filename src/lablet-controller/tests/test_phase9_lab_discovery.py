@@ -17,6 +17,10 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from lcm_core.domain.entities import LabletSessionReadModel
+from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
+from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
+
 from application.hosted_services.lab_discovery_service import (
     DiscoveryRunStats,
     DiscoveryWorkerResult,
@@ -24,10 +28,8 @@ from application.hosted_services.lab_discovery_service import (
     PortRegistrationResult,
 )
 from application.hosted_services.lablet_reconciler import LabletReconciler
+from application.services.pipeline_executor import PipelineExecutor
 from integration.services.cml_labs_spi import LabInfo, LabState, NodeInfo
-from lcm_core.domain.entities import LabletSessionReadModel
-from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
-from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
 
 # =============================================================================
 # Fixtures
@@ -77,9 +79,15 @@ def make_reconciler() -> LabletReconciler:
     r._runs_recorded = 0
     r._lab_run_started_at = {}
     r._resolved_lab_ids = {}
+    r._freshly_imported_sessions = set()
     r._worker_cache = {}
     r._content_sync_service = None
     r._resource_observer = None
+    # Sprint C additions
+    r._session_locks = {}
+    r._active_handlers = {}
+    r._pipeline_executor = PipelineExecutor()
+    r._pipeline_retry_counts = {}
     return r
 
 
@@ -99,7 +107,6 @@ def make_instance(
     topology_yaml: str | None = "nodes:\n  - label: router1",
     lds_session_id: str | None = None,
     lds_login_url: str | None = None,
-    instantiation_progress: dict | None = None,
 ) -> LabletSessionReadModel:
     """Create a LabletSessionReadModel for testing."""
     return LabletSessionReadModel(
@@ -118,7 +125,6 @@ def make_instance(
         topology_yaml=topology_yaml,
         lds_session_id=lds_session_id,
         lds_login_url=lds_login_url,
-        instantiation_progress=instantiation_progress,
     )
 
 
@@ -504,54 +510,179 @@ class TestResolveLabForInstance:
 
 
 class TestTryReuseExistingLab:
-    """Tests for _try_reuse_existing_lab."""
+    """Tests for _try_reuse_existing_lab.
+
+    Production code (Track 1 fixes):
+    - Matches candidates on ``based_on_definition_id == instance.definition_id`` (not node_count)
+    - Verifies each candidate exists on CML via ``get_lab()`` (ghost detection)
+    - Marks ORPHANED via CPA if ``get_lab()`` returns None (HTTP 404)
+    - Checks 4 candidate states in preference order: WIPED → STOPPED → WIPING → STOPPING
+    """
 
     @pytest.mark.asyncio
     async def test_reuses_wiped_lab_directly(self):
-        """WIPED lab should be reused directly (no wipe needed)."""
+        """WIPED lab matching definition_id should be reused directly (no wipe needed)."""
         r = make_reconciler()
-        instance = make_instance(cml_lab_id=None)
-        definition = make_definition(lab_reuse_enabled=True, node_count=2)
-        # CPA returns a wiped lab matching node_count
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # CPA returns a wiped lab matching based_on_definition_id
         r._api.get_lab_records_for_worker.return_value = [
-            {"id": "rec-001", "lab_id": "lab-reuse-1", "status": "wiped", "node_count": 2},
+            {"id": "rec-001", "lab_id": "lab-reuse-1", "worker_id": "worker-001", "status": "wiped", "based_on_definition_id": "def-001"},
         ]
+        # CML verifies lab exists
+        r._cml_labs.get_lab.return_value = make_lab_info(lab_id="lab-reuse-1", state=LabState.DEFINED_ON_CORE)
 
         lab_id = await r._try_reuse_existing_lab(instance, definition)
 
         assert lab_id == "lab-reuse-1"
         r._cml_labs.wipe_lab.assert_not_awaited()  # Already wiped
+        r._cml_labs.get_lab.assert_awaited_once()  # Verified existence
 
     @pytest.mark.asyncio
     async def test_reuses_stopped_lab_with_wipe(self):
-        """STOPPED lab should be wiped before reuse."""
+        """STOPPED lab matching definition_id should be wiped before reuse."""
         r = make_reconciler()
-        instance = make_instance(cml_lab_id=None)
-        definition = make_definition(lab_reuse_enabled=True, node_count=2)
-        # No wiped labs, but a stopped lab matches
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # No wiped labs, but a stopped lab matches definition_id
         r._api.get_lab_records_for_worker.return_value = [
-            {"id": "rec-002", "lab_id": "lab-stopped-1", "status": "stopped", "node_count": 2},
+            {"id": "rec-002", "lab_id": "lab-stopped-1", "worker_id": "worker-001", "status": "stopped", "based_on_definition_id": "def-001"},
         ]
+        # CML verifies lab exists
+        r._cml_labs.get_lab.return_value = make_lab_info(lab_id="lab-stopped-1", state=LabState.STOPPED)
 
         lab_id = await r._try_reuse_existing_lab(instance, definition)
 
         assert lab_id == "lab-stopped-1"
         r._cml_labs.wipe_lab.assert_awaited_once()
+        r._cml_labs.get_lab.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_no_matching_labs_returns_none(self):
-        """No labs matching node_count should return None."""
+    async def test_no_matching_definition_id_returns_none(self):
+        """Labs with different based_on_definition_id should not match."""
         r = make_reconciler()
-        instance = make_instance(cml_lab_id=None)
-        definition = make_definition(lab_reuse_enabled=True, node_count=5)
-        # Labs exist but wrong node_count
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # Labs exist but based_on_definition_id doesn't match instance.definition_id
         r._api.get_lab_records_for_worker.return_value = [
-            {"id": "rec-003", "lab_id": "lab-x", "status": "wiped", "node_count": 2},
+            {"id": "rec-003", "lab_id": "lab-x", "worker_id": "worker-001", "status": "wiped", "based_on_definition_id": "def-999"},
         ]
 
         lab_id = await r._try_reuse_existing_lab(instance, definition)
 
         assert lab_id is None
+        r._cml_labs.get_lab.assert_not_awaited()  # Never reached CML verification
+
+    @pytest.mark.asyncio
+    async def test_no_based_on_definition_id_skips_candidate(self):
+        """Labs without based_on_definition_id (None) should not match any definition."""
+        r = make_reconciler()
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # Lab record has no provenance tracking (based_on_definition_id is None)
+        r._api.get_lab_records_for_worker.return_value = [
+            {"id": "rec-004", "lab_id": "lab-legacy", "worker_id": "worker-001", "status": "wiped", "node_count": 2},
+        ]
+
+        lab_id = await r._try_reuse_existing_lab(instance, definition)
+
+        assert lab_id is None
+        r._cml_labs.get_lab.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_ghost_lab_skipped_and_marked_orphaned(self):
+        """When CML get_lab() returns None (404), candidate should be skipped and marked ORPHANED."""
+        r = make_reconciler()
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # CPA returns a matching candidate
+        r._api.get_lab_records_for_worker.return_value = [
+            {"id": "rec-ghost", "lab_id": "lab-ghost-1", "worker_id": "worker-001", "status": "wiped", "based_on_definition_id": "def-001"},
+        ]
+        # CML says lab doesn't exist (ghost)
+        r._cml_labs.get_lab.return_value = None
+
+        lab_id = await r._try_reuse_existing_lab(instance, definition)
+
+        assert lab_id is None
+        r._cml_labs.get_lab.assert_awaited_once()
+        # Ghost candidate triggers ORPHANED status update via CPA
+        r._api.update_lab_record_status.assert_awaited_once_with(
+            lab_record_id="rec-ghost",
+            new_status="orphaned",
+        )
+
+    @pytest.mark.asyncio
+    async def test_ghost_lab_skipped_falls_through_to_next_candidate(self):
+        """Ghost candidate should be skipped; next valid candidate should be used."""
+        r = make_reconciler()
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # Two matching candidates: first is ghost, second is real
+        r._api.get_lab_records_for_worker.return_value = [
+            {"id": "rec-ghost", "lab_id": "lab-ghost", "worker_id": "worker-001", "status": "wiped", "based_on_definition_id": "def-001"},
+            {"id": "rec-real", "lab_id": "lab-real", "worker_id": "worker-001", "status": "wiped", "based_on_definition_id": "def-001"},
+        ]
+        # First get_lab returns None (ghost), second returns real lab
+        r._cml_labs.get_lab.side_effect = [None, make_lab_info(lab_id="lab-real", state=LabState.DEFINED_ON_CORE)]
+
+        lab_id = await r._try_reuse_existing_lab(instance, definition)
+
+        assert lab_id == "lab-real"
+        assert r._cml_labs.get_lab.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_prefers_wiped_over_stopped(self):
+        """WIPED candidates should be preferred over STOPPED (faster to ready)."""
+        r = make_reconciler()
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # Both wiped and stopped candidates with same definition_id
+        r._api.get_lab_records_for_worker.return_value = [
+            {"id": "rec-stopped", "lab_id": "lab-stopped", "worker_id": "worker-001", "status": "stopped", "based_on_definition_id": "def-001"},
+            {"id": "rec-wiped", "lab_id": "lab-wiped", "worker_id": "worker-001", "status": "wiped", "based_on_definition_id": "def-001"},
+        ]
+        # CML verifies first checked lab exists (wiped comes first in preference order)
+        r._cml_labs.get_lab.return_value = make_lab_info(lab_id="lab-wiped", state=LabState.DEFINED_ON_CORE)
+
+        lab_id = await r._try_reuse_existing_lab(instance, definition)
+
+        assert lab_id == "lab-wiped"
+        r._cml_labs.wipe_lab.assert_not_awaited()  # Already wiped, no need
+
+    @pytest.mark.asyncio
+    async def test_skips_candidates_with_pending_action(self):
+        """Candidates with an active pending_action should be skipped."""
+        r = make_reconciler()
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # Candidate has a pending action — should be skipped
+        r._api.get_lab_records_for_worker.return_value = [
+            {"id": "rec-busy", "lab_id": "lab-busy", "worker_id": "worker-001", "status": "wiped", "based_on_definition_id": "def-001", "pending_action": "wipe"},
+        ]
+
+        lab_id = await r._try_reuse_existing_lab(instance, definition)
+
+        assert lab_id is None
+        r._cml_labs.get_lab.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_transitional_states_skipped_gracefully(self):
+        """WIPING/STOPPING candidates are verified but skipped (transitional)."""
+        r = make_reconciler()
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # Only a WIPING candidate — exists but transitional
+        r._api.get_lab_records_for_worker.return_value = [
+            {"id": "rec-wiping", "lab_id": "lab-wiping", "worker_id": "worker-001", "status": "wiping", "based_on_definition_id": "def-001"},
+        ]
+        r._cml_labs.get_lab.return_value = make_lab_info(lab_id="lab-wiping", state=LabState.STOPPED)
+
+        lab_id = await r._try_reuse_existing_lab(instance, definition)
+
+        # Transitional states are logged but skipped (not reusable yet)
+        assert lab_id is None
+        r._cml_labs.get_lab.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_api_error_returns_none_gracefully(self):
@@ -606,63 +737,6 @@ class TestImportFreshLab:
 
 # =============================================================================
 # LabletReconciler: Binding Management (P9-6)
-# =============================================================================
-
-
-class TestBindLabToInstance:
-    """Tests for _bind_lab_to_instance (Phase 7G: now a no-op)."""
-
-    @pytest.mark.asyncio
-    async def test_is_noop_does_not_call_cpa(self):
-        """Phase 7G: _bind_lab_to_instance is now a no-op. No CPA calls should be made."""
-        r = make_reconciler()
-        instance = make_instance(cml_lab_id="lab-abc", worker_id="w-001")
-
-        await r._bind_lab_to_instance(instance)
-
-        # No CPA calls made — binding is now implicit in schedule_session()
-        r._api.get_lab_records_for_worker.assert_not_awaited()
-        assert r._bindings_created == 0
-
-    @pytest.mark.asyncio
-    async def test_no_cml_lab_id_is_noop(self):
-        """Without cml_lab_id, should still be a no-op."""
-        r = make_reconciler()
-        instance = make_instance(cml_lab_id=None)
-
-        await r._bind_lab_to_instance(instance)
-
-        r._api.get_lab_records_for_worker.assert_not_awaited()
-
-
-class TestReleaseLabBinding:
-    """Tests for _release_lab_binding (Phase 7G: now a no-op)."""
-
-    @pytest.mark.asyncio
-    async def test_is_noop_does_not_call_cpa(self):
-        """Phase 7G: _release_lab_binding is now a no-op. No CPA calls should be made."""
-        r = make_reconciler()
-        instance = make_instance(cml_lab_id="lab-abc", worker_id="w-001")
-
-        await r._release_lab_binding(instance)
-
-        # No CPA calls made — unbinding handled by session termination
-        r._api.get_lab_records_for_worker.assert_not_awaited()
-        assert r._bindings_released == 0
-
-    @pytest.mark.asyncio
-    async def test_no_cml_lab_id_is_noop(self):
-        """Without cml_lab_id, should still be a no-op."""
-        r = make_reconciler()
-        instance = make_instance(cml_lab_id=None)
-
-        await r._release_lab_binding(instance)
-
-        r._api.get_lab_records_for_worker.assert_not_awaited()
-
-
-# =============================================================================
-# LabletReconciler: Run Tracking (P9-7)
 # =============================================================================
 
 
@@ -801,6 +875,7 @@ class TestFindLabRecordId:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="ADR-034 Sprint C: _build_default_progress() removed (AD-PIPELINE-009). Lab resolution tests covered in test_instantiation_pipeline.py.")
 class TestHandleInstantiatingWithResolution:
     """Integration tests for _handle_instantiating using P9 lab resolution via pipeline."""
 
@@ -855,11 +930,12 @@ class TestHandleInstantiatingWithResolution:
         assert "unable to import" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_booted_lab_records_run_start(self):
-        """When lab reaches BOOTED, _step_lab_start should record run start time."""
+    async def test_started_converged_lab_records_run_start(self):
+        """When lab is STARTED+converged, _step_lab_start should record run start time."""
         r = make_reconciler()
         instance = make_instance(status="INSTANTIATING", cml_lab_id="lab-abc")
-        r._cml_labs.get_lab_state.return_value = LabState.BOOTED
+        r._cml_labs.get_lab_state.return_value = LabState.STARTED
+        r._cml_labs.check_if_converged.return_value = True
 
         progress = {
             "steps": [
@@ -869,7 +945,7 @@ class TestHandleInstantiatingWithResolution:
         result = await r._step_lab_start(instance, progress)
 
         assert result["status"] == "completed"
-        assert result["result_data"]["lab_state"] == "BOOTED"
+        assert result["result_data"]["lab_state"] == "CONVERGED"
         assert "inst-001" in r._lab_run_started_at
 
 
@@ -878,6 +954,7 @@ class TestHandleInstantiatingWithResolution:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="ADR-034 Sprint D: _handle_stopping refactored to fire-and-check delegation. See test_teardown_pipeline.py.")
 class TestHandleStoppingWithReuse:
     """Integration tests for _handle_stopping using P9 wipe-for-reuse pattern."""
 

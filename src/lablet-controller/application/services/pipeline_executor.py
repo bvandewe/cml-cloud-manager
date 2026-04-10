@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 # Type aliases
 # ---------------------------------------------------------------------------
 
-# Step dispatcher: receives (handler_name, session, progress_dict) → result_data dict
+# Step dispatcher: receives (handler_name, session, progress_dict, context, params) → result_data dict
+# ADR-038: context and params added to support registry-based handlers and
+# parameterized steps (e.g. execute_command_on_cml_node).
 StepDispatcher = Callable[..., Awaitable[dict[str, Any]]]
 
 
@@ -90,6 +92,7 @@ class PipelineExecutor:
         context: PipelineContext,
         step_dispatcher: StepDispatcher,
         existing_progress: dict[str, Any] | None = None,
+        pipeline_name: str | None = None,
     ) -> PipelineResult:
         """Execute a full pipeline DAG.
 
@@ -101,18 +104,21 @@ class PipelineExecutor:
                 Steps with status "completed" or "skipped" are skipped; their result_data
                 is restored into context.steps_data. Steps with "failed", "pending", or
                 "in_progress" are re-executed.
+            pipeline_name: Pipeline key name (e.g. "instantiate", "teardown"). Used
+                for generic pipeline progress persistence (ADR-034 Sprint E). If None,
+                falls back to instantiation-specific progress endpoint.
 
         Returns:
             PipelineResult with completion stats, resolved outputs, and any error.
         """
-        pipeline_name = pipeline_def.get("description", "unnamed")
+        pipeline_label = pipeline_def.get("description", "unnamed")
         steps: list[dict[str, Any]] = pipeline_def.get("steps", [])
         output_defs: dict[str, str] = pipeline_def.get("outputs", {})
         max_retries: int = pipeline_def.get("max_retries", 0)
 
         if not steps:
             return PipelineResult(
-                pipeline_name=pipeline_name,
+                pipeline_name=pipeline_label,
                 status="completed",
                 duration_seconds=0.0,
                 max_retries=max_retries,
@@ -199,7 +205,7 @@ class PipelineExecutor:
                 step_statuses[step_name] = "skipped"
                 skipped += 1
                 progress[step_name] = {"status": "skipped", "reason": f"upstream '{dep}' failed"}
-                await self._persist_progress(context, step_name, "skipped")
+                await self._persist_progress(context, step_name, "skipped", pipeline_name=pipeline_name)
                 logger.info("Pipeline step '%s' skipped — upstream dependency '%s' failed", step_name, dep)
                 continue
 
@@ -211,7 +217,7 @@ class PipelineExecutor:
                 step_statuses[step_name] = "skipped"
                 skipped += 1
                 progress[step_name] = {"status": "skipped", "reason": f"skip_when: {skip_expr}"}
-                await self._persist_progress(context, step_name, "skipped")
+                await self._persist_progress(context, step_name, "skipped", pipeline_name=pipeline_name)
                 logger.info("Pipeline step '%s' skipped — skip_when evaluated to True", step_name)
                 continue
 
@@ -220,19 +226,63 @@ class PipelineExecutor:
             # ----------------------------------------------------------
             try:
                 result_data = await self._execute_step(step, context, step_dispatcher, progress)
-                step_statuses[step_name] = "completed"
-                completed += 1
-                context.steps_data[step_name] = result_data
-                progress[step_name] = {"status": "completed", "result_data": result_data}
-                await self._persist_progress(context, step_name, "completed", result_data=result_data)
-                logger.info("Pipeline step '%s' completed successfully", step_name)
+
+                # ----------------------------------------------------------
+                # Honor step handler's reported status
+                # ----------------------------------------------------------
+                # Step handlers may return {"status": "skipped"} or
+                # {"status": "failed", "error": "..."} to signal non-completion
+                # without raising exceptions. The executor must propagate these
+                # statuses instead of blindly marking everything "completed".
+                handler_status = result_data.get("status") if isinstance(result_data, dict) else None
+
+                if handler_status == "skipped":
+                    # Step handler decided to skip (e.g. no port_template)
+                    step_statuses[step_name] = "skipped"
+                    skipped += 1
+                    context.steps_data[step_name] = result_data
+                    reason = result_data.get("reason", "step handler returned skipped")
+                    progress[step_name] = {"status": "skipped", "reason": reason, "result_data": result_data}
+                    await self._persist_progress(context, step_name, "skipped", pipeline_name=pipeline_name)
+                    logger.info("Pipeline step '%s' skipped by handler: %s", step_name, reason)
+
+                elif handler_status == "failed":
+                    # Step handler reports failure via return value (not exception)
+                    handler_error = result_data.get("error", "step handler returned failed")
+                    step_statuses[step_name] = "failed"
+                    failed += 1
+                    progress[step_name] = {"status": "failed", "error": handler_error, "result_data": result_data}
+                    await self._persist_progress(context, step_name, "failed", error=handler_error, pipeline_name=pipeline_name)
+
+                    if is_optional:
+                        logger.warning("Optional pipeline step '%s' failed (handler): %s — continuing", step_name, handler_error)
+                    else:
+                        error_message = f"Required step '{step_name}' failed: {handler_error}"
+                        logger.error("Pipeline aborted: %s", error_message)
+                        for remaining in ordered_steps:
+                            rname = remaining["name"]
+                            if rname not in step_statuses:
+                                step_statuses[rname] = "skipped"
+                                skipped += 1
+                                progress[rname] = {"status": "skipped", "reason": "pipeline aborted"}
+                                await self._persist_progress(context, rname, "skipped", pipeline_name=pipeline_name)
+                        break
+
+                else:
+                    # Normal completion (status is "completed" or unset)
+                    step_statuses[step_name] = "completed"
+                    completed += 1
+                    context.steps_data[step_name] = result_data
+                    progress[step_name] = {"status": "completed", "result_data": result_data}
+                    await self._persist_progress(context, step_name, "completed", result_data=result_data, pipeline_name=pipeline_name)
+                    logger.info("Pipeline step '%s' completed successfully", step_name)
 
             except Exception as exc:
                 step_statuses[step_name] = "failed"
                 failed += 1
                 exc_msg = str(exc)
                 progress[step_name] = {"status": "failed", "error": exc_msg}
-                await self._persist_progress(context, step_name, "failed", error=exc_msg)
+                await self._persist_progress(context, step_name, "failed", error=exc_msg, pipeline_name=pipeline_name)
 
                 if is_optional:
                     logger.warning("Optional pipeline step '%s' failed: %s — continuing", step_name, exc_msg)
@@ -246,7 +296,7 @@ class PipelineExecutor:
                             step_statuses[rname] = "skipped"
                             skipped += 1
                             progress[rname] = {"status": "skipped", "reason": "pipeline aborted"}
-                            await self._persist_progress(context, rname, "skipped")
+                            await self._persist_progress(context, rname, "skipped", pipeline_name=pipeline_name)
                     break
 
         elapsed = time.monotonic() - t0
@@ -263,7 +313,7 @@ class PipelineExecutor:
         outputs = self._resolve_outputs(output_defs, context.steps_data)
 
         return PipelineResult(
-            pipeline_name=pipeline_name,
+            pipeline_name=pipeline_label,
             status=status,
             steps_completed=completed,
             steps_failed=failed,
@@ -400,6 +450,7 @@ class PipelineExecutor:
         handler_name: str = step.get("handler", step_name)
         timeout_seconds: int | None = step.get("timeout_seconds")
         retry_config: dict[str, Any] | None = step.get("retry")
+        step_params: dict[str, Any] | None = step.get("params")  # ADR-038: per-step YAML params
 
         max_attempts = 1
         delay_seconds = 0
@@ -413,7 +464,8 @@ class PipelineExecutor:
             try:
                 progress[step_name] = {"status": "in_progress", "attempt": attempt}
 
-                coro = step_dispatcher(handler_name, context.session, progress)
+                # ADR-038: Pass context and params to dispatcher for registry-based handlers
+                coro = step_dispatcher(handler_name, context.session, progress, context, step_params)
 
                 if timeout_seconds:
                     result = await asyncio.wait_for(coro, timeout=timeout_seconds)
@@ -542,8 +594,12 @@ class PipelineExecutor:
         step_status: str,
         result_data: dict[str, Any] | None = None,
         error: str | None = None,
+        pipeline_name: str | None = None,
     ) -> None:
         """Persist a single step's progress to CPA via the API client.
+
+        Uses the generic pipeline progress endpoint (ADR-034 Sprint E).
+        pipeline_name is required; defaults to "unnamed" if not provided.
 
         Args:
             context: Pipeline context with API client.
@@ -551,10 +607,12 @@ class PipelineExecutor:
             step_status: Status of the step ("completed", "failed", "skipped").
             result_data: Optional result payload for completed steps.
             error: Optional error message for failed steps.
+            pipeline_name: Pipeline key name (e.g. "instantiate", "teardown").
         """
         try:
-            await context.api.update_instantiation_progress(
+            await context.api.update_pipeline_progress(
                 session_id=context.session.id,
+                pipeline_name=pipeline_name or "unnamed",
                 step_name=step_name,
                 step_status=step_status,
                 result_data=result_data,

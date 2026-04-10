@@ -13,16 +13,18 @@ matching the fixture pattern from worker-controller G4 tests.
 """
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from application.hosted_services.lablet_reconciler import LabletReconciler
-from integration.services.cml_labs_spi import LabInfo, LabState, NodeInfo
-from integration.services.lds_spi import DeviceAccessInfo, LdsSessionInfo, LdsSpiError
 from lcm_core.domain.entities import LabletSessionReadModel
 from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
 from lcm_core.domain.enums import LabletSessionStatus
 from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
+
+from application.hosted_services.lablet_reconciler import LabletReconciler
+from application.services.pipeline_executor import PipelineExecutor
+from integration.services.cml_labs_spi import LabInfo, LabState, NodeInfo
+from integration.services.lds_spi import DeviceAccessInfo, LdsSessionInfo, LdsSpiError
 
 # =============================================================================
 # Fixtures
@@ -45,7 +47,6 @@ def make_instance(
     topology_yaml: str | None = "nodes:\n  - label: router1",
     lds_session_id: str | None = None,
     lds_login_url: str | None = None,
-    instantiation_progress: dict | None = None,
 ) -> LabletSessionReadModel:
     """Create a LabletSessionReadModel for testing."""
     return LabletSessionReadModel(
@@ -64,7 +65,6 @@ def make_instance(
         topology_yaml=topology_yaml,
         lds_session_id=lds_session_id,
         lds_login_url=lds_login_url,
-        instantiation_progress=instantiation_progress,
     )
 
 
@@ -91,9 +91,15 @@ def make_reconciler() -> LabletReconciler:
     r._runs_recorded = 0
     r._lab_run_started_at = {}
     r._resolved_lab_ids = {}
+    r._freshly_imported_sessions = set()
     r._worker_cache = {}
     r._resource_observer = None
     r._content_sync_service = None
+    # Sprint C additions
+    r._session_locks = {}
+    r._active_handlers = {}
+    r._pipeline_executor = PipelineExecutor()
+    r._pipeline_retry_counts = {}
     return r
 
 
@@ -159,7 +165,7 @@ def make_node(
 def make_lab_info(
     lab_id: str = "lab-abc",
     title: str = "Test Lab",
-    state: LabState = LabState.BOOTED,
+    state: LabState = LabState.STARTED,
 ) -> LabInfo:
     """Create a LabInfo for testing."""
     return LabInfo(id=lab_id, title=title, state=state)
@@ -203,6 +209,7 @@ class TestReconcileRouter:
 
         assert result.status == ReconciliationStatus.SUCCESS
 
+    @pytest.mark.skip(reason="ADR-034 Sprint C: _handle_instantiating refactored to fire-and-check. See test_instantiation_pipeline.py.")
     @pytest.mark.asyncio
     async def test_exception_in_handler_returns_failed(self):
         """Exception during pipeline step should be caught and return REQUEUE (with failed step)."""
@@ -210,19 +217,18 @@ class TestReconcileRouter:
         # Provide progress with lab_start as the next step (lab_resolve + lab_binding done)
         instance = make_instance(
             status="INSTANTIATING",
-            instantiation_progress={
-                "steps": [
-                    {"step": "content_sync", "requires": [], "status": "skipped"},
-                    {"step": "variables", "requires": [], "status": "skipped"},
-                    {"step": "lab_resolve", "requires": ["content_sync", "variables"], "status": "completed", "result_data": {"cml_lab_id": "lab-abc", "lab_record_id": "rec-001"}},
-                    {"step": "ports_alloc", "requires": ["lab_resolve"], "status": "skipped"},
-                    {"step": "tags_sync", "requires": ["ports_alloc"], "status": "skipped"},
-                    {"step": "lab_binding", "requires": ["lab_resolve", "tags_sync"], "status": "completed"},
-                    {"step": "lab_start", "requires": ["lab_binding"], "status": "pending"},
-                    {"step": "lds_provision", "requires": ["lab_start"], "status": "pending"},
-                    {"step": "mark_ready", "requires": ["lds_provision"], "status": "pending"},
-                ],
-                "pipeline_version": "1.0",
+            pipeline_progress={
+                "instantiate": {
+                    "content_sync": {"status": "skipped", "order": 1},
+                    "variables": {"status": "skipped", "order": 2},
+                    "lab_resolve": {"status": "completed", "order": 3, "result_data": {"cml_lab_id": "lab-abc", "lab_record_id": "rec-001"}},
+                    "ports_alloc": {"status": "skipped", "order": 4},
+                    "tags_sync": {"status": "skipped", "order": 5},
+                    "lab_binding": {"status": "completed", "order": 6},
+                    "lab_start": {"status": "pending", "order": 7},
+                    "lds_provision": {"status": "pending", "order": 8},
+                    "mark_ready": {"status": "pending", "order": 9},
+                }
             },
         )
         r._cml_labs.get_lab_state = AsyncMock(side_effect=RuntimeError("network error"))
@@ -231,7 +237,7 @@ class TestReconcileRouter:
 
         # Pipeline catches the exception and persists a failed step — returns REQUEUE
         assert result.status == ReconciliationStatus.REQUEUE
-        r._api.update_instantiation_progress.assert_awaited_once()
+        r._api.update_pipeline_progress.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_running_status_no_worker_ip_fails(self):
@@ -317,20 +323,21 @@ class TestHandleScheduled:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="ADR-034 Sprint C: _handle_instantiating refactored to fire-and-check delegation. See test_instantiation_pipeline.py.")
 class TestHandleInstantiating:
     """Tests for INSTANTIATING state — DAG-based pipeline executor (ADR-031)."""
 
     @pytest.mark.asyncio
     async def test_no_progress_bootstraps_pipeline(self):
-        """No instantiation_progress should trigger pipeline bootstrap."""
+        """No pipeline_progress should trigger pipeline bootstrap."""
         r = make_reconciler()
-        instance = make_instance(status="INSTANTIATING", instantiation_progress=None)
+        instance = make_instance(status="INSTANTIATING")
         r._definition_cache["def-001"] = make_definition()
 
         result = await r._handle_instantiating(instance)
 
         assert result.status == ReconciliationStatus.REQUEUE
-        r._api.update_instantiation_progress.assert_awaited_once()
+        r._api.update_pipeline_progress.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_no_topology_yaml_fails_in_lab_resolve(self):
@@ -390,29 +397,31 @@ class TestHandleInstantiating:
         assert "unable to import" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_lab_booted_completes_lab_start_step(self):
-        """BOOTED lab should complete the lab_start step."""
+    async def test_lab_started_converged_completes_lab_start_step(self):
+        """STARTED+converged lab should complete the lab_start step."""
         r = make_reconciler()
         instance = make_instance(status="INSTANTIATING")
-        r._cml_labs.get_lab_state.return_value = LabState.BOOTED
+        r._cml_labs.get_lab_state.return_value = LabState.STARTED
+        r._cml_labs.check_if_converged.return_value = True
 
         progress = _progress_with_lab_resolve(cml_lab_id="lab-abc")
         result = await r._step_lab_start(instance, progress)
 
         assert result["status"] == "completed"
-        assert result["result_data"]["lab_state"] == "BOOTED"
+        assert result["result_data"]["lab_state"] == "CONVERGED"
 
     @pytest.mark.asyncio
     async def test_lab_stopped_starts_lab(self):
-        """STOPPED lab should start and return failed (retry on next cycle)."""
+        """STOPPED lab should start and fail on next poll (unexpected state)."""
         r = make_reconciler()
         instance = make_instance(status="INSTANTIATING")
         r._cml_labs.get_lab_state.return_value = LabState.STOPPED
         progress = _progress_with_lab_resolve(cml_lab_id="lab-abc", lab_record_id="rec-001")
 
-        result = await r._step_lab_start(instance, progress)
+        with patch("application.hosted_services.lablet_reconciler.asyncio.sleep", new_callable=AsyncMock):
+            result = await r._step_lab_start(instance, progress)
 
-        # Returns failed (so it retries on next cycle when lab is BOOTED)
+        # Returns failed (STOPPED is unexpected in polling loop)
         assert result["status"] == "failed"
         r._cml_labs.start_lab.assert_awaited_once()
 
@@ -424,35 +433,44 @@ class TestHandleInstantiating:
         r._cml_labs.get_lab_state.return_value = LabState.DEFINED_ON_CORE
         progress = _progress_with_lab_resolve(cml_lab_id="lab-abc")
 
-        result = await r._step_lab_start(instance, progress)
+        with patch("application.hosted_services.lablet_reconciler.asyncio.sleep", new_callable=AsyncMock):
+            result = await r._step_lab_start(instance, progress)
 
-        assert result["status"] == "failed"  # Waiting for BOOTED
+        assert result["status"] == "failed"  # DEFINED_ON_CORE unexpected in polling
         r._cml_labs.start_lab.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_lab_started_requeues(self):
-        """STARTED lab (still booting) should return failed (retry)."""
+    async def test_lab_started_not_converged_polls_until_converged(self):
+        """STARTED but not converged should poll until convergence."""
         r = make_reconciler()
         instance = make_instance(status="INSTANTIATING")
         r._cml_labs.get_lab_state.return_value = LabState.STARTED
+        # First check (early path): not converged; second check (poll): converged
+        r._cml_labs.check_if_converged.side_effect = [False, True]
         progress = _progress_with_lab_resolve(cml_lab_id="lab-abc")
 
-        result = await r._step_lab_start(instance, progress)
+        with patch("application.hosted_services.lablet_reconciler.asyncio.sleep", new_callable=AsyncMock):
+            result = await r._step_lab_start(instance, progress)
 
-        assert result["status"] == "failed"  # Waiting for BOOTED
+        assert result["status"] == "completed"
+        assert result["result_data"]["lab_state"] == "CONVERGED"
         r._cml_labs.start_lab.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_lab_queued_requeues(self):
-        """QUEUED lab should return failed (retry)."""
+    async def test_lab_queued_polls_until_started_and_converged(self):
+        """QUEUED lab should poll until STARTED+converged."""
         r = make_reconciler()
         instance = make_instance(status="INSTANTIATING")
-        r._cml_labs.get_lab_state.return_value = LabState.QUEUED
+        # Initial call: QUEUED, poll1: QUEUED (continue), poll2: STARTED
+        r._cml_labs.get_lab_state.side_effect = [LabState.QUEUED, LabState.QUEUED, LabState.STARTED]
+        r._cml_labs.check_if_converged.return_value = True
         progress = _progress_with_lab_resolve(cml_lab_id="lab-abc")
 
-        result = await r._step_lab_start(instance, progress)
+        with patch("application.hosted_services.lablet_reconciler.asyncio.sleep", new_callable=AsyncMock):
+            result = await r._step_lab_start(instance, progress)
 
-        assert result["status"] == "failed"  # Waiting for BOOTED
+        assert result["status"] == "completed"
+        assert result["result_data"]["lab_state"] == "CONVERGED"
         r._cml_labs.start_lab.assert_not_awaited()
 
 
@@ -597,19 +615,19 @@ class TestHandleReady:
         assert result.status == ReconciliationStatus.FAILED
 
     @pytest.mark.asyncio
-    async def test_lab_booted_returns_success(self):
-        """Lab still BOOTED in READY state returns success."""
+    async def test_lab_started_returns_success(self):
+        """Lab STARTED in READY state returns success."""
         r = make_reconciler()
         instance = make_instance(status="READY")
-        r._cml_labs.get_lab_state.return_value = LabState.BOOTED
+        r._cml_labs.get_lab_state.return_value = LabState.STARTED
 
         result = await r._handle_ready(instance)
 
         assert result.status == ReconciliationStatus.SUCCESS
 
     @pytest.mark.asyncio
-    async def test_lab_not_booted_still_succeeds(self):
-        """Lab unexpectedly not BOOTED in READY state still returns success (warns only)."""
+    async def test_lab_not_started_still_succeeds(self):
+        """Lab unexpectedly not STARTED in READY state still returns success (warns only)."""
         r = make_reconciler()
         instance = make_instance(status="READY")
         r._cml_labs.get_lab_state.return_value = LabState.STOPPED
@@ -656,7 +674,7 @@ class TestHandleRunning:
             status="RUNNING",
             timeslot_end=datetime.now(timezone.utc) - timedelta(minutes=5),
         )
-        r._cml_labs.get_lab_state.return_value = LabState.BOOTED
+        r._cml_labs.get_lab_state.return_value = LabState.STARTED
 
         result = await r._handle_running(instance)
 
@@ -675,7 +693,7 @@ class TestHandleRunning:
             status="RUNNING",
             timeslot_end=datetime.now(timezone.utc) + timedelta(hours=1),
         )
-        r._cml_labs.get_lab_state.return_value = LabState.BOOTED
+        r._cml_labs.get_lab_state.return_value = LabState.STARTED
 
         result = await r._handle_running(instance)
 
@@ -687,7 +705,7 @@ class TestHandleRunning:
         """No timeslot_end should still sync lab state."""
         r = make_reconciler()
         instance = make_instance(status="RUNNING", timeslot_end=None)
-        r._cml_labs.get_lab_state.return_value = LabState.BOOTED
+        r._cml_labs.get_lab_state.return_value = LabState.STARTED
 
         result = await r._handle_running(instance)
 
@@ -724,6 +742,7 @@ class TestHandleRunning:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="ADR-034 Sprint D: _handle_stopping refactored to fire-and-check delegation. See test_teardown_pipeline.py.")
 class TestHandleStopping:
     """Tests for STOPPING state — archive LDS, stop/wipe/delete lab, transition to ARCHIVED."""
 
@@ -775,11 +794,11 @@ class TestHandleStopping:
         r._cml_labs.delete_lab.assert_not_awaited()  # P9: wipe only, keep for reuse
 
     @pytest.mark.asyncio
-    async def test_lab_booted_stops_first(self):
-        """BOOTED lab should be stopped and requeued."""
+    async def test_lab_started_stops_first(self):
+        """STARTED (running) lab should be stopped and requeued."""
         r = make_reconciler()
         instance = make_instance(status="STOPPING")
-        r._cml_labs.get_lab_state.return_value = LabState.BOOTED
+        r._cml_labs.get_lab_state.return_value = LabState.STARTED
 
         result = await r._handle_stopping(instance)
 
@@ -839,7 +858,11 @@ class TestBuildDeviceAccessList:
     """Tests for static device mapping from CML nodes to LDS devices."""
 
     def test_nodes_with_valid_tags(self):
-        """Nodes with protocol:port tags should produce DeviceAccessInfo entries."""
+        """Nodes with protocol:port tags should produce DeviceAccessInfo entries.
+
+        Multi-tag nodes get _{protocol} suffix to satisfy LDS unique constraint
+        on (session_part_id, device_label). Single-tag nodes keep plain label.
+        """
         nodes = [
             make_node(label="router1", tags=["ssh:22", "serial:5041"]),
             make_node(label="switch1", tags=["vnc:5044"]),
@@ -848,8 +871,10 @@ class TestBuildDeviceAccessList:
         devices = LabletReconciler._build_device_access_list(nodes, "10.0.0.1")
 
         assert len(devices) == 3
-        assert devices[0] == DeviceAccessInfo(device_label="router1", protocol="ssh", host="10.0.0.1", port=22)
-        assert devices[1] == DeviceAccessInfo(device_label="router1", protocol="serial", host="10.0.0.1", port=5041)
+        # router1 has 2 valid tags → suffixed labels
+        assert devices[0] == DeviceAccessInfo(device_label="router1_ssh", protocol="ssh", host="10.0.0.1", port=22)
+        assert devices[1] == DeviceAccessInfo(device_label="router1_serial", protocol="serial", host="10.0.0.1", port=5041)
+        # switch1 has 1 valid tag → plain label
         assert devices[2] == DeviceAccessInfo(device_label="switch1", protocol="vnc", host="10.0.0.1", port=5044)
 
     def test_nodes_without_tags_skipped(self):
@@ -861,12 +886,13 @@ class TestBuildDeviceAccessList:
         assert len(devices) == 0
 
     def test_invalid_port_skipped(self):
-        """Tags with non-numeric port should be skipped."""
+        """Tags with non-numeric port should be skipped (only 1 valid → plain label)."""
         nodes = [make_node(label="router1", tags=["ssh:abc", "vnc:5044"])]
 
         devices = LabletReconciler._build_device_access_list(nodes, "10.0.0.1")
 
         assert len(devices) == 1
+        assert devices[0].device_label == "router1"  # single valid tag → plain label
         assert devices[0].protocol == "vnc"
         assert devices[0].port == 5044
 
@@ -886,7 +912,10 @@ class TestBuildDeviceAccessList:
         assert devices == []
 
     def test_mixed_valid_and_invalid_tags(self):
-        """Mix of valid and invalid tags should only produce valid devices."""
+        """Mix of valid and invalid tags should only produce valid devices.
+
+        2 valid tags remain after filtering → suffixed labels.
+        """
         nodes = [
             make_node(label="r1", tags=["ssh:22", "badtag", "vnc:notaport", "telnet:2023"]),
         ]
@@ -894,9 +923,30 @@ class TestBuildDeviceAccessList:
         devices = LabletReconciler._build_device_access_list(nodes, "192.168.1.1")
 
         assert len(devices) == 2
+        labels = {d.device_label for d in devices}
+        assert labels == {"r1_ssh", "r1_telnet"}
         protocols = [d.protocol for d in devices]
         assert "ssh" in protocols
         assert "telnet" in protocols
+
+    def test_device_labels_unique_for_multi_tag_node(self):
+        """Regression: LDS requires unique device_label per session part.
+
+        A node with multiple protocol tags (e.g., ubuntu-desktop with serial + vnc)
+        must produce distinct device_labels to avoid LDS UniqueViolation.
+        """
+        nodes = [
+            make_node(label="ubuntu-desktop", tags=["serial:5041", "vnc:5044"]),
+        ]
+
+        devices = LabletReconciler._build_device_access_list(nodes, "98.93.120.155")
+
+        assert len(devices) == 2
+        labels = [d.device_label for d in devices]
+        # All labels must be unique
+        assert len(labels) == len(set(labels)), f"Duplicate device_labels: {labels}"
+        assert "ubuntu-desktop_serial" in labels
+        assert "ubuntu-desktop_vnc" in labels
 
 
 # =============================================================================
@@ -1201,6 +1251,7 @@ class TestBootLeadTimeFromDefinition:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="ADR-034 Sprint C: _build_default_progress() removed (AD-PIPELINE-009). Topology tests covered in test_instantiation_pipeline.py.")
 class TestTopologyFromDefinition:
     """Tests for resolving topology_yaml in _step_lab_resolve (formerly in _handle_instantiating)."""
 

@@ -162,6 +162,7 @@ class LifecyclePhaseHandler:
                 context=self._context,
                 step_dispatcher=self._step_dispatcher,
                 existing_progress=self._existing_progress,
+                pipeline_name=self.pipeline_name,
             )
             self._result = result
             await self._on_complete(result)

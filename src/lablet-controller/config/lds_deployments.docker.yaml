@@ -9,6 +9,10 @@
 deployments:
     us-east-1:
         base_url: 'http://lds-backend:4000'
+        # frontend_base_url: Browser-facing URL for launch URLs.
+        # In Docker, the LDS API is at lds-backend:4000 (internal), but
+        # the end-user's browser must reach LDS via the exposed port.
+        frontend_base_url: 'http://localhost:8048'
         username: 'testuser1'
         password: 'testpass1'
         timeout_seconds: 30
@@ -16,6 +20,7 @@ deployments:
 
     us-west-2:
         base_url: 'http://lds-backend:4000'
+        frontend_base_url: 'http://localhost:8048'
         username: 'testuser1'
         password: 'testpass1'
         timeout_seconds: 30

@@ -1,11 +1,14 @@
-"""Unit tests for ADR-031/ADR-034 Instantiation Pipeline — steps and delegation.
+"""Unit tests for ADR-031/ADR-034 Instantiation Pipeline — delegation and helpers.
 
 Covers:
 - Pipeline delegation: _handle_instantiating fire-and-check pattern (Sprint C)
-- Step methods: _step_content_sync, _step_variables, _step_lab_resolve, _step_ports_alloc,
-  _step_tags_sync, _step_lab_binding, _step_lab_start, _step_lds_provision, _step_mark_ready
 - Helper methods: _get_pipeline_def, _build_pipeline_context, _build_step_dispatcher
+- Resumability: progress persistence across reconciliation cycles
 - Timeslot expiry: _handle_expired, early expiry check in reconcile()
+
+Note: Individual step handler logic tests (content_sync, lab_resolve, etc.)
+are covered by registry handler tests. The inline _step_* methods were removed
+in ADR-038 Task 2.
 
 Pattern: Uses object.__new__(LabletReconciler) to bypass complex __init__,
 matching the fixture pattern from G5 tests.
@@ -15,15 +18,14 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from lcm_core.domain.entities import LabletSessionReadModel
+from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
+from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
+
 from application.hosted_services.lablet_reconciler import LabletReconciler
 from application.models.pipeline_result import PipelineResult
 from application.services.lifecycle_phase_handler import LifecyclePhaseHandler
 from application.services.pipeline_executor import PipelineExecutor
-from integration.services.cml_labs_spi import NodeInfo
-from integration.services.lds_spi import LdsSessionInfo, LdsSpiError
-from lcm_core.domain.entities import LabletSessionReadModel
-from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
-from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
 
 # =============================================================================
 # Fixtures
@@ -46,7 +48,7 @@ def make_instance(
     topology_yaml: str | None = "nodes:\n  - label: router1",
     lds_session_id: str | None = None,
     lds_login_url: str | None = None,
-    instantiation_progress: dict | None = None,
+    pipeline_progress: dict | None = None,
 ) -> LabletSessionReadModel:
     """Create a LabletSessionReadModel for testing."""
     return LabletSessionReadModel(
@@ -65,7 +67,7 @@ def make_instance(
         topology_yaml=topology_yaml,
         lds_session_id=lds_session_id,
         lds_login_url=lds_login_url,
-        instantiation_progress=instantiation_progress,
+        pipeline_progress=pipeline_progress,
     )
 
 
@@ -95,6 +97,7 @@ def make_reconciler() -> LabletReconciler:
     r._runs_recorded = 0
     r._lab_run_started_at = {}
     r._resolved_lab_ids = {}
+    r._freshly_imported_sessions = set()
     r._worker_cache = {}
     r._resource_observer = None
     r._content_sync_service = None
@@ -103,6 +106,10 @@ def make_reconciler() -> LabletReconciler:
     r._active_handlers = {}
     r._pipeline_executor = PipelineExecutor()
     r._pipeline_retry_counts = {}
+    # ADR-038: Pipeline template resolver
+    from application.services.pipeline_template_resolver import PipelineTemplateResolver
+
+    r._template_resolver = PipelineTemplateResolver()
     return r
 
 
@@ -129,11 +136,14 @@ def make_definition(
 def _progress_with_lab_resolve(
     cml_lab_id: str = "lab-abc",
     lab_record_id: str | None = "rec-001",
+    cml_lab_title: str | None = None,
 ) -> dict:
     """Build a progress dict where lab_resolve is completed (Sprint C dict-of-dicts format)."""
     result_data: dict = {"cml_lab_id": cml_lab_id}
     if lab_record_id:
         result_data["lab_record_id"] = lab_record_id
+    if cml_lab_title is not None:
+        result_data["cml_lab_title"] = cml_lab_title
     return {
         "content_sync": {"status": "skipped"},
         "variables": {"status": "skipped"},
@@ -246,11 +256,17 @@ class TestBuildPipelineContext:
 
 
 class TestBuildStepDispatcher:
-    """Tests for _build_step_dispatcher closure."""
+    """Tests for _build_step_dispatcher closure.
+
+    ADR-038: The dispatcher now tries the StepHandlerRegistry first,
+    falling back to getattr(reconciler, f"_step_{handler_name}").
+    These tests patch get_handler → None to test the fallback path.
+    """
 
     @pytest.mark.asyncio
-    async def test_dispatches_to_step_method(self):
-        """Dispatcher should call _step_{handler_name} on the reconciler."""
+    @patch("application.hosted_services.lablet_reconciler.get_handler", return_value=None)
+    async def test_dispatches_to_step_method(self, mock_get_handler):
+        """Dispatcher should call _step_{handler_name} on the reconciler (fallback path)."""
         r = make_reconciler()
         r._step_lab_resolve = AsyncMock(return_value={"step": "lab_resolve", "status": "completed", "result_data": {"cml_lab_id": "lab-123"}})
         dispatch = r._build_step_dispatcher()
@@ -261,7 +277,8 @@ class TestBuildStepDispatcher:
         assert result == {"cml_lab_id": "lab-123"}
 
     @pytest.mark.asyncio
-    async def test_raises_on_unknown_handler(self):
+    @patch("application.hosted_services.lablet_reconciler.get_handler", return_value=None)
+    async def test_raises_on_unknown_handler(self, mock_get_handler):
         """Dispatcher should raise RuntimeError for unknown step handler."""
         r = make_reconciler()
         dispatch = r._build_step_dispatcher()
@@ -270,7 +287,8 @@ class TestBuildStepDispatcher:
             await dispatch("nonexistent_step", MagicMock(), {})
 
     @pytest.mark.asyncio
-    async def test_raises_on_step_failure(self):
+    @patch("application.hosted_services.lablet_reconciler.get_handler", return_value=None)
+    async def test_raises_on_step_failure(self, mock_get_handler):
         """Dispatcher should raise RuntimeError when step handler returns failed status."""
         r = make_reconciler()
         r._step_lab_start = AsyncMock(return_value={"step": "lab_start", "status": "failed", "error": "network error"})
@@ -280,7 +298,8 @@ class TestBuildStepDispatcher:
             await dispatch("lab_start", MagicMock(), {})
 
     @pytest.mark.asyncio
-    async def test_returns_empty_dict_when_no_result_data(self):
+    @patch("application.hosted_services.lablet_reconciler.get_handler", return_value=None)
+    async def test_returns_empty_dict_when_no_result_data(self, mock_get_handler):
         """Dispatcher should return {} when handler has no result_data."""
         r = make_reconciler()
         r._step_mark_ready = AsyncMock(return_value={"step": "mark_ready", "status": "completed"})
@@ -306,7 +325,7 @@ class TestHandleInstantiatingDelegation:
         defn = make_definition()
         defn.pipelines = {"instantiate": INSTANTIATE_PIPELINE}
         r._definition_cache["def-001"] = defn
-        instance = make_instance(instantiation_progress=None)
+        instance = make_instance()
 
         # Patch LifecyclePhaseHandler to avoid real asyncio task
         with patch.object(LifecyclePhaseHandler, "start", new_callable=AsyncMock) as mock_start:
@@ -403,7 +422,7 @@ class TestHandleInstantiatingDelegation:
         defn = make_definition()
         defn.pipelines = {}  # No instantiate pipeline
         r._definition_cache["def-001"] = defn
-        instance = make_instance(instantiation_progress=None)
+        instance = make_instance()
 
         result = await r._handle_instantiating(instance)
 
@@ -439,7 +458,7 @@ class TestHandleInstantiatingDelegation:
         defn.pipelines = {"instantiate": INSTANTIATE_PIPELINE}
         r._definition_cache["def-001"] = defn
         progress = {"lab_resolve": {"status": "completed", "result_data": {"cml_lab_id": "lab-abc"}}}
-        instance = make_instance(instantiation_progress=progress)
+        instance = make_instance(pipeline_progress={"instantiate": progress})
 
         with patch.object(LifecyclePhaseHandler, "__init__", return_value=None) as mock_init:
             with patch.object(LifecyclePhaseHandler, "start", new_callable=AsyncMock):
@@ -452,337 +471,143 @@ class TestHandleInstantiatingDelegation:
 
 
 # =============================================================================
+# _get_existing_progress helper (ADR-034 Sprint F)
+# =============================================================================
+
+
+class TestGetExistingProgress:
+    """Tests for _get_existing_progress — pipeline_progress lookup."""
+
+    def test_returns_none_when_no_progress(self):
+        """Should return None when instance has no progress at all."""
+        r = make_reconciler()
+        instance = make_instance(pipeline_progress=None)
+
+        result = r._get_existing_progress(instance, "instantiate")
+
+        assert result is None
+
+    def test_returns_progress_when_available(self):
+        """Should return pipeline_progress[pipeline_name]."""
+        r = make_reconciler()
+        generic = {"lab_resolve": {"status": "completed", "result_data": {"cml_lab_id": "lab-new"}}}
+        instance = make_instance(
+            pipeline_progress={"instantiate": generic},
+        )
+
+        result = r._get_existing_progress(instance, "instantiate")
+
+        assert result is generic
+        assert result["lab_resolve"]["result_data"]["cml_lab_id"] == "lab-new"
+
+    def test_returns_teardown_progress(self):
+        """Should return pipeline_progress['teardown'] for teardown pipeline."""
+        r = make_reconciler()
+        teardown_progress = {"stop_lab": {"status": "completed", "result_data": {}}}
+        instance = make_instance(
+            pipeline_progress={"teardown": teardown_progress},
+        )
+
+        result = r._get_existing_progress(instance, "teardown")
+
+        assert result is teardown_progress
+
+    def test_returns_collect_evidence_progress(self):
+        """Should return pipeline_progress['collect_evidence'] for evidence pipeline."""
+        r = make_reconciler()
+        evidence_progress = {"capture_configs": {"status": "completed", "result_data": {}}}
+        instance = make_instance(
+            pipeline_progress={"collect_evidence": evidence_progress},
+        )
+
+        result = r._get_existing_progress(instance, "collect_evidence")
+
+        assert result is evidence_progress
+
+    def test_returns_compute_grading_progress(self):
+        """Should return pipeline_progress['compute_grading'] for grading pipeline."""
+        r = make_reconciler()
+        grading_progress = {"load_rubric": {"status": "completed", "result_data": {}}}
+        instance = make_instance(
+            pipeline_progress={"compute_grading": grading_progress},
+        )
+
+        result = r._get_existing_progress(instance, "compute_grading")
+
+        assert result is grading_progress
+
+    def test_returns_none_for_absent_pipeline_key(self):
+        """Should return None when pipeline_progress exists but has no key for requested pipeline."""
+        r = make_reconciler()
+        instance = make_instance(
+            pipeline_progress={"instantiate": {"lab_resolve": {"status": "completed"}}},
+        )
+
+        result = r._get_existing_progress(instance, "teardown")
+
+        assert result is None
+
+    def test_skips_empty_progress_dict(self):
+        """Should return None when pipeline_progress has an empty dict for the key."""
+        r = make_reconciler()
+        instance = make_instance(
+            pipeline_progress={"instantiate": {}},
+        )
+
+        result = r._get_existing_progress(instance, "instantiate")
+
+        # Empty dict is falsy — should fall back
+        assert result is None
+
+
+class TestHandleInstantiatingResumability:
+    """Tests for Sprint F resumability — _handle_instantiating uses pipeline_progress."""
+
+    @pytest.mark.asyncio
+    async def test_uses_pipeline_progress(self):
+        """Should pass pipeline_progress[instantiate] to handler."""
+        r = make_reconciler()
+        defn = make_definition()
+        defn.pipelines = {"instantiate": INSTANTIATE_PIPELINE}
+        r._definition_cache["def-001"] = defn
+
+        generic = {"lab_resolve": {"status": "completed", "result_data": {"cml_lab_id": "lab-new"}}}
+        instance = make_instance(
+            pipeline_progress={"instantiate": generic},
+        )
+
+        with patch.object(LifecyclePhaseHandler, "__init__", return_value=None) as mock_init:
+            with patch.object(LifecyclePhaseHandler, "start", new_callable=AsyncMock):
+                result = await r._handle_instantiating(instance)
+
+        assert result.status == ReconciliationStatus.SUCCESS
+        # Verify the handler was created with the generic progress
+        init_kwargs = mock_init.call_args
+        assert init_kwargs.kwargs.get("existing_progress") is generic
+
+    @pytest.mark.asyncio
+    async def test_passes_none_when_no_progress(self):
+        """Should pass None when no pipeline progress exists."""
+        r = make_reconciler()
+        defn = make_definition()
+        defn.pipelines = {"instantiate": INSTANTIATE_PIPELINE}
+        r._definition_cache["def-001"] = defn
+
+        instance = make_instance(
+            pipeline_progress=None,
+        )
+
+        with patch.object(LifecyclePhaseHandler, "__init__", return_value=None) as mock_init:
+            with patch.object(LifecyclePhaseHandler, "start", new_callable=AsyncMock):
+                result = await r._handle_instantiating(instance)
+
+        assert result.status == ReconciliationStatus.SUCCESS
+        init_kwargs = mock_init.call_args
+        assert init_kwargs.kwargs.get("existing_progress") is None
+
+
+# =============================================================================
 # Step Methods — _step_content_sync
-# =============================================================================
-
-
-class TestStepContentSync:
-    """Tests for _step_content_sync."""
-
-    @pytest.mark.asyncio
-    async def test_skips_when_not_enabled(self):
-        """Should skip when definition has no content_sync_enabled."""
-        r = make_reconciler()
-        r._definition_cache["def-001"] = make_definition(content_sync_enabled=False)
-        instance = make_instance()
-        progress: dict = {}
-
-        result = await r._step_content_sync(instance, progress)
-
-        assert result["status"] == "skipped"
-
-    @pytest.mark.asyncio
-    async def test_completes_when_synced(self):
-        """Should complete when definition sync_status is 'synced'."""
-        r = make_reconciler()
-        definition = make_definition(content_sync_enabled=True)
-        definition.sync_status = "synced"  # type: ignore[attr-defined]
-        r._definition_cache["def-001"] = definition
-        instance = make_instance()
-        progress: dict = {}
-
-        result = await r._step_content_sync(instance, progress)
-
-        assert result["status"] == "completed"
-        assert result["result_data"]["sync_status"] == "synced"
-
-    @pytest.mark.asyncio
-    async def test_fails_when_not_synced(self):
-        """Should fail when content is not yet synced."""
-        r = make_reconciler()
-        definition = make_definition(content_sync_enabled=True)
-        definition.sync_status = "not_synced"  # type: ignore[attr-defined]
-        r._definition_cache["def-001"] = definition
-        instance = make_instance()
-        progress: dict = {}
-
-        result = await r._step_content_sync(instance, progress)
-
-        assert result["status"] == "failed"
-        assert "not synced" in result["error"].lower()
-
-
-# =============================================================================
-# Step Methods — _step_variables
-# =============================================================================
-
-
-class TestStepVariables:
-    """Tests for _step_variables (placeholder step)."""
-
-    @pytest.mark.asyncio
-    async def test_skips_when_no_variables(self):
-        """Should skip when definition has no variables."""
-        r = make_reconciler()
-        r._definition_cache["def-001"] = make_definition()
-        instance = make_instance()
-        progress: dict = {}
-
-        result = await r._step_variables(instance, progress)
-
-        assert result["status"] == "skipped"
-
-
-# =============================================================================
-# Step Methods — _step_ports_alloc
-# =============================================================================
-
-
-class TestStepPortsAlloc:
-    """Tests for _step_ports_alloc."""
-
-    @pytest.mark.asyncio
-    async def test_skips_when_no_port_template(self):
-        """Should skip when definition has no port_template."""
-        r = make_reconciler()
-        r._definition_cache["def-001"] = make_definition()
-        instance = make_instance()
-        progress: dict = {}
-
-        result = await r._step_ports_alloc(instance, progress)
-
-        assert result["status"] == "skipped"
-
-    @pytest.mark.asyncio
-    async def test_calls_allocate_ports(self):
-        """Should call CPA allocate_lab_record_ports with lab_record_id."""
-        r = make_reconciler()
-        r._definition_cache["def-001"] = make_definition(port_template={"ssh": 22})
-        r._api.allocate_lab_record_ports.return_value = {"allocated_ports": {"router1_ssh": 30001}}
-        instance = make_instance()
-        progress = _progress_with_lab_resolve()
-
-        result = await r._step_ports_alloc(instance, progress)
-
-        assert result["status"] == "completed"
-        r._api.allocate_lab_record_ports.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_fails_without_lab_record_id(self):
-        """Should fail when lab_resolve didn't produce lab_record_id."""
-        r = make_reconciler()
-        r._definition_cache["def-001"] = make_definition(port_template={"ssh": 22})
-        instance = make_instance()
-        progress = _progress_with_lab_resolve(lab_record_id=None)
-
-        result = await r._step_ports_alloc(instance, progress)
-
-        assert result["status"] == "failed"
-        assert "lab_record_id" in result["error"]
-
-
-# =============================================================================
-# Step Methods — _step_tags_sync
-# =============================================================================
-
-
-class TestStepTagsSync:
-    """Tests for _step_tags_sync."""
-
-    @pytest.mark.asyncio
-    async def test_skips_when_no_ports_data(self):
-        """Should skip when ports_alloc has no result data."""
-        r = make_reconciler()
-        instance = make_instance()
-        progress = _progress_with_lab_resolve()
-
-        result = await r._step_tags_sync(instance, progress)
-
-        assert result["status"] == "skipped"
-
-    @pytest.mark.asyncio
-    async def test_patches_node_tags(self):
-        """Should call patch_node_tags for each node with allocated ports."""
-        r = make_reconciler()
-        instance = make_instance()
-        # Set up progress with ports_alloc completed
-        progress = _progress_with_lab_resolve()
-        progress["ports_alloc"] = {
-            "status": "completed",
-            "result_data": {"allocated_ports": {"router1_ssh": 30001, "router1_telnet": 30002}},
-        }
-
-        # Mock CML nodes
-        node = NodeInfo(id="n0", label="router1", node_definition="iosv", state="BOOTED", tags=[])
-        r._cml_labs.get_lab_nodes.return_value = [node]
-
-        result = await r._step_tags_sync(instance, progress)
-
-        assert result["status"] == "completed"
-        r._cml_labs.patch_node_tags.assert_awaited_once()
-        call_kwargs = r._cml_labs.patch_node_tags.call_args.kwargs
-        assert "ssh:30001" in call_kwargs["tags"]
-        assert "telnet:30002" in call_kwargs["tags"]
-
-
-# =============================================================================
-# Step Methods — _step_lab_binding
-# =============================================================================
-
-
-class TestStepLabBinding:
-    """Tests for _step_lab_binding."""
-
-    @pytest.mark.asyncio
-    async def test_calls_bind_lab_to_session(self):
-        """Should call CPA bind_lab_to_session with correct args."""
-        r = make_reconciler()
-        r._api.bind_lab_to_session.return_value = {"lab_run_id": "run-001"}
-        instance = make_instance()
-        progress = _progress_with_lab_resolve()
-
-        result = await r._step_lab_binding(instance, progress)
-
-        assert result["status"] == "completed"
-        r._api.bind_lab_to_session.assert_awaited_once_with(
-            session_id="inst-001",
-            worker_id="worker-001",
-            lab_record_id="rec-001",
-        )
-        assert r._bindings_created == 1
-
-    @pytest.mark.asyncio
-    async def test_fails_without_lab_record_id(self):
-        """Should fail when lab_resolve has no lab_record_id."""
-        r = make_reconciler()
-        instance = make_instance()
-        progress = _progress_with_lab_resolve(lab_record_id=None)
-
-        result = await r._step_lab_binding(instance, progress)
-
-        assert result["status"] == "failed"
-        assert "lab_record_id" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_api_error_returns_failed(self):
-        """CPA error should return failed step."""
-        r = make_reconciler()
-        r._api.bind_lab_to_session.side_effect = RuntimeError("CPA down")
-        instance = make_instance()
-        progress = _progress_with_lab_resolve()
-
-        result = await r._step_lab_binding(instance, progress)
-
-        assert result["status"] == "failed"
-        assert "CPA down" in result["error"]
-
-
-# =============================================================================
-# Step Methods — _step_lds_provision
-# =============================================================================
-
-
-class TestStepLdsProvision:
-    """Tests for _step_lds_provision."""
-
-    @pytest.mark.asyncio
-    async def test_skips_when_no_form_qualified_name(self):
-        """Should skip when definition has no form_qualified_name (no LDS)."""
-        r = make_reconciler()
-        r._definition_cache["def-001"] = make_definition(form_qualified_name=None)
-        instance = make_instance()
-        progress = _progress_with_lab_resolve()
-
-        result = await r._step_lds_provision(instance, progress)
-
-        assert result["status"] == "skipped"
-
-    @pytest.mark.asyncio
-    async def test_lds_error_returns_failed(self):
-        """LDS SPI error should return failed step."""
-        r = make_reconciler()
-        r._definition_cache["def-001"] = make_definition()
-        instance = make_instance()
-        progress = _progress_with_lab_resolve()
-        r._cml_labs.get_lab_nodes.return_value = []
-        r._lds.create_session.side_effect = LdsSpiError("LDS unavailable")
-
-        result = await r._step_lds_provision(instance, progress)
-
-        assert result["status"] == "failed"
-        assert "LDS" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_happy_path(self):
-        """Full LDS provisioning should create session, set devices, get URL, create user session."""
-        r = make_reconciler()
-        r._definition_cache["def-001"] = make_definition()
-        instance = make_instance()
-        progress = _progress_with_lab_resolve()
-
-        r._cml_labs.get_lab_nodes.return_value = []
-        r._lds.create_session.return_value = LdsSessionInfo(session_id="lds-001", login_url="", status="active")
-        r._lds.get_lablet_launch_url.return_value = "https://lds.example.com/launch/lds-001"
-        r._api.create_user_session.return_value = {"id": "us-001"}
-
-        result = await r._step_lds_provision(instance, progress)
-
-        assert result["status"] == "completed"
-        assert result["result_data"]["lds_session_id"] == "lds-001"
-        assert result["result_data"]["user_session_id"] == "us-001"
-        assert r._lds_sessions_created == 1
-
-
-# =============================================================================
-# Step Methods — _step_mark_ready
-# =============================================================================
-
-
-class TestStepMarkReady:
-    """Tests for _step_mark_ready."""
-
-    @pytest.mark.asyncio
-    async def test_calls_mark_session_ready(self):
-        """Should call CPA mark_session_ready with resolved IDs."""
-        r = make_reconciler()
-        r._resolved_lab_ids["inst-001"] = "lab-abc"
-        instance = make_instance()
-        # Progress with lab_resolve and lds_provision completed
-        progress = _progress_with_lab_resolve()
-        progress["lds_provision"] = {
-            "status": "completed",
-            "result_data": {"lds_session_id": "lds-001", "user_session_id": "us-001"},
-        }
-
-        result = await r._step_mark_ready(instance, progress)
-
-        assert result["status"] == "completed"
-        r._api.mark_session_ready.assert_awaited_once_with(
-            session_id="inst-001",
-            user_session_id="us-001",
-            cml_lab_id="lab-abc",
-        )
-        # Should clean up resolved_lab_ids
-        assert "inst-001" not in r._resolved_lab_ids
-
-    @pytest.mark.asyncio
-    async def test_fails_without_cml_lab_id(self):
-        """Should fail when lab_resolve has no result data."""
-        r = make_reconciler()
-        instance = make_instance()
-        progress = {"lab_resolve": {"status": "completed"}}
-
-        result = await r._step_mark_ready(instance, progress)
-
-        assert result["status"] == "failed"
-        assert "cml_lab_id" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_api_error_returns_failed(self):
-        """CPA error should return failed step."""
-        r = make_reconciler()
-        instance = make_instance()
-        progress = _progress_with_lab_resolve()
-        r._api.mark_session_ready.side_effect = RuntimeError("CPA down")
-
-        result = await r._step_mark_ready(instance, progress)
-
-        assert result["status"] == "failed"
-        assert "CPA down" in result["error"]
-
-
-# =============================================================================
-# Timeslot Expiry
 # =============================================================================
 
 
@@ -842,7 +667,6 @@ class TestTimeslotExpiryCheck:
         instance = make_instance(
             status="INSTANTIATING",
             timeslot_end=future,
-            instantiation_progress=None,
         )
         r._worker_cache["worker-001"] = MagicMock(status="running")
         defn = make_definition()
@@ -863,7 +687,6 @@ class TestTimeslotExpiryCheck:
         instance = make_instance(
             status="INSTANTIATING",
             timeslot_end=None,
-            instantiation_progress=None,
         )
         r._worker_cache["worker-001"] = MagicMock(status="running")
         defn = make_definition()

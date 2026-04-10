@@ -729,7 +729,10 @@ class TestBuildDeviceAccessList:
         assert devices[0].port == 22
 
     def test_single_node_multiple_tags(self):
-        """Test a node with multiple protocol:port tags."""
+        """Test a node with multiple protocol:port tags.
+
+        Multi-tag nodes get _{protocol} suffix to satisfy LDS unique constraint.
+        """
         nodes = [self._make_node("Router1", ["serial:5041", "vnc:5044", "ssh:22"])]
         devices = self.LabletReconciler._build_device_access_list(nodes, "10.0.0.1")
 
@@ -737,13 +740,17 @@ class TestBuildDeviceAccessList:
         protocols = {d.protocol for d in devices}
         assert protocols == {"serial", "vnc", "ssh"}
 
-        # All should have same label and host
+        # All labels should be unique and suffixed with protocol
+        labels = {d.device_label for d in devices}
+        assert labels == {"Router1_serial", "Router1_vnc", "Router1_ssh"}
         for d in devices:
-            assert d.device_label == "Router1"
             assert d.host == "10.0.0.1"
 
     def test_multiple_nodes(self):
-        """Test multiple nodes with tags."""
+        """Test multiple nodes with tags.
+
+        Router1 has 1 tag → plain label. Switch1 has 2 tags → suffixed labels.
+        """
         nodes = [
             self._make_node("Router1", ["ssh:22"]),
             self._make_node("Switch1", ["telnet:23", "vnc:5900"]),
@@ -753,10 +760,12 @@ class TestBuildDeviceAccessList:
         assert len(devices) == 3
 
         router_devices = [d for d in devices if d.device_label == "Router1"]
-        switch_devices = [d for d in devices if d.device_label == "Switch1"]
+        switch_devices = [d for d in devices if d.device_label.startswith("Switch1")]
 
-        assert len(router_devices) == 1
-        assert len(switch_devices) == 2
+        assert len(router_devices) == 1  # single tag → plain label
+        assert len(switch_devices) == 2  # multi-tag → suffixed labels
+        switch_labels = {d.device_label for d in switch_devices}
+        assert switch_labels == {"Switch1_telnet", "Switch1_vnc"}
 
     def test_node_without_tags_skipped(self):
         """Test that nodes without tags are skipped."""

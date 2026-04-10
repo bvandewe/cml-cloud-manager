@@ -29,11 +29,11 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from integration.services.cml_labs_spi import CmlLabsSpiClient
 from lcm_core.integration.clients import ControlPlaneApiClient
 from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
 
 from application.settings import Settings
+from integration.services.cml_labs_spi import CmlLabsSpiClient
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection

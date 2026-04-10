@@ -122,6 +122,14 @@ class LdsDeploymentConfig:
     """Configuration for a single LDS deployment instance.
 
     Loaded from config/lds_deployments.yaml.
+
+    Attributes:
+        base_url: Internal API base URL (e.g. http://lds-backend:4000).
+            Used for server-to-server API calls.
+        frontend_base_url: Browser-facing base URL (e.g. http://localhost:8048).
+            When set, launch URLs returned by the LDS API will have their
+            host rewritten from base_url to frontend_base_url so the URL
+            is reachable from the end-user's browser.
     """
 
     region: str
@@ -130,6 +138,7 @@ class LdsDeploymentConfig:
     password: str
     timeout_seconds: float = 30.0
     label: str = ""
+    frontend_base_url: str = ""  # Browser-facing URL; empty = use base_url as-is
 
     @classmethod
     def from_dict(cls, region: str, data: dict[str, Any]) -> "LdsDeploymentConfig":
@@ -141,6 +150,7 @@ class LdsDeploymentConfig:
             password=data.get("password", ""),
             timeout_seconds=float(data.get("timeout_seconds", 30)),
             label=data.get("label", f"LDS {region}"),
+            frontend_base_url=data.get("frontend_base_url", "").rstrip("/"),
         )
 
 
@@ -537,6 +547,18 @@ class LdsSpiClient:
 
             data = response.json()
             launch_url = data.get("url", "")
+
+            # Rewrite internal base_url to browser-facing frontend_base_url
+            # so the launch URL is reachable from the end-user's browser.
+            if deployment.frontend_base_url and launch_url and deployment.base_url:
+                if launch_url.startswith(deployment.base_url):
+                    launch_url = deployment.frontend_base_url + launch_url[len(deployment.base_url) :]
+                    logger.debug(
+                        "Rewrote LDS launch URL: %s → %s (frontend_base_url)",
+                        deployment.base_url,
+                        deployment.frontend_base_url,
+                    )
+
             logger.info(f"Got lablet launch URL for session {session_id}")
             return launch_url
 

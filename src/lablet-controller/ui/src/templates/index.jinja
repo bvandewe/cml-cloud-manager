@@ -34,6 +34,18 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="sessions-tab" data-bs-toggle="tab" data-bs-target="#sessions" type="button"
+                    role="tab" aria-controls="sessions" aria-selected="false">
+                    <i class="bi bi-collection me-1"></i> Sessions
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="services-tab" data-bs-toggle="tab" data-bs-target="#services" type="button"
+                    role="tab" aria-controls="services" aria-selected="false">
+                    <i class="bi bi-diagram-3 me-1"></i> Services
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="status-tab" data-bs-toggle="tab" data-bs-target="#status" type="button"
                     role="tab" aria-controls="status" aria-selected="false">
                     <i class="bi bi-activity me-1"></i> Status
@@ -55,6 +67,22 @@
 
                     <!-- Quick Links -->
                     <service-links theme-color="{{ themeColor | default('#2ecc71') }}"></service-links>
+                </div>
+            </div>
+
+            <!-- Sessions Tab -->
+            <div class="tab-pane fade" id="sessions" role="tabpanel" aria-labelledby="sessions-tab">
+                <div class="content-section">
+                    <sessions-overview theme-color="{{ themeColor | default('#2ecc71') }}"
+                        refresh-interval="30000"></sessions-overview>
+                </div>
+            </div>
+
+            <!-- Services Tab -->
+            <div class="tab-pane fade" id="services" role="tabpanel" aria-labelledby="services-tab">
+                <div class="content-section">
+                    <sub-services-card theme-color="{{ themeColor | default('#2ecc71') }}"
+                        refresh-interval="30000"></sub-services-card>
                 </div>
             </div>
 
