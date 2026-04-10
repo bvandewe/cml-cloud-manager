@@ -17,13 +17,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from domain.enums import CMLServiceStatus
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from neuroglia.core import OperationResult
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
+
+from domain.enums import CMLServiceStatus
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -141,9 +142,12 @@ class UpdateWorkerCmlDataCommandHandler(
         # Without this, the resource-scheduler sees 0 capacity and rejects all workers.
         try:
             sys_info = request.system_info or {}
-            cpu_count = sys_info.get("cpu_count")
-            memory_total = sys_info.get("memory_total")  # bytes
-            disk_total = sys_info.get("disk_total")  # bytes
+            # Worker-controller sends system_stats keys with "all_" prefix
+            # (all_cpu_count, all_memory_total, all_disk_total).
+            # Try prefixed keys first, fall back to unprefixed for backward compat.
+            cpu_count = sys_info.get("all_cpu_count") or sys_info.get("cpu_count")
+            memory_total = sys_info.get("all_memory_total") or sys_info.get("memory_total")  # bytes
+            disk_total = sys_info.get("all_disk_total") or sys_info.get("disk_total")  # bytes
 
             if cpu_count and memory_total and disk_total:
                 derived_cpu = int(cpu_count)

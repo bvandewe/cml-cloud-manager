@@ -223,6 +223,13 @@ class Settings(ApplicationSettings):
     lds_timeout: float = 30.0  # HTTP request timeout in seconds for LDS API calls
     lds_direct_mode: bool = False  # If True, CPA calls LDS directly; if False, delegates to lablet-controller
 
+    # LDS CloudEvent Ingestion — events published by pylds (Lab Delivery System)
+    # The CloudEventMiddleware intercepts incoming POSTs with Content-Type: application/cloudevents+json
+    # and routes them to handlers in application/events/integration/ via CloudEventIngestor.
+    lds_cloudevent_source: str = "https://labs.lcm.io"  # Expected `source` field in incoming LDS events
+    lds_cloudevent_type_prefix: str = "io.lablet.lds"  # Prefix for LDS event types (e.g. io.lablet.lds.session.running.v1)
+    lds_cloudevent_enabled: bool = True  # Whether to process incoming LDS CloudEvents
+
     # ============================================================================
     # Observability (OpenTelemetry)
     # ============================================================================

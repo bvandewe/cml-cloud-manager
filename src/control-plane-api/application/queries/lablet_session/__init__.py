@@ -12,6 +12,10 @@ from application.queries.lablet_session.get_lablet_session_query import (
     GetLabletSessionQuery,
     GetLabletSessionQueryHandler,
 )
+from application.queries.lablet_session.get_pipeline_progress_query import (
+    GetPipelineProgressQuery,
+    GetPipelineProgressQueryHandler,
+)
 from application.queries.lablet_session.get_score_report_query import (
     GetScoreReportQuery,
     GetScoreReportQueryHandler,
@@ -28,6 +32,10 @@ from application.queries.lablet_session.list_lablet_sessions_query import (
     ListLabletSessionsQuery,
     ListLabletSessionsQueryHandler,
 )
+from application.queries.lablet_session.list_pipeline_executions_query import (
+    ListPipelineExecutionsQuery,
+    ListPipelineExecutionsQueryHandler,
+)
 from application.queries.lablet_session.list_score_reports_query import (
     ListScoreReportsQuery,
     ListScoreReportsQueryHandler,
@@ -40,6 +48,8 @@ __all__ = [
     "GetGradingSessionQueryHandler",
     "GetLabletSessionQuery",
     "GetLabletSessionQueryHandler",
+    "GetPipelineProgressQuery",
+    "GetPipelineProgressQueryHandler",
     "GetScoreReportQuery",
     "GetScoreReportQueryHandler",
     "GetSessionsWithImminentDeadlinesQuery",
@@ -48,6 +58,8 @@ __all__ = [
     "GetUserSessionQueryHandler",
     "ListLabletSessionsQuery",
     "ListLabletSessionsQueryHandler",
+    "ListPipelineExecutionsQuery",
+    "ListPipelineExecutionsQueryHandler",
     "ListScoreReportsQuery",
     "ListScoreReportsQueryHandler",
 ]

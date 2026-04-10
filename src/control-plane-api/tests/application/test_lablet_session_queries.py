@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from lcm_core.domain.enums import LabRecordStatus
+
 from application.queries.lablet_session.get_lablet_session_query import (
     GetLabletSessionQuery,
     GetLabletSessionQueryHandler,
@@ -28,7 +30,7 @@ from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
-from lcm_core.domain.enums import LabRecordStatus
+from domain.repositories.user_session_repository import UserSessionRepository
 
 # =============================================================================
 # Shared fixtures
@@ -46,6 +48,7 @@ def mock_session_repository() -> MagicMock:
     mock.list_by_definition_async = AsyncMock(return_value=[])
     mock.list_pending_async = AsyncMock(return_value=[])
     mock.list_active_async = AsyncMock(return_value=[])
+    mock.list_by_statuses_async = AsyncMock(return_value=[])
     return mock
 
 
@@ -94,6 +97,7 @@ def _make_session(
     state.created_at = datetime.now(timezone.utc)
     state.lab_record_id = None
     state.cml_lab_id = None
+    state.cml_lab_title = None
     state.allocated_ports = None
     state.user_session_id = None
     state.grading_session_id = None
@@ -113,8 +117,9 @@ def _make_session(
     state.observation_count = 0
     state.observed_at = None
 
-    # ADR-031 instantiation pipeline
-    state.instantiation_progress = None
+    # ADR-034 Sprint E: multi-pipeline progress + desired status
+    state.pipeline_progress = None
+    state.desired_status = LabletSessionStatus.RUNNING
 
     session.state = state
     return session
@@ -151,6 +156,7 @@ def _make_worker(
     worker_state = MagicMock(spec=CMLWorkerState)
     worker_state.name = name
     worker_state.aws_region = aws_region
+    worker_state.https_endpoint = f"https://{name}.example.com"
     worker.state = worker_state
     return worker
 
@@ -191,6 +197,7 @@ class TestGetLabletSessionQueryHandler:
             lablet_definition_repository=MagicMock(spec=LabletDefinitionRepository, get_by_id_async=AsyncMock(return_value=None)),
             cml_worker_repository=MagicMock(spec=CMLWorkerRepository, get_by_id_async=AsyncMock(return_value=None)),
             lab_record_repository=MagicMock(spec=LabRecordRepository, get_by_id_async=AsyncMock(return_value=None)),
+            user_session_repository=MagicMock(spec=UserSessionRepository, get_by_id_async=AsyncMock(return_value=None)),
         )
 
         query = GetLabletSessionQuery(id="session-001")
@@ -212,6 +219,7 @@ class TestGetLabletSessionQueryHandler:
             lablet_definition_repository=MagicMock(spec=LabletDefinitionRepository, get_by_id_async=AsyncMock(return_value=None)),
             cml_worker_repository=MagicMock(spec=CMLWorkerRepository, get_by_id_async=AsyncMock(return_value=None)),
             lab_record_repository=MagicMock(spec=LabRecordRepository, get_by_id_async=AsyncMock(return_value=None)),
+            user_session_repository=MagicMock(spec=UserSessionRepository, get_by_id_async=AsyncMock(return_value=None)),
         )
 
         query = GetLabletSessionQuery(reservation_id="res-001")
@@ -228,6 +236,7 @@ class TestGetLabletSessionQueryHandler:
             lablet_definition_repository=MagicMock(spec=LabletDefinitionRepository, get_by_id_async=AsyncMock(return_value=None)),
             cml_worker_repository=MagicMock(spec=CMLWorkerRepository, get_by_id_async=AsyncMock(return_value=None)),
             lab_record_repository=MagicMock(spec=LabRecordRepository, get_by_id_async=AsyncMock(return_value=None)),
+            user_session_repository=MagicMock(spec=UserSessionRepository, get_by_id_async=AsyncMock(return_value=None)),
         )
 
         query = GetLabletSessionQuery(id="nonexistent")
@@ -244,6 +253,7 @@ class TestGetLabletSessionQueryHandler:
             lablet_definition_repository=MagicMock(spec=LabletDefinitionRepository, get_by_id_async=AsyncMock(return_value=None)),
             cml_worker_repository=MagicMock(spec=CMLWorkerRepository, get_by_id_async=AsyncMock(return_value=None)),
             lab_record_repository=MagicMock(spec=LabRecordRepository, get_by_id_async=AsyncMock(return_value=None)),
+            user_session_repository=MagicMock(spec=UserSessionRepository, get_by_id_async=AsyncMock(return_value=None)),
         )
 
         query = GetLabletSessionQuery()
@@ -302,11 +312,13 @@ class TestListLabletSessionsQueryHandler:
 
     @pytest.mark.asyncio
     async def test_lists_sessions_default_no_terminated(self, mock_session_repository: MagicMock, mock_definition_repository: MagicMock, mock_worker_repository: MagicMock) -> None:
-        """Verify default listing excludes terminated."""
-        pending = [_make_session(session_id="s-1")]
-        active = [_make_session(session_id="s-2", status=LabletSessionStatus.RUNNING)]
-        mock_session_repository.list_pending_async = AsyncMock(return_value=pending)
-        mock_session_repository.list_active_async = AsyncMock(return_value=active)
+        """Verify default listing returns all non-terminal sessions."""
+        all_non_terminal = [
+            _make_session(session_id="s-1"),
+            _make_session(session_id="s-2", status=LabletSessionStatus.RUNNING),
+            _make_session(session_id="s-3", status=LabletSessionStatus.READY),
+        ]
+        mock_session_repository.list_by_statuses_async = AsyncMock(return_value=all_non_terminal)
 
         handler = ListLabletSessionsQueryHandler(
             lablet_session_repository=mock_session_repository,
@@ -318,7 +330,7 @@ class TestListLabletSessionsQueryHandler:
         result = await handler.handle_async(query)
 
         assert result.is_success
-        assert len(result.data) == 2
+        assert len(result.data) == 3
 
     @pytest.mark.asyncio
     async def test_rejects_invalid_status_filter(self, mock_session_repository: MagicMock, mock_definition_repository: MagicMock, mock_worker_repository: MagicMock) -> None:
@@ -391,6 +403,7 @@ class TestGetLabletSessionEnrichment:
             lablet_definition_repository=mock_definition_repository,
             cml_worker_repository=mock_worker_repository,
             lab_record_repository=mock_lab_record_repository,
+            user_session_repository=MagicMock(spec=UserSessionRepository, get_by_id_async=AsyncMock(return_value=None)),
         )
 
         result = await handler.handle_async(GetLabletSessionQuery(id="session-001"))
@@ -430,6 +443,7 @@ class TestGetLabletSessionEnrichment:
             lablet_definition_repository=mock_definition_repository,
             cml_worker_repository=mock_worker_repository,
             lab_record_repository=mock_lab_record_repository,
+            user_session_repository=MagicMock(spec=UserSessionRepository, get_by_id_async=AsyncMock(return_value=None)),
         )
 
         result = await handler.handle_async(GetLabletSessionQuery(id="session-001"))
@@ -463,8 +477,7 @@ class TestListLabletSessionsEnrichment:
     ) -> None:
         """Verify enrichment fields populated on list DTOs when FK aggregates exist."""
         session = _make_session(worker_id="worker-001")
-        mock_session_repository.list_pending_async = AsyncMock(return_value=[session])
-        mock_session_repository.list_active_async = AsyncMock(return_value=[])
+        mock_session_repository.list_by_statuses_async = AsyncMock(return_value=[session])
 
         defn = _make_definition()
         mock_definition_repository.get_by_id_async = AsyncMock(return_value=defn)
@@ -497,8 +510,7 @@ class TestListLabletSessionsEnrichment:
     ) -> None:
         """Verify enrichment fields are None on list DTOs when FK aggregates missing."""
         session = _make_session()
-        mock_session_repository.list_pending_async = AsyncMock(return_value=[session])
-        mock_session_repository.list_active_async = AsyncMock(return_value=[])
+        mock_session_repository.list_by_statuses_async = AsyncMock(return_value=[session])
         # Enrichment repos return None (default)
 
         handler = ListLabletSessionsQueryHandler(

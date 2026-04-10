@@ -7,14 +7,16 @@ Supports lookup by ID or reservation_id.
 import logging
 from dataclasses import dataclass
 
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
+
 from application.dtos.lablet_session_dto import LabletSessionDto, map_lablet_session_to_dto
 from domain.entities.lablet_session import LabletSession
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
+from domain.repositories.user_session_repository import UserSessionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +38,14 @@ class GetLabletSessionQueryHandler(QueryHandler[GetLabletSessionQuery, Operation
         lablet_definition_repository: LabletDefinitionRepository,
         cml_worker_repository: CMLWorkerRepository,
         lab_record_repository: LabRecordRepository,
+        user_session_repository: UserSessionRepository,
     ):
         super().__init__()
         self._repository = lablet_session_repository
         self._definition_repository = lablet_definition_repository
         self._worker_repository = cml_worker_repository
         self._lab_record_repository = lab_record_repository
+        self._user_session_repository = user_session_repository
 
     async def handle_async(self, request: GetLabletSessionQuery) -> OperationResult[LabletSessionDto]:
         if not request.id and not request.reservation_id:
@@ -84,6 +88,7 @@ class GetLabletSessionQueryHandler(QueryHandler[GetLabletSessionQuery, Operation
                         worker_enrichment = {
                             "name": worker.state.name,
                             "aws_region": worker.state.aws_region,
+                            "https_endpoint": worker.state.https_endpoint,
                         }
                 except Exception:
                     logger.warning("Failed to fetch CMLWorker %s for enrichment", session.state.worker_id)
@@ -101,11 +106,29 @@ class GetLabletSessionQueryHandler(QueryHandler[GetLabletSessionQuery, Operation
                 except Exception:
                     logger.warning("Failed to fetch LabRecord %s for enrichment", session.state.lab_record_id)
 
+            # UserSession enrichment — LDS session ID and login URL
+            user_session_enrichment = None
+            if session.state.user_session_id:
+                try:
+                    user_session = await self._user_session_repository.get_by_id_async(session.state.user_session_id)
+                    if user_session:
+                        user_session_enrichment = {
+                            "lds_session_id": user_session.lds_session_id,
+                            "login_url": user_session.login_url,
+                        }
+                except Exception:
+                    logger.warning(
+                        "Failed to fetch UserSession %s for enrichment",
+                        session.state.user_session_id,
+                        exc_info=True,
+                    )
+
             dto = map_lablet_session_to_dto(
                 session,
                 definition_enrichment=definition_enrichment,
                 worker_enrichment=worker_enrichment,
                 lab_record_enrichment=lab_record_enrichment,
+                user_session_enrichment=user_session_enrichment,
             )
             logger.info("Retrieved LabletSession: %s (status=%s)", session.id(), session.state.status.value)
             return self.ok(dto)

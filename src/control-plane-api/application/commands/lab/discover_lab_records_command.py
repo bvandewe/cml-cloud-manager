@@ -15,9 +15,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from domain.entities.lab_record import LabRecord
-from domain.repositories.lab_record_repository import LabRecordRepository
-from domain.value_objects.lab_topology_spec import LabTopologySpec
 from lcm_core.domain.enums import CML_STATE_TO_LAB_RECORD_STATUS, LabRecordStatus
 from neuroglia.core import OperationResult
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
@@ -25,6 +22,10 @@ from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
+
+from domain.entities.lab_record import LabRecord
+from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.value_objects.lab_topology_spec import LabTopologySpec
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -60,6 +61,7 @@ class DiscoverLabRecordsCommand(Command[OperationResult[DiscoverLabRecordsResult
     worker_id: str = ""
     labs: list[dict] = field(default_factory=list)
     source: str = "lab-discovery-service"
+    partial_scan: bool = False  # When True, skip orphan sweep (single-lab registration)
 
 
 class DiscoverLabRecordsCommandHandler(
@@ -148,7 +150,16 @@ class DiscoverLabRecordsCommandHandler(
                     errors.append(error_msg)
 
             # 3. Mark orphaned records (DB labs not in CML scan)
+            #    Skip orphan sweep for partial scans (e.g. single-lab registration)
+            #    to avoid false-orphaning labs not included in the partial payload.
+            if request.partial_scan:
+                log.info(
+                    "🔍 Partial scan — skipping orphan sweep (only %d labs submitted)",
+                    len(request.labs),
+                )
             for lab_id, record in existing_by_lab_id.items():
+                if request.partial_scan:
+                    break
                 if lab_id not in seen_lab_ids:
                     # Skip already terminal or orphaned records
                     if record.is_terminal or record.is_orphaned:
@@ -203,6 +214,7 @@ class DiscoverLabRecordsCommandHandler(
             link_count=lab_data.get("link_count", 0),
             notes=lab_data.get("notes"),
             worker_ip=lab_data.get("worker_ip"),
+            based_on_definition_id=lab_data.get("based_on_definition_id"),
         )
 
         # Build and attach topology_spec from discovery node/link data
@@ -217,6 +229,18 @@ class DiscoverLabRecordsCommandHandler(
         """
         now = datetime.now(timezone.utc)
         revision_created = False
+
+        # Link to definition if provided and not already set
+        # (pipeline-lab-resolve sends based_on_definition_id for labs
+        # that were imported from a LabletDefinition)
+        incoming_def_id = lab_data.get("based_on_definition_id")
+        if incoming_def_id and not record.state.based_on_definition_id:
+            record.state.based_on_definition_id = incoming_def_id
+            log.info(
+                "Linked LabRecord %s to definition %s",
+                record.state.lab_id,
+                incoming_def_id,
+            )
 
         # Parse cml_modified_at from discovery data
         cml_modified_at = None

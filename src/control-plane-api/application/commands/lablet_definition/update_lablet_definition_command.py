@@ -14,6 +14,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from neuroglia.core import OperationResult
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Command, CommandHandler, Mediator
+
 from application.commands.command_handler_base import CommandHandlerBase
 from application.dtos.lablet_definition_dto import LabletDefinitionDto, map_lablet_definition_to_dto
 from domain.entities.lablet_definition import LabletDefinition
@@ -21,11 +27,6 @@ from domain.enums import LabletDefinitionStatus, LicenseType
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.utils import slugify_fqn
 from domain.value_objects.resource_requirements import ResourceRequirements
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,9 @@ class UpdateLabletDefinitionCommand(Command[OperationResult[LabletDefinitionDto]
     grading_ruleset_package_name: str | None = None
     user_session_type: str | None = None
     user_session_default_region: str | None = None
+
+    # Lab binding options (Phase 7)
+    lab_reuse_enabled: bool | None = None
 
     # Instantiation timing (AD-P10-01)
     boot_lead_time_minutes: int | None = None
@@ -166,6 +170,7 @@ class UpdateLabletDefinitionCommandHandler(
         user_session_default_region = command.user_session_default_region if command.user_session_default_region is not None else state.user_session_default_region
         grading_rules_uri = command.grading_rules_uri if command.grading_rules_uri is not None else state.grading_rules_uri
         boot_lead_time_minutes = command.boot_lead_time_minutes if command.boot_lead_time_minutes is not None else getattr(state, "boot_lead_time_minutes", None)
+        lab_reuse_enabled = command.lab_reuse_enabled if command.lab_reuse_enabled is not None else getattr(state, "lab_reuse_enabled", False)
 
         if command.license_affinity is not None:
             license_affinity = [LicenseType(lt) for lt in command.license_affinity]
@@ -206,10 +211,17 @@ class UpdateLabletDefinitionCommandHandler(
             warm_pool_depth=warm_pool_depth,
             owner_notification=state.owner_notification,
             boot_lead_time_minutes=boot_lead_time_minutes,
+            lab_reuse_enabled=lab_reuse_enabled,
         )
 
         # 3. Persist the new version
         await self._repository.add_async(new_definition)
+
+        # 4. Request content sync for the new version (ADR-028)
+        # This emits LabletDefinitionSyncRequestedDomainEvent → etcd projection
+        # → lablet-controller ContentSyncService picks it up for sync.
+        new_definition.request_sync(requested_by=command.updated_by)
+        await self._repository.update_async(new_definition)
 
         logger.info(
             "Version bump for LabletDefinition: %s → %s (name=%s, %s → %s, new_id=%s, by=%s)",
@@ -284,6 +296,8 @@ class UpdateLabletDefinitionCommandHandler(
             changes["user_session_default_region"] = command.user_session_default_region
         if command.boot_lead_time_minutes is not None:
             changes["boot_lead_time_minutes"] = command.boot_lead_time_minutes
+        if command.lab_reuse_enabled is not None:
+            changes["lab_reuse_enabled"] = command.lab_reuse_enabled
 
         if not changes:
             return self.bad_request("No fields to update")

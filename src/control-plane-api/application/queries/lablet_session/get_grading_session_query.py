@@ -42,7 +42,7 @@ class GetGradingSessionQueryHandler(QueryHandler[GetGradingSessionQuery, Operati
                 if not grading_session:
                     return self.not_found(GradingSession, request.id)
             else:
-                grading_session = await self._repository.get_by_lablet_session_id_async(request.lablet_session_id)
+                grading_session = await self._repository.get_by_lablet_session_async(request.lablet_session_id)
                 if not grading_session:
                     return self.not_found(GradingSession, request.lablet_session_id, "lablet_session_id")
 

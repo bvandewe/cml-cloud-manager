@@ -69,7 +69,7 @@ class CreateGradingSessionCommandHandler(
             return self.bad_request("lablet_session_id is required")
 
         # Check for existing grading session for this lablet session
-        existing = await self._repository.get_by_lablet_session_id_async(request.lablet_session_id)
+        existing = await self._repository.get_by_lablet_session_async(request.lablet_session_id)
         if existing:
             return self.conflict(f"GradingSession already exists for lablet_session_id '{request.lablet_session_id}'")
 

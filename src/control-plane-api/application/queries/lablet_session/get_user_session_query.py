@@ -42,7 +42,7 @@ class GetUserSessionQueryHandler(QueryHandler[GetUserSessionQuery, OperationResu
                 if not user_session:
                     return self.not_found(UserSession, request.id)
             else:
-                user_session = await self._repository.get_by_lablet_session_id_async(request.lablet_session_id)
+                user_session = await self._repository.get_by_lablet_session_async(request.lablet_session_id)
                 if not user_session:
                     return self.not_found(UserSession, request.lablet_session_id, "lablet_session_id")
 

@@ -106,6 +106,28 @@ from .worker_template import (
     UpdateWorkerTemplateCommandHandler,
 )
 
+# UserSession commands (Phase 7D — ADR-021 child entity)
+from .user_session import (
+    CreateUserSessionCommand,
+    CreateUserSessionCommandHandler,
+    UpdateUserSessionStatusCommand,
+    UpdateUserSessionStatusCommandHandler,
+)
+
+# GradingSession commands (Phase 7D — ADR-021 child entity)
+from .grading_session import (
+    CreateGradingSessionCommand,
+    CreateGradingSessionCommandHandler,
+    UpdateGradingSessionStatusCommand,
+    UpdateGradingSessionStatusCommandHandler,
+)
+
+# ScoreReport commands (Phase 7D — ADR-021 child entity)
+from .score_report import (
+    CreateScoreReportCommand,
+    CreateScoreReportCommandHandler,
+)
+
 __all__ = [
     # Base class
     "CommandHandlerBase",
@@ -191,4 +213,17 @@ __all__ = [
     "UpdateWorkerCmlDataCommandHandler",
     "UpdateWorkerEc2DetailsCommand",
     "UpdateWorkerEc2DetailsCommandHandler",
+    # UserSession commands (Phase 7D — ADR-021 child entity)
+    "CreateUserSessionCommand",
+    "CreateUserSessionCommandHandler",
+    "UpdateUserSessionStatusCommand",
+    "UpdateUserSessionStatusCommandHandler",
+    # GradingSession commands (Phase 7D — ADR-021 child entity)
+    "CreateGradingSessionCommand",
+    "CreateGradingSessionCommandHandler",
+    "UpdateGradingSessionStatusCommand",
+    "UpdateGradingSessionStatusCommandHandler",
+    # ScoreReport commands (Phase 7D — ADR-021 child entity)
+    "CreateScoreReportCommand",
+    "CreateScoreReportCommandHandler",
 ]

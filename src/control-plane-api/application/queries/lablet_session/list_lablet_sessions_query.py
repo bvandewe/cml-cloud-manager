@@ -75,16 +75,37 @@ class ListLabletSessionsQueryHandler(QueryHandler[ListLabletSessionsQuery, Opera
                 sessions = await self._repository.list_by_definition_async(request.definition_id)
             else:
                 if request.include_terminated:
-                    pending = await self._repository.list_pending_async()
-                    active = await self._repository.list_active_async()
-                    stopped = await self._repository.list_by_status_async(LabletSessionStatus.STOPPED)
-                    archived = await self._repository.list_by_status_async(LabletSessionStatus.ARCHIVED)
-                    terminated = await self._repository.list_by_status_async(LabletSessionStatus.TERMINATED)
-                    sessions = pending + active + stopped + archived + terminated
+                    # All sessions including terminal statuses
+                    non_terminal = await self._repository.list_by_statuses_async([
+                        LabletSessionStatus.PENDING,
+                        LabletSessionStatus.SCHEDULED,
+                        LabletSessionStatus.INSTANTIATING,
+                        LabletSessionStatus.READY,
+                        LabletSessionStatus.RUNNING,
+                        LabletSessionStatus.COLLECTING,
+                        LabletSessionStatus.GRADING,
+                        LabletSessionStatus.STOPPING,
+                        LabletSessionStatus.STOPPED,
+                        LabletSessionStatus.ARCHIVED,
+                    ])
+                    terminal = await self._repository.list_by_statuses_async([
+                        LabletSessionStatus.TERMINATED,
+                        LabletSessionStatus.EXPIRED,
+                    ])
+                    sessions = non_terminal + terminal
                 else:
-                    pending = await self._repository.list_pending_async()
-                    active = await self._repository.list_active_async()
-                    sessions = pending + active
+                    # All non-terminal statuses (default "All Statuses" view)
+                    sessions = await self._repository.list_by_statuses_async([
+                        LabletSessionStatus.PENDING,
+                        LabletSessionStatus.SCHEDULED,
+                        LabletSessionStatus.INSTANTIATING,
+                        LabletSessionStatus.READY,
+                        LabletSessionStatus.RUNNING,
+                        LabletSessionStatus.COLLECTING,
+                        LabletSessionStatus.GRADING,
+                        LabletSessionStatus.STOPPING,
+                        LabletSessionStatus.STOPPED,
+                    ])
 
             # Filter out terminated if not requested and using a specific filter
             if not request.include_terminated and (request.worker_id or request.owner_id or request.definition_id):

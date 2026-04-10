@@ -25,6 +25,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from neuroglia.mediation import DomainEventHandler
+
 from domain.events.cml_worker import (
     CMLWorkerCreatedDomainEvent,
     CMLWorkerDesiredStatusUpdatedDomainEvent,
@@ -48,6 +50,7 @@ from domain.events.lablet_definition_events import (
 from domain.events.lablet_session_events import (
     LabletSessionCollectingDomainEvent,
     LabletSessionCreatedDomainEvent,
+    LabletSessionDesiredStatusUpdatedDomainEvent,
     LabletSessionGradingDomainEvent,
     LabletSessionInstantiatingDomainEvent,
     LabletSessionObserveResourcesRequestedDomainEvent,
@@ -59,7 +62,6 @@ from domain.events.lablet_session_events import (
     LabletSessionTerminatedDomainEvent,
 )
 from integration.services.etcd_state_store import EtcdStateStore
-from neuroglia.mediation import DomainEventHandler
 
 log = logging.getLogger(__name__)
 
@@ -243,14 +245,20 @@ class CMLWorkerLicenseDeregistrationCompletedEtcdProjector(DomainEventHandler[CM
 
 
 class LabletSessionCreatedEtcdProjector(DomainEventHandler[LabletSessionCreatedDomainEvent]):
-    """Project session creation to etcd for controller/scheduler watch."""
+    """Project session creation to etcd for controller/scheduler watch.
+
+    ADR-034 Sprint E: Also publishes desired_status (spec) on creation,
+    following the CMLWorker pattern (ADR-015).
+    """
 
     def __init__(self, etcd_store: EtcdStateStore):
         self._etcd = etcd_store
 
     async def handle_async(self, event: LabletSessionCreatedDomainEvent) -> None:  # type: ignore[override]
         await self._etcd.set_session_state(event.aggregate_id, "PENDING")
-        log.debug(f"[etcd] Projected session.created: {event.aggregate_id} -> PENDING")
+        # Publish desired_status (spec) — default: RUNNING (ADR-034 Sprint E)
+        await self._etcd.set_session_desired_state(event.aggregate_id, "running")
+        log.debug(f"[etcd] Projected session.created: {event.aggregate_id} -> PENDING, desired_state=running")
         return None
 
 
@@ -377,6 +385,23 @@ class LabletSessionTerminatedEtcdProjector(DomainEventHandler[LabletSessionTermi
     async def handle_async(self, event: LabletSessionTerminatedDomainEvent) -> None:  # type: ignore[override]
         await self._etcd.delete_session_state(event.aggregate_id)
         log.info(f"[etcd] Projected session.terminated: {event.aggregate_id} (state deleted)")
+        return None
+
+
+class LabletSessionDesiredStatusUpdatedEtcdProjector(DomainEventHandler[LabletSessionDesiredStatusUpdatedDomainEvent]):
+    """Project session desired_status (spec) changes to etcd for controller watch.
+
+    ADR-034 Sprint E / ADR-015 pattern: Follows CMLWorker desired_status
+    reconciliation model. Lablet-controller watches /sessions/ prefix and
+    reacts to desired_state key changes to begin reconciliation.
+    """
+
+    def __init__(self, etcd_store: EtcdStateStore):
+        self._etcd = etcd_store
+
+    async def handle_async(self, event: LabletSessionDesiredStatusUpdatedDomainEvent) -> None:  # type: ignore[override]
+        await self._etcd.set_session_desired_state(event.aggregate_id, event.new_desired_status)
+        log.info(f"[etcd] Projected session.desired_status_updated: {event.aggregate_id} -> {event.old_desired_status} → {event.new_desired_status} (requested_by={event.requested_by})")
         return None
 
 

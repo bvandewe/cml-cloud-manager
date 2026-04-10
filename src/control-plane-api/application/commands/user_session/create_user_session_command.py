@@ -27,15 +27,23 @@ log = logging.getLogger(__name__)
 class CreateUserSessionCommand(Command[OperationResult[dict[str, Any]]]):
     """Command to create a UserSession in PROVISIONING state.
 
+    If ``lds_login_url`` is supplied the entity is immediately transitioned
+    to PROVISIONED (via ``mark_provisioned``) so that the login URL is
+    persisted together with creation — matching the lablet-controller flow
+    where the LDS session, launch URL and device list are all obtained
+    before this command is dispatched.
+
     Attributes:
         lablet_session_id: Parent LabletSession ID.
         lds_session_id: LDS session identifier from provisioning.
+        lds_login_url: Optional JWT-signed launch URL (triggers PROVISIONED).
         lds_part_id: Optional LDS part identifier.
         form_qualified_name: Optional form qualified name for assessment.
     """
 
     lablet_session_id: str
     lds_session_id: str
+    lds_login_url: str | None = None
     lds_part_id: str | None = None
     form_qualified_name: str | None = None
 
@@ -66,7 +74,7 @@ class CreateUserSessionCommandHandler(
             return self.bad_request("lds_session_id is required")
 
         # Check if one already exists for this lablet session
-        existing = await self._repository.get_by_lablet_session_id_async(request.lablet_session_id)
+        existing = await self._repository.get_by_lablet_session_async(request.lablet_session_id)
         if existing:
             return self.conflict(f"UserSession already exists for lablet_session_id '{request.lablet_session_id}'")
 
@@ -78,20 +86,28 @@ class CreateUserSessionCommandHandler(
             form_qualified_name=request.form_qualified_name,
         )
 
+        # If a login URL was provided, immediately transition to PROVISIONED
+        # so the URL is persisted on creation (lablet-controller flow).
+        if request.lds_login_url:
+            user_session.mark_provisioned(login_url=request.lds_login_url)
+
         await self._repository.add_async(user_session)
 
         log.info(
-            "Created UserSession %s for lablet_session %s (lds_session_id=%s)",
+            "Created UserSession %s for lablet_session %s (lds_session_id=%s, status=%s)",
             user_session.id,
             request.lablet_session_id,
             request.lds_session_id,
+            user_session.status.value,
         )
 
         return self.created(
             {
+                "id": user_session.id,
                 "user_session_id": user_session.id,
                 "lablet_session_id": user_session.lablet_session_id,
                 "lds_session_id": user_session.lds_session_id,
+                "login_url": user_session.login_url,
                 "status": user_session.status.value,
             }
         )

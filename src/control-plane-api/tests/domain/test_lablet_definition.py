@@ -105,6 +105,45 @@ class TestResourceRequirements:
         assert restored.nested_virt == req.nested_virt
         assert len(restored.ami_requirements) == 1
 
+    def test_with_node_definitions_updates_first_ami(self):
+        """Test with_node_definitions() updates first AmiRequirement's node_definitions_required."""
+        ami = AmiRequirement(cml_version_min="2.7.0", node_definitions_required=("iosv",))
+        req = ResourceRequirements(cpu_cores=4, memory_gb=8, storage_gb=50, ami_requirements=(ami,))
+
+        updated = req.with_node_definitions(("iosv", "mock-server", "ubuntu-desktop-24-04-v2"))
+
+        assert updated.ami_requirements[0].node_definitions_required == ("iosv", "mock-server", "ubuntu-desktop-24-04-v2")
+        # Preserves other fields
+        assert updated.ami_requirements[0].cml_version_min == "2.7.0"
+        assert updated.cpu_cores == 4
+        assert updated.memory_gb == 8
+        assert updated.storage_gb == 50
+        # Original unchanged (frozen)
+        assert req.ami_requirements[0].node_definitions_required == ("iosv",)
+
+    def test_with_node_definitions_creates_ami_when_empty(self):
+        """Test with_node_definitions() creates AmiRequirement when none exist."""
+        req = ResourceRequirements(cpu_cores=2, memory_gb=4, storage_gb=20)
+        assert req.ami_requirements == ()
+
+        updated = req.with_node_definitions(("csr1000v",))
+
+        assert len(updated.ami_requirements) == 1
+        assert updated.ami_requirements[0].node_definitions_required == ("csr1000v",)
+        assert updated.ami_requirements[0].cml_version_min is None
+
+    def test_with_node_definitions_preserves_other_amis(self):
+        """Test with_node_definitions() preserves additional AmiRequirements beyond the first."""
+        ami1 = AmiRequirement(cml_version_min="2.7.0", node_definitions_required=("iosv",))
+        ami2 = AmiRequirement(cml_version_min="2.9.0", node_definitions_required=("cat9kv",))
+        req = ResourceRequirements(cpu_cores=4, memory_gb=8, storage_gb=50, ami_requirements=(ami1, ami2))
+
+        updated = req.with_node_definitions(("iosv", "mock-server"))
+
+        assert len(updated.ami_requirements) == 2
+        assert updated.ami_requirements[0].node_definitions_required == ("iosv", "mock-server")
+        assert updated.ami_requirements[1] == ami2  # Untouched
+
 
 class TestAmiRequirement:
     """Test AmiRequirement value object."""
@@ -801,6 +840,89 @@ class TestLabletDefinition:
 
         # Original port template preserved
         assert definition.state.port_template.port_names == original_names
+
+    def test_record_content_sync_with_node_count(self, resource_requirements, port_template):
+        """Test record_content_sync() updates node_count from CML topology (AD-SEED-001)."""
+        definition = self._create_definition(resource_requirements, port_template, node_count=5)
+        assert definition.state.node_count == 5
+
+        definition.record_content_sync(
+            lab_yaml_hash="sha256:topo",
+            sync_status="success",
+            node_count=3,
+        )
+
+        assert definition.state.node_count == 3
+
+    def test_record_content_sync_without_node_count_preserves_existing(self, resource_requirements, port_template):
+        """Test record_content_sync() without node_count doesn't overwrite."""
+        definition = self._create_definition(resource_requirements, port_template, node_count=5)
+
+        definition.record_content_sync(
+            lab_yaml_hash="sha256:abc",
+            sync_status="success",
+            # node_count not provided
+        )
+
+        assert definition.state.node_count == 5
+
+    def test_record_content_sync_with_node_definitions_required(self, resource_requirements, port_template):
+        """Test record_content_sync() updates ami_requirements.node_definitions_required (AD-SEED-001)."""
+        rr = ResourceRequirements(
+            cpu_cores=4,
+            memory_gb=8,
+            storage_gb=50,
+            ami_requirements=(AmiRequirement(cml_version_min="2.7.0", node_definitions_required=("iosv",)),),
+        )
+        definition = self._create_definition(rr, port_template)
+        assert definition.state.resource_requirements.ami_requirements[0].node_definitions_required == ("iosv",)
+
+        definition.record_content_sync(
+            lab_yaml_hash="sha256:defs",
+            sync_status="success",
+            node_definitions_required=["iosv", "mock-server", "ubuntu-desktop-24-04-v2"],
+        )
+
+        # ami_requirements updated with new node definitions
+        ami = definition.state.resource_requirements.ami_requirements[0]
+        assert ami.node_definitions_required == ("iosv", "mock-server", "ubuntu-desktop-24-04-v2")
+        # Other ami_requirement fields preserved
+        assert ami.cml_version_min == "2.7.0"
+        # Resource limits preserved
+        assert definition.state.resource_requirements.cpu_cores == 4
+        assert definition.state.resource_requirements.memory_gb == 8
+
+    def test_record_content_sync_with_node_definitions_no_existing_ami(self, resource_requirements, port_template):
+        """Test record_content_sync() creates ami_requirement when none exist."""
+        rr = ResourceRequirements(cpu_cores=2, memory_gb=4, storage_gb=20)
+        assert rr.ami_requirements == ()
+
+        definition = self._create_definition(rr, port_template)
+
+        definition.record_content_sync(
+            lab_yaml_hash="sha256:newdefs",
+            sync_status="success",
+            node_definitions_required=["iosv"],
+        )
+
+        assert len(definition.state.resource_requirements.ami_requirements) == 1
+        assert definition.state.resource_requirements.ami_requirements[0].node_definitions_required == ("iosv",)
+
+    def test_record_content_sync_event_carries_topology_fields(self, resource_requirements, port_template):
+        """Test ContentSyncedDomainEvent carries node_count and node_definitions_required."""
+        definition = self._create_definition(resource_requirements, port_template)
+
+        definition.record_content_sync(
+            lab_yaml_hash="sha256:topo2",
+            sync_status="success",
+            node_count=2,
+            node_definitions_required=["mock-server", "ubuntu-desktop-24-04-v2"],
+        )
+
+        event = definition.domain_events[1]
+        assert isinstance(event, LabletDefinitionContentSyncedDomainEvent)
+        assert event.node_count == 2
+        assert event.node_definitions_required == ["mock-server", "ubuntu-desktop-24-04-v2"]
 
     # --- Warm Pool ---
 

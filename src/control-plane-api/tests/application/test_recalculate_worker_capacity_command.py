@@ -15,6 +15,10 @@ Pattern: pytest fixtures + MagicMock + AsyncMock, matching test_expire_lablet_se
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
+
 from application.commands.worker.recalculate_worker_capacity_command import (
     RecalculateWorkerCapacityCommand,
     RecalculateWorkerCapacityCommandHandler,
@@ -27,9 +31,6 @@ from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from domain.value_objects.worker_capacity import WorkerCapacity
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
 
 # =============================================================================
 # Fixtures
@@ -149,6 +150,7 @@ def _make_definition(
     cpu_cores: int = 4,
     memory_gb: int = 8,
     storage_gb: int = 50,
+    node_count: int | None = None,
 ) -> MagicMock:
     """Create a mock LabletDefinition with resource requirements."""
     definition = MagicMock(spec=LabletDefinition)
@@ -161,6 +163,7 @@ def _make_definition(
     resource_reqs.storage_gb = storage_gb
     resource_reqs.max_nodes = None
     state.resource_requirements = resource_reqs
+    state.node_count = node_count
 
     definition.state = state
     return definition

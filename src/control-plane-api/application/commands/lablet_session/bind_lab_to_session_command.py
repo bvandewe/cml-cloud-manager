@@ -19,17 +19,18 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from neuroglia.core import OperationResult
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Command, CommandHandler, Mediator
+
 from application.commands.command_handler_base import CommandHandlerBase
 from domain.entities.lab_record import LabRecord
 from domain.entities.lablet_session import LabletSession
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from domain.value_objects.lab_run_record import LabRunRecord
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,8 @@ class BindLabToSessionCommand(Command[OperationResult[dict[str, Any]]]):
     session_id: str
     worker_id: str
     lab_record_id: str
+    cml_lab_id: str | None = None
+    cml_lab_title: str | None = None
 
 
 class BindLabToSessionCommandHandler(
@@ -131,11 +134,13 @@ class BindLabToSessionCommandHandler(
         )
         await self._lab_record_repo.update_async(lab_record)
 
-        # 7. Denormalize lab binding + allocated_ports onto LabletSession
+        # 7. Denormalize lab binding + allocated_ports + cml_lab_id onto LabletSession
         allocated_ports = lab_record.state.allocated_ports or {}
         session.bind_lab(
             lab_record_id=lab_record.id(),
             allocated_ports=allocated_ports,
+            cml_lab_id=request.cml_lab_id,
+            cml_lab_title=request.cml_lab_title,
         )
         await self._session_repo.update_async(session)
 

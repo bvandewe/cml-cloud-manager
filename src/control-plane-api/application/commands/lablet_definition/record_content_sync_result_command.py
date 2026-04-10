@@ -55,6 +55,10 @@ class RecordContentSyncResultCommand(Command[OperationResult[LabletDefinitionSyn
     # Port template extracted from CML YAML nodes (ADR-029)
     port_template: dict[str, Any] | None = None
 
+    # Topology metadata auto-derived from CML YAML (AD-SEED-001)
+    node_count: int | None = None
+    node_definitions_required: list[str] | None = None
+
 
 class RecordContentSyncResultCommandHandler(
     CommandHandlerBase,
@@ -137,6 +141,8 @@ class RecordContentSyncResultCommandHandler(
                 devices_json=command.devices_json,
                 upstream_sync_status=command.upstream_sync_status,
                 port_template=port_template,
+                node_count=command.node_count,
+                node_definitions_required=command.node_definitions_required,
             )
             await self._repository.update_async(definition)
 
@@ -222,6 +228,8 @@ class RecordContentSyncResultCommandHandler(
             devices_json=command.devices_json,
             upstream_sync_status=command.upstream_sync_status,
             port_template=port_template,
+            node_count=command.node_count,
+            node_definitions_required=command.node_definitions_required,
         )
 
         await self._repository.add_async(new_definition)

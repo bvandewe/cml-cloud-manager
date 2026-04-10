@@ -12,6 +12,7 @@ Tests cover:
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from application.commands.lablet_definition import (
     UpdateLabletDefinitionCommand,
     UpdateLabletDefinitionCommandHandler,
@@ -194,8 +195,9 @@ class TestVersionBumpForActiveDefinitions:
         result = await handler.handle_async(command)
 
         assert result.is_success
-        # Repository should have been called with update (deprecate old) + add (new)
-        mock_repository.update_async.assert_called_once()
+        # Repository should have been called with:
+        #   update (deprecate old) + add (new) + update (request_sync on new)
+        assert mock_repository.update_async.call_count == 2
         mock_repository.add_async.assert_called_once()
 
     @pytest.mark.asyncio
@@ -210,8 +212,8 @@ class TestVersionBumpForActiveDefinitions:
         )
         await handler.handle_async(command)
 
-        # The original definition passed to update_async should now be DEPRECATED
-        updated_def = mock_repository.update_async.call_args[0][0]
+        # The original definition passed to the first update_async call should be DEPRECATED
+        updated_def = mock_repository.update_async.call_args_list[0][0][0]
         assert updated_def.state.status == LabletDefinitionStatus.DEPRECATED
 
     @pytest.mark.asyncio

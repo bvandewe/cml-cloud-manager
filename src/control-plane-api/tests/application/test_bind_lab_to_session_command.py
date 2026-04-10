@@ -16,6 +16,10 @@ Pattern: pytest fixtures + MagicMock + AsyncMock, matching test_resource_observa
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
+
 from application.commands.lablet_session.bind_lab_to_session_command import (
     BindLabToSessionCommand,
     BindLabToSessionCommandHandler,
@@ -24,9 +28,6 @@ from domain.entities.lab_record import LabRecord, LabRecordState
 from domain.entities.lablet_session import LabletSession, LabletSessionState
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
 
 # =============================================================================
 # Shared fixtures
@@ -204,10 +205,12 @@ class TestBindLabToSessionCommandHandler:
         )
         mock_lab_record_repository.update_async.assert_awaited_once_with(lab_record)
 
-        # Verify session port denormalization
+        # Verify session port denormalization + cml_lab_id/cml_lab_title threading
         session.bind_lab.assert_called_once_with(
             lab_record_id="lr-001",
             allocated_ports=SAMPLE_PORTS,
+            cml_lab_id=None,
+            cml_lab_title=None,
         )
         mock_session_repository.update_async.assert_awaited_once_with(session)
 
@@ -246,10 +249,12 @@ class TestBindLabToSessionCommandHandler:
         assert result.is_success
         assert result.data["allocated_ports"] == {}
 
-        # Session gets empty port dict
+        # Session gets empty port dict + cml_lab_id/cml_lab_title threading
         session.bind_lab.assert_called_once_with(
             lab_record_id="lr-001",
             allocated_ports={},
+            cml_lab_id=None,
+            cml_lab_title=None,
         )
 
     @pytest.mark.asyncio

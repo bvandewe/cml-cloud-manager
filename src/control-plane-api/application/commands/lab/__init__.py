@@ -6,6 +6,7 @@ Includes BFF commands (user-facing operations) and internal commands
 """
 
 from .allocate_lab_record_ports_command import AllocateLabRecordPortsCommand, AllocateLabRecordPortsCommandHandler
+from .append_pipeline_run_command import AppendPipelineRunCommand, AppendPipelineRunCommandHandler
 from .archive_lab_record_command import ArchiveLabRecordCommand, ArchiveLabRecordCommandHandler
 from .bind_lab_to_lablet_command import BindLabToLabletCommand, BindLabToLabletCommandHandler
 from .clone_lab_record_command import CloneLabRecordCommand, CloneLabRecordCommandHandler
@@ -68,6 +69,8 @@ __all__ = [
     # Phase 8: Internal commands (P8-1, P8-10 through P8-14)
     "AllocateLabRecordPortsCommand",
     "AllocateLabRecordPortsCommandHandler",
+    "AppendPipelineRunCommand",
+    "AppendPipelineRunCommandHandler",
     "CompleteLabActionCommand",
     "CompleteLabActionCommandHandler",
     "DiscoverLabRecordsCommand",

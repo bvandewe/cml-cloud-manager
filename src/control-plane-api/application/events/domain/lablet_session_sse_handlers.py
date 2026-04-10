@@ -21,13 +21,17 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from neuroglia.mediation import DomainEventHandler
+
 from application.services.sse_event_relay import SSEEventRelay
 from domain.events.lablet_session_events import (
     LabletSessionArchivedDomainEvent,
     LabletSessionCollectingDomainEvent,
     LabletSessionCreatedDomainEvent,
+    LabletSessionDesiredStatusUpdatedDomainEvent,
     LabletSessionGradingDomainEvent,
     LabletSessionInstantiatingDomainEvent,
+    LabletSessionPipelineProgressUpdatedDomainEvent,
     LabletSessionPortsReleasedDomainEvent,
     LabletSessionReadyDomainEvent,
     LabletSessionRunningDomainEvent,
@@ -38,7 +42,6 @@ from domain.events.lablet_session_events import (
     LabletSessionTerminatedDomainEvent,
     LabletSessionTimeslotExtendedDomainEvent,
 )
-from neuroglia.mediation import DomainEventHandler
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +58,12 @@ def _utc_iso(dt: datetime | None) -> str | None:
 
 
 class LabletSessionCreatedDomainEventHandler(DomainEventHandler[LabletSessionCreatedDomainEvent]):
-    """SSE handler for lablet session created events (ADR-013)."""
+    """SSE handler for lablet session created events (ADR-013).
+
+    AD-SSE-RACE-001 Fix 4: Enriched payload to include status, timeslot,
+    and definition metadata so SSE-only clients (e.g. other browser tabs)
+    can render a complete table row without an HTTP refetch.
+    """
 
     def __init__(self, sse_relay: SSEEventRelay):
         self._sse_relay = sse_relay
@@ -65,8 +73,14 @@ class LabletSessionCreatedDomainEventHandler(DomainEventHandler[LabletSessionCre
             event_type="lablet.session.created",
             data={
                 "session_id": notification.aggregate_id,
+                "status": "pending",
                 "definition_id": notification.definition_id,
+                "definition_name": notification.definition_name,
+                "definition_version": notification.definition_version,
                 "owner_id": notification.owner_id,
+                "timeslot_start": _utc_iso(notification.timeslot_start),
+                "timeslot_end": _utc_iso(notification.timeslot_end),
+                "reservation_id": notification.reservation_id,
                 "created_at": _utc_iso(notification.created_at),
             },
             source="domain.lablet_session",
@@ -418,4 +432,85 @@ class LabletSessionTimeslotExtendedDomainEventHandler(DomainEventHandler[LabletS
             source="domain.lablet_session",
         )
         log.info("Broadcasted lablet.session.timeslot.extended for %s", notification.aggregate_id)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# 15. InstantiationProgressUpdated (ADR-031) — DEPRECATED
+# Removed: Superseded by LabletSessionPipelineProgressUpdatedSSEHandler
+# which handles all pipeline types including "instantiate".
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# 16. PipelineProgressUpdated — Generic (ADR-034 Sprint E)
+# ---------------------------------------------------------------------------
+
+
+class LabletSessionPipelineProgressUpdatedSSEHandler(DomainEventHandler[LabletSessionPipelineProgressUpdatedDomainEvent]):
+    """SSE handler for generic pipeline progress events (ADR-034 Sprint E).
+
+    Broadcasts step-level progress updates for all pipeline types
+    (instantiate, teardown, collect_evidence, compute_grading).
+    """
+
+    def __init__(self, sse_relay: SSEEventRelay):
+        self._sse_relay = sse_relay
+
+    async def handle_async(self, notification: LabletSessionPipelineProgressUpdatedDomainEvent) -> None:  # type: ignore[override]
+        await self._sse_relay.broadcast_event(
+            event_type="lablet.session.pipeline.progress",
+            data={
+                "session_id": notification.aggregate_id,
+                "pipeline_name": notification.pipeline_name,
+                "step_name": notification.step_name,
+                "step_status": notification.step_status,
+                "progress": notification.progress_data,
+                "updated_at": _utc_iso(notification.updated_at),
+            },
+            source="domain.lablet_session",
+        )
+        log.info(
+            "Broadcasted lablet.session.pipeline.progress (%s/%s) for %s",
+            notification.pipeline_name,
+            notification.step_name,
+            notification.aggregate_id,
+        )
+        return None
+
+
+# ---------------------------------------------------------------------------
+# 17. DesiredStatusUpdated — Spec change for reconciliation (ADR-034 Sprint E)
+# ---------------------------------------------------------------------------
+
+
+class LabletSessionDesiredStatusUpdatedSSEHandler(DomainEventHandler[LabletSessionDesiredStatusUpdatedDomainEvent]):
+    """SSE handler for desired_status changes (ADR-034 Sprint E / ADR-015).
+
+    Broadcasts desired_status updates so the UI can show the reconciliation
+    target alongside the current status.
+    """
+
+    def __init__(self, sse_relay: SSEEventRelay):
+        self._sse_relay = sse_relay
+
+    async def handle_async(self, notification: LabletSessionDesiredStatusUpdatedDomainEvent) -> None:  # type: ignore[override]
+        await self._sse_relay.broadcast_event(
+            event_type="lablet.session.desired_status.changed",
+            data={
+                "session_id": notification.aggregate_id,
+                "old_desired_status": notification.old_desired_status,
+                "new_desired_status": notification.new_desired_status,
+                "requested_by": notification.requested_by,
+                "reason": notification.reason,
+                "updated_at": _utc_iso(notification.updated_at),
+            },
+            source="domain.lablet_session",
+        )
+        log.info(
+            "Broadcasted lablet.session.desired_status.changed for %s: %s → %s",
+            notification.aggregate_id,
+            notification.old_desired_status,
+            notification.new_desired_status,
+        )
         return None

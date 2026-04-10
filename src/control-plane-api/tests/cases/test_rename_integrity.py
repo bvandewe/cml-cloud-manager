@@ -83,8 +83,14 @@ def test_no_starter_branding_left():
     """
     # parents[2] to go from tests/cases/test_rename_integrity.py -> repo root
     repo_root = Path(__file__).resolve().parents[2]
+    # Walk up to find the git root (the actual project root)
+    git_root = repo_root
+    while git_root != git_root.parent:
+        if (git_root / ".git").exists():
+            break
+        git_root = git_root.parent
     # Auto-skip if still in original repo name unless forced
-    if repo_root.name == "lablet-cloud-manager" and os.getenv(FORCE_ENV) != "1":
+    if git_root.name == "lablet-cloud-manager" and os.getenv(FORCE_ENV) != "1":
         pytest.skip("Repository still named lablet-cloud-manager; rename not yet applied.")
     offending = find_occurrences(repo_root)
     if offending:

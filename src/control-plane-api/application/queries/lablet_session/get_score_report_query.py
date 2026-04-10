@@ -42,7 +42,7 @@ class GetScoreReportQueryHandler(QueryHandler[GetScoreReportQuery, OperationResu
                 if not score_report:
                     return self.not_found(ScoreReport, request.id)
             else:
-                score_report = await self._repository.get_by_lablet_session_id_async(request.lablet_session_id)
+                score_report = await self._repository.get_by_lablet_session_async(request.lablet_session_id)
                 if not score_report:
                     return self.not_found(ScoreReport, request.lablet_session_id, "lablet_session_id")
 

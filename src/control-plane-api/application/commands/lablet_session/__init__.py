@@ -42,6 +42,10 @@ from application.commands.lablet_session.schedule_lablet_session_command import 
     ScheduleLabletSessionCommand,
     ScheduleLabletSessionCommandHandler,
 )
+from application.commands.lablet_session.set_desired_status_command import (
+    SetDesiredStatusCommand,
+    SetDesiredStatusCommandHandler,
+)
 from application.commands.lablet_session.start_instantiation_command import (
     StartInstantiationCommand,
     StartInstantiationCommandHandler,
@@ -54,9 +58,9 @@ from application.commands.lablet_session.transition_lablet_session_command impor
     TransitionLabletSessionCommand,
     TransitionLabletSessionCommandHandler,
 )
-from application.commands.lablet_session.update_instantiation_progress_command import (
-    UpdateInstantiationProgressCommand,
-    UpdateInstantiationProgressCommandHandler,
+from application.commands.lablet_session.update_pipeline_progress_command import (
+    UpdatePipelineProgressCommand,
+    UpdatePipelineProgressCommandHandler,
 )
 
 __all__ = [
@@ -82,12 +86,14 @@ __all__ = [
     "RequestResourceObservationCommandHandler",
     "ScheduleLabletSessionCommand",
     "ScheduleLabletSessionCommandHandler",
+    "SetDesiredStatusCommand",
+    "SetDesiredStatusCommandHandler",
     "StartInstantiationCommand",
     "StartInstantiationCommandHandler",
     "TerminateLabletSessionCommand",
     "TerminateLabletSessionCommandHandler",
     "TransitionLabletSessionCommand",
     "TransitionLabletSessionCommandHandler",
-    "UpdateInstantiationProgressCommand",
-    "UpdateInstantiationProgressCommandHandler",
+    "UpdatePipelineProgressCommand",
+    "UpdatePipelineProgressCommandHandler",
 ]

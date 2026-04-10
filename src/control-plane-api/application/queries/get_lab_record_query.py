@@ -108,6 +108,8 @@ class GetLabRecordQueryHandler(QueryHandler[GetLabRecordQuery, OperationResult[d
                 "active_bindings": active_bindings,
                 # Runtime binding
                 "runtime_binding": s.runtime_binding,
+                # Port allocation (ADR-032)
+                "allocated_ports": s.allocated_ports,
                 # Topology summary
                 "has_topology": s.topology_spec is not None,
                 "topology_spec": s.topology_spec,

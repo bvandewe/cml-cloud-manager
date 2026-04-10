@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from lcm_core.domain.value_objects.state_transition import StateTransition
+
 from application.dtos.lablet_session_dto import (
     LabletSessionDto,
     LabletSessionSummaryDto,
@@ -32,7 +34,6 @@ from domain.events.lablet_session_events import (
     LabletSessionRunningDomainEvent,
     LabletSessionTerminatedDomainEvent,
 )
-from domain.value_objects.state_transition import StateTransition
 
 # =============================================================================
 # DTO Mapping Tests
@@ -62,6 +63,7 @@ def _make_session_for_dto(
     state.scheduled_at = now - timedelta(minutes=30)
     state.lab_record_id = "lr-001"
     state.cml_lab_id = "lab-abc"
+    state.cml_lab_title = "Lab ABC - Intro to Networking"
     state.allocated_ports = {"serial_1": 5041, "vnc_1": 5044}
     state.user_session_id = "us-001"
     state.grading_session_id = "gs-001"
@@ -74,18 +76,18 @@ def _make_session_for_dto(
     state.state_history = [
         StateTransition(
             from_state=None,
-            to_state=LabletSessionStatus.PENDING,
+            to_state="pending",
             transitioned_at=now - timedelta(hours=1),
             triggered_by="system",
             reason="Session created",
-        ),
+        ).to_dict(),
         StateTransition(
-            from_state=LabletSessionStatus.PENDING,
-            to_state=LabletSessionStatus.RUNNING,
+            from_state="pending",
+            to_state="running",
             transitioned_at=now,
             triggered_by="lablet-controller",
             reason="Started",
-        ),
+        ).to_dict(),
     ]
 
     # ADR-030 resource observation fields
@@ -95,8 +97,9 @@ def _make_session_for_dto(
     state.observation_count = 0
     state.observed_at = None
 
-    # ADR-031 instantiation pipeline
-    state.instantiation_progress = None
+    # ADR-034 Sprint E: multi-pipeline progress + desired status
+    state.pipeline_progress = None
+    state.desired_status = LabletSessionStatus.RUNNING
 
     session.state = state
     return session
@@ -112,11 +115,11 @@ class TestLabletSessionDtoMapping:
         transitions = [
             StateTransition(
                 from_state=None,
-                to_state=LabletSessionStatus.PENDING,
+                to_state="pending",
                 transitioned_at=now,
                 triggered_by="system",
                 reason="Created",
-            ),
+            ).to_dict(),
         ]
 
         result = map_state_history_to_dto(transitions)
