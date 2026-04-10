@@ -151,6 +151,21 @@ export function renderWorkerOverview(worker) {
               const count = worker.active_labs_count ?? worker.cml_labs_count ?? 0;
               return count > 0 ? `<span class="badge bg-info">${count}</span>` : '<span class="text-muted">0</span>';
           })()}</td></tr>
+          <tr><td class="text-muted">Port Allocation:</td><td>${(() => {
+              const allocated = worker.allocated_port_count;
+              const available = worker.available_port_count;
+              const pct = worker.port_utilization_pct;
+              if (allocated == null && available == null) return '<span class="text-muted">N/A</span>';
+              const usedCount = allocated ?? 0;
+              const availCount = available ?? 0;
+              const total = usedCount + availCount;
+              const utilPct = pct != null ? parseFloat(pct).toFixed(1) : (total > 0 ? ((usedCount / total) * 100).toFixed(1) : '0.0');
+              const barColor = utilPct > 80 ? 'bg-danger' : utilPct > 50 ? 'bg-warning' : 'bg-success';
+              return `<span class="small">${usedCount} / ${total} ports</span>
+                <div class="progress mt-1" style="height: 6px;" title="${utilPct}% port utilization">
+                  <div class="progress-bar ${barColor}" role="progressbar" style="width: ${utilPct}%;" aria-valuenow="${utilPct}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>`;
+          })()}</td></tr>
           <tr><td class="text-muted">Resource Util:</td><td>${(() => {
               const cpu = worker.cpu_utilization;
               const mem = worker.memory_utilization;

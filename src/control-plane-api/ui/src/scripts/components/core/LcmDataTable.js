@@ -136,10 +136,10 @@ export class LcmDataTable extends BaseComponent {
             return;
         }
 
-        // Row click (but not on checkboxes, action buttons, or any [data-action] element)
+        // Row click (but not on checkboxes, action buttons, [data-action], or interactive links [role="button"])
         const rowEl = target.closest('.lcm-row');
         if (rowEl && this.contains(rowEl)) {
-            if (target.closest('.lcm-row-select') || target.closest('.lcm-row-action') || target.closest('[data-action]')) {
+            if (target.closest('.lcm-row-select') || target.closest('.lcm-row-action') || target.closest('[data-action]') || target.closest('[role="button"]') || target.closest('a[href]')) {
                 return;
             }
             const rowId = rowEl.dataset.rowId;

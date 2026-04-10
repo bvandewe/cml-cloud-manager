@@ -18,6 +18,7 @@
 
 import { eventBus, LcmEventTypes } from '../eventBus.js';
 import * as sessionsApi from '../../api/sessions.js';
+import * as labletSessionsApi from '../../api/lablet-sessions.js';
 
 // ==============================================================================
 // Initial State
@@ -75,7 +76,9 @@ export const sessionsSlice = {
         },
 
         /**
-         * Upsert a single session (create or merge)
+         * Upsert a single session (create or merge).
+         * Stamps _sseUpdatedAt so merge-based refreshes can detect
+         * SSE-driven updates that should not be overwritten by stale HTTP data.
          */
         upsertSession(state, session) {
             if (!session || !session.id) return state;
@@ -89,6 +92,8 @@ export const sessionsSlice = {
                     merged[key] = value;
                 }
             });
+            // Stamp with current time so mergeAll knows this was SSE-updated
+            merged._sseUpdatedAt = new Date().toISOString();
 
             return {
                 ...state,
@@ -98,7 +103,8 @@ export const sessionsSlice = {
         },
 
         /**
-         * Replace all sessions (full refresh)
+         * Replace all sessions (full refresh).
+         * @deprecated Prefer mergeAll to avoid overwriting SSE-driven updates.
          */
         replaceAll(state, sessions) {
             if (!Array.isArray(sessions)) return state;
@@ -110,6 +116,77 @@ export const sessionsSlice = {
                 if (!s || !s.id) return;
                 byId[s.id] = s;
                 allIds.push(s.id);
+            });
+
+            return {
+                ...state,
+                byId,
+                allIds,
+                lastRefreshedAt: new Date().toISOString(),
+            };
+        },
+
+        /**
+         * Merge sessions from an HTTP refresh without overwriting newer
+         * SSE-driven updates (AD-SSE-RACE-001).
+         *
+         * For each incoming session:
+         * - If the session doesn't exist locally → add it.
+         * - If the session exists but has no recent SSE update → overwrite.
+         * - If the session exists AND has a recent SSE update → merge,
+         *   but keep SSE-driven status/pipeline fields if the HTTP data
+         *   has an older or equal updated_at timestamp.
+         */
+        mergeAll(state, sessions) {
+            if (!Array.isArray(sessions)) return state;
+
+            const byId = { ...state.byId };
+            const existingIds = new Set(state.allIds);
+            const incomingIds = new Set();
+
+            sessions.forEach(s => {
+                if (!s || !s.id) return;
+                incomingIds.add(s.id);
+
+                const existing = byId[s.id];
+                if (!existing) {
+                    // New session from server — add directly
+                    byId[s.id] = s;
+                } else if (!existing._sseUpdatedAt) {
+                    // No SSE update since last refresh — safe to overwrite
+                    byId[s.id] = s;
+                } else {
+                    // SSE-driven fields present — merge carefully.
+                    // Keep SSE-driven status if it's newer than the HTTP data.
+                    const sseTime = new Date(existing._sseUpdatedAt).getTime();
+                    const httpTime = s.updated_at ? new Date(s.updated_at).getTime() : 0;
+
+                    if (httpTime >= sseTime) {
+                        // HTTP data is newer or equal — full overwrite
+                        byId[s.id] = s;
+                    } else {
+                        // SSE data is newer — merge HTTP fields underneath,
+                        // but preserve SSE-driven status, pipeline_progress,
+                        // worker_id, desired_status.
+                        const sseProtectedFields = ['status', 'pipeline_progress', 'worker_id', 'desired_status', '_sseUpdatedAt'];
+                        const merged = { ...s };
+                        sseProtectedFields.forEach(field => {
+                            if (existing[field] !== undefined) {
+                                merged[field] = existing[field];
+                            }
+                        });
+                        byId[s.id] = merged;
+                    }
+                }
+            });
+
+            // Build allIds: incoming order, plus any existing IDs not in the
+            // incoming set (sessions that SSE added but HTTP hasn't seen yet)
+            const allIds = [...incomingIds];
+            state.allIds.forEach(id => {
+                if (!incomingIds.has(id) && byId[id]) {
+                    allIds.push(id);
+                }
             });
 
             return {
@@ -238,24 +315,33 @@ export function selectSessionsByStatus(state, status) {
     return selectAllSessions(state).filter(s => s.status === status);
 }
 
-/** Compute session status summary */
+/**
+ * Compute session status summary.
+ *
+ * Aligned with canonical LabletSessionStatus enum (12 states):
+ * pending, scheduled, instantiating, ready, running, collecting,
+ * grading, stopping, stopped, archived, terminated, expired
+ */
 export function selectSessionStatusSummary(state) {
     const sessions = selectAllSessions(state);
     const summary = {
         total: sessions.length,
+        pending: 0,
         scheduled: 0,
         instantiating: 0,
-        running: 0,
         ready: 0,
+        running: 0,
         collecting: 0,
         grading: 0,
-        graded: 0,
+        stopping: 0,
+        stopped: 0,
+        archived: 0,
         terminated: 0,
-        error: 0,
+        expired: 0,
         active: 0,
     };
 
-    const terminalStatuses = new Set(['terminated', 'archived', 'deleted']);
+    const terminalStatuses = new Set(['terminated', 'archived', 'expired']);
 
     sessions.forEach(s => {
         const st = s.status?.toLowerCase();
@@ -289,7 +375,9 @@ export function createSessionsActions(store) {
             try {
                 const sessions = await sessionsApi.listSessions(filters);
                 const data = Array.isArray(sessions) ? sessions : sessions.items || sessions.data || [];
-                store.dispatch('sessions', 'replaceAll', data);
+                // AD-SSE-RACE-001: Use mergeAll to avoid overwriting SSE-driven
+                // status updates with potentially stale HTTP data.
+                store.dispatch('sessions', 'mergeAll', data);
                 eventBus.emit(LcmEventTypes.SESSIONS_REFRESH_COMPLETED, { count: data.length });
             } catch (error) {
                 console.error('[sessionsSlice] Failed to load sessions:', error);
@@ -332,6 +420,65 @@ export function createSessionsActions(store) {
             store.dispatch('sessions', 'setFilters', filters);
             const currentFilters = store.getSlice('sessions')?.filters || {};
             await this.loadSessions(currentFilters);
+        },
+
+        /**
+         * Requeue a session for reconciliation
+         */
+        async requeueSession(sessionId, reason = null) {
+            try {
+                await labletSessionsApi.requeueLabletSession(sessionId, reason);
+                await this.loadSessions();
+            } catch (error) {
+                console.error('[sessionsSlice] Failed to requeue session:', error);
+                throw error;
+            }
+        },
+
+        /**
+         * Terminate a session
+         */
+        async terminateSession(sessionId, reason = null) {
+            try {
+                await labletSessionsApi.terminateLabletSession(sessionId, reason);
+                store.dispatch('sessions', 'removeSession', sessionId);
+            } catch (error) {
+                console.error('[sessionsSlice] Failed to terminate session:', error);
+                throw error;
+            }
+        },
+
+        /**
+         * Bulk requeue sessions for reconciliation
+         */
+        async bulkRequeue(sessionIds, reason = null) {
+            try {
+                const result = await labletSessionsApi.bulkRequeueLabletSessions(sessionIds, reason);
+                await this.loadSessions();
+                return result;
+            } catch (error) {
+                console.error('[sessionsSlice] Failed to bulk requeue sessions:', error);
+                throw error;
+            }
+        },
+
+        /**
+         * Request resource observation for a RUNNING session (ADR-030)
+         */
+        async observeResources(sessionId) {
+            try {
+                return await labletSessionsApi.requestResourceObservation(sessionId);
+            } catch (error) {
+                console.error('[sessionsSlice] Failed to observe resources:', error);
+                throw error;
+            }
+        },
+
+        /**
+         * Clear all filters and reload
+         */
+        clearFilters() {
+            store.dispatch('sessions', 'clearFilters');
         },
     };
 }

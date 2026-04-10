@@ -40,6 +40,7 @@ export class SessionDetailsModal extends BaseComponent {
             reports: null,
             resources: null,
         };
+        this._activePipelineSubTab = null;
     }
 
     // =========================================================================
@@ -70,6 +71,38 @@ export class SessionDetailsModal extends BaseComponent {
                     updated_at: data.updated_at || new Date().toISOString(),
                 };
                 this.refreshCurrentTab();
+            }
+        });
+
+        // SSE: live pipeline progress — merge into session and refresh pipeline tab (ADR-034 Sprint E)
+        this.subscribe(EventTypes.LABLET_SESSION_PIPELINE_PROGRESS, data => {
+            const id = data.session_id || data.id;
+            if (id !== this.currentSessionId) return;
+            const pName = data.pipeline_name;
+            if (!pName) return;
+            const merged = { ...(this.currentSession?.pipeline_progress || {}) };
+            merged[pName] = data.progress || {};
+            this.currentSession = { ...this.currentSession, pipeline_progress: merged };
+            // Invalidate pipeline cache and refresh if pipeline tab is active
+            this._tabCache.pipeline = null;
+            const activeTab = this.$('[data-tab].active');
+            if (activeTab?.dataset.tab === 'pipeline') {
+                this._renderPipelineTab();
+            }
+        });
+
+        // SSE: desired_status changed — update session and refresh overview (ADR-034 Sprint E)
+        this.subscribe(EventTypes.LABLET_SESSION_DESIRED_STATUS_CHANGED, data => {
+            const id = data.session_id || data.id;
+            if (id !== this.currentSessionId) return;
+            this.currentSession = {
+                ...this.currentSession,
+                desired_status: data.new_desired_status,
+            };
+            this._tabCache.overview = null;
+            const activeTab = this.$('[data-tab].active');
+            if (activeTab?.dataset.tab === 'overview') {
+                this._renderOverviewTab();
             }
         });
 
@@ -282,6 +315,7 @@ export class SessionDetailsModal extends BaseComponent {
 
     _resetTabCache() {
         this._tabCache = { overview: null, pipeline: null, reports: null, resources: null };
+        this._activePipelineSubTab = null;
     }
 
     // =========================================================================
@@ -429,17 +463,17 @@ export class SessionDetailsModal extends BaseComponent {
         const s = this.currentSession;
 
         container.innerHTML = `
+            <!-- Timeslot progress bar (primary attribute of TimedResource) -->
+            ${this._renderTimeslotBar(s)}
+
+            <!-- Lifecycle timeline (primary attribute of TimedResource) -->
+            ${this._renderLifecycleTimeline(s)}
+
             <!-- Identity + Assignment cards -->
             <div class="row g-3 mb-3">
                 <div class="col-md-6">${this._renderIdentitySection(s)}</div>
                 <div class="col-md-6">${this._renderAssignmentSection(s)}</div>
             </div>
-
-            <!-- Timeslot progress bar -->
-            ${this._renderTimeslotBar(s)}
-
-            <!-- Lifecycle timeline -->
-            ${this._renderLifecycleTimeline(s)}
 
             <!-- Grade result -->
             ${this._renderGradeResult(s)}
@@ -477,7 +511,10 @@ export class SessionDetailsModal extends BaseComponent {
                 <dt class="col-sm-4">Version</dt>
                 <dd class="col-sm-8">${escapeHtml(s.definition_version || '—')}</dd>
                 <dt class="col-sm-4">Status</dt>
-                <dd class="col-sm-8"><lcm-status-badge status="${escapeHtml(s.status || '')}" icon pill></lcm-status-badge></dd>
+                <dd class="col-sm-8">
+                    <lcm-status-badge status="${escapeHtml(s.status || '')}" icon pill></lcm-status-badge>
+                    ${this._renderDesiredStatusBadge(s)}
+                </dd>
                 <dt class="col-sm-4">Owner</dt>
                 <dd class="col-sm-8"><code class="small user-select-all">${escapeHtml(s.owner_id || '—')}</code></dd>
                 <dt class="col-sm-4">Reservation</dt>
@@ -503,8 +540,33 @@ export class SessionDetailsModal extends BaseComponent {
             ? `<a href="#" class="text-decoration-none xref-lab-record" data-lab-record-id="${escapeHtml(s.lab_record_id)}" title="View lab record">${labRecordDisplay} <i class="bi bi-box-arrow-up-right small"></i></a>`
             : labRecordDisplay;
 
+        // CML Lab: prefer title over raw ID, with deep-link to CML endpoint
+        let cmlLabDisplay = '—';
+        if (s.cml_lab_id) {
+            const cmlLabel = escapeHtml(s.cml_lab_title || s.cml_lab_id);
+            if (s.worker_cml_endpoint) {
+                const cmlUrl = `${s.worker_cml_endpoint.replace(/\/$/, '')}/lab/${encodeURIComponent(s.cml_lab_id)}`;
+                cmlLabDisplay = `<a href="${escapeHtml(cmlUrl)}" target="_blank" rel="noopener" class="text-decoration-none" title="Open in CML (${escapeHtml(s.cml_lab_id)})">${cmlLabel} <i class="bi bi-box-arrow-up-right small"></i></a>`;
+            } else {
+                cmlLabDisplay = `<code class="small">${cmlLabel}</code>`;
+            }
+        }
+
         // Format observed_ports as "protocol:port" pairs
         const portsDisplay = this._formatPorts(s.observed_ports);
+
+        // Port warning: when session has a lab bound but no ports allocated
+        const status = (s.status || '').toLowerCase();
+        const hasLab = !!s.lab_record_id || !!s.cml_lab_id;
+        const hasPorts = s.allocated_ports && typeof s.allocated_ports === 'object' && Object.keys(s.allocated_ports).length > 0;
+        const portWarningStatuses = ['ready', 'running', 'collecting', 'grading'];
+        const showPortWarning = hasLab && !hasPorts && portWarningStatuses.includes(status);
+
+        const portWarningInline = showPortWarning
+            ? `<span class="text-warning-emphasis small d-block mt-1" title="No device will be available to the end-user via LDS. Ensure the lablet definition's cml.yml includes Tags for relevant nodes (e.g. serial:0, vnc:0).">
+                   <i class="bi bi-exclamation-triangle-fill me-1"></i>No ports allocated
+               </span>`
+            : '';
 
         return `
             <h6 class="text-muted mb-2"><i class="bi bi-diagram-3 me-1"></i>Assignment</h6>
@@ -512,21 +574,19 @@ export class SessionDetailsModal extends BaseComponent {
                 <dt class="col-sm-4">Worker</dt>
                 <dd class="col-sm-8">${workerLink}</dd>
                 <dt class="col-sm-4">CML Lab</dt>
-                <dd class="col-sm-8">${s.cml_lab_id ? `<code class="small">${escapeHtml(s.cml_lab_id)}</code>` : '—'}</dd>
+                <dd class="col-sm-8">${cmlLabDisplay}</dd>
                 <dt class="col-sm-4">Lab Record</dt>
                 <dd class="col-sm-8">${labRecordLink}</dd>
                 <dt class="col-sm-4">LDS Session</dt>
-                <dd class="col-sm-8">${escapeHtml(s.lds_session_id || '—')}</dd>
-                ${
-                    s.lds_login_url
-                        ? `
-                <dt class="col-sm-4">Lab URL</dt>
-                <dd class="col-sm-8"><a href="${escapeHtml(s.lds_login_url)}" target="_blank" rel="noopener" class="text-truncate d-inline-block" style="max-width: 200px;">${escapeHtml(s.lds_login_url)}</a></dd>
-                `
-                        : ''
-                }
+                <dd class="col-sm-8">${
+                    s.lds_session_id
+                        ? s.lds_login_url
+                            ? `<a href="${escapeHtml(s.lds_login_url)}" target="_blank" rel="noopener" title="${escapeHtml(s.lds_session_id)}">${escapeHtml(s.lds_session_id.split('-')[0])}… <i class="bi bi-box-arrow-up-right small"></i></a>`
+                            : `<code class="small">${escapeHtml(s.lds_session_id)}</code>`
+                        : '—'
+                }</dd>
                 <dt class="col-sm-4">Ports</dt>
-                <dd class="col-sm-8">${portsDisplay}</dd>
+                <dd class="col-sm-8">${portsDisplay}${portWarningInline}</dd>
             </dl>
         `;
     }
@@ -847,32 +907,43 @@ export class SessionDetailsModal extends BaseComponent {
     }
 
     // =========================================================================
-    // Tab: Pipeline (ADR-031 Phase 6 — DAG-ordered step progress)
+    // Tab: Pipeline (ADR-034 Sprint E — multi-pipeline sub-tabs)
     // =========================================================================
 
-    /** Human-readable labels for pipeline step names. */
-    static STEP_LABELS = {
-        content_sync: 'Content Sync',
-        variables: 'Variables',
-        lab_resolve: 'Lab Resolution',
-        ports_alloc: 'Port Allocation',
-        tags_sync: 'Tag Sync',
-        lab_binding: 'Lab Binding',
-        lab_start: 'Lab Start',
-        lds_provision: 'LDS Provision',
-        mark_ready: 'Mark Ready',
+    /**
+     * Default display names for pipeline types.
+     * The UI prefers data-driven labels from the pipeline config when available,
+     * falling back to these defaults for unknown pipeline names.
+     */
+    static PIPELINE_DISPLAY_NAMES = {
+        instantiate: 'Instantiate',
+        teardown: 'Release',
+        collect_evidence: 'Collect Evidences',
+        compute_grading: 'Compute Grading',
+    };
+
+    /** Canonical lifecycle ordering for pipeline sub-tabs (left → right = time). */
+    static PIPELINE_ORDER = ['instantiate', 'teardown', 'collect_evidence', 'compute_grading'];
+
+    /** Icons for each pipeline type. */
+    static PIPELINE_ICONS = {
+        instantiate: 'bi-play-circle',
+        teardown: 'bi-stop-circle',
+        collect_evidence: 'bi-collection',
+        compute_grading: 'bi-mortarboard',
     };
 
     _renderPipelineTab() {
         const container = this.$('#session-tab-pipeline');
         if (!container || !this.currentSession) return;
 
-        // Always re-render (SSE may push updates while tab is active)
         const s = this.currentSession;
-        const progress = s.instantiation_progress;
 
-        if (!progress || !progress.steps || progress.steps.length === 0) {
-            // No pipeline data available (pre-pipeline session or not yet started)
+        // Collect pipeline data from pipeline_progress (ADR-034)
+        const pipelines = this._collectPipelineData(s);
+
+        if (Object.keys(pipelines).length === 0) {
+            // No pipeline data — show contextual empty state
             const status = (s.status || '').toLowerCase();
             const isPre = ['pending', 'scheduled'].includes(status);
             const isPost = ['ready', 'running', 'collecting', 'grading', 'stopping', 'stopped', 'archived', 'terminated'].includes(status);
@@ -889,70 +960,188 @@ export class SessionDetailsModal extends BaseComponent {
             return;
         }
 
-        const steps = progress.steps;
-        const pipelineStarted = progress.started_at;
-        const pipelineCompleted = progress.completed_at;
-        const currentStep = progress.current_step;
-        const pipelineVersion = progress.pipeline_version || '—';
+        // Sort pipeline names in lifecycle order
+        const orderedNames = this._orderPipelineNames(Object.keys(pipelines));
 
-        // Render each step row
-        const stepRows = steps.map(step => this._renderPipelineStep(step, currentStep, pipelineStarted)).join('');
+        // Determine which sub-tab to show (prefer first in-progress, else first)
+        const activePipeline = this._activePipelineSubTab || this._inferActivePipeline(orderedNames, pipelines) || orderedNames[0];
 
-        // Summary stats
-        const completed = steps.filter(st => st.status === 'completed').length;
-        const skipped = steps.filter(st => st.status === 'skipped').length;
-        const failed = steps.filter(st => st.status === 'failed').length;
-        const pending = steps.filter(st => st.status === 'pending').length;
-        const total = steps.length;
-        const donePct = total > 0 ? Math.round(((completed + skipped) / total) * 100) : 0;
+        // Render sub-tab navigation + content
+        const subTabs = orderedNames
+            .map(name => {
+                const display = SessionDetailsModal.PIPELINE_DISPLAY_NAMES[name] || this._prettifyName(name);
+                const icon = SessionDetailsModal.PIPELINE_ICONS[name] || 'bi-gear';
+                const isActive = name === activePipeline;
+                const pData = pipelines[name];
+                const statusDot = this._pipelineStatusDot(pData);
+                return `<li class="nav-item" role="presentation">
+                <button class="nav-link${isActive ? ' active' : ''} py-1 px-2 small" data-pipeline-tab="${escapeHtml(name)}" type="button">
+                    <i class="bi ${icon} me-1"></i>${escapeHtml(display)} ${statusDot}
+                </button>
+            </li>`;
+            })
+            .join('');
 
-        const barClass = failed > 0 ? 'bg-danger' : donePct === 100 ? 'bg-success' : 'bg-info';
+        const activeContent = this._renderSinglePipeline(activePipeline, pipelines[activePipeline]);
 
         container.innerHTML = `
-            <div class="border rounded p-3 mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="mb-0"><i class="bi bi-diagram-3 me-1"></i>Instantiation Pipeline</h6>
-                    <span class="badge bg-secondary">v${escapeHtml(pipelineVersion)}</span>
-                </div>
-
-                <!-- Progress bar -->
-                <div class="progress mb-2" style="height: 6px;">
-                    <div class="progress-bar ${barClass}" role="progressbar" style="width: ${donePct}%"
-                         aria-valuenow="${donePct}" aria-valuemin="0" aria-valuemax="100"></div>
-                </div>
-                <div class="d-flex justify-content-between small text-muted mb-3">
-                    <span>${completed} completed · ${skipped} skipped · ${failed} failed · ${pending} pending</span>
-                    <span>${donePct}%</span>
-                </div>
-
-                <!-- Step list -->
-                <div class="list-group list-group-flush">
-                    ${stepRows}
-                </div>
-
-                <!-- Footer: pipeline timing -->
-                <div class="mt-3 pt-2 border-top small text-muted d-flex justify-content-between">
-                    <span>Started: ${pipelineStarted ? this._formatDateTime(pipelineStarted) : '—'}</span>
-                    <span>Completed: ${pipelineCompleted ? this._formatDateTime(pipelineCompleted) : '—'}</span>
-                </div>
+            <ul class="nav nav-tabs nav-fill mb-3" role="tablist" id="pipeline-sub-tabs">
+                ${subTabs}
+            </ul>
+            <div id="pipeline-sub-content">
+                ${activeContent}
             </div>
         `;
+
+        // Attach sub-tab click handlers
+        container.querySelectorAll('[data-pipeline-tab]').forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.preventDefault();
+                this._activePipelineSubTab = btn.dataset.pipelineTab;
+                this._tabCache.pipeline = null;
+                this._renderPipelineTab();
+            });
+        });
 
         this._tabCache.pipeline = true;
     }
 
     /**
-     * Render a single pipeline step as a list-group-item.
-     * @param {object} step - StepResult dict from instantiation_progress.steps
-     * @param {string|null} currentStep - The currently executing step name
-     * @param {string|null} pipelineStarted - Pipeline start time (ISO)
+     * Collect pipeline data from pipeline_progress.
+     * Returns { pipelineName: { format: 'generic', data: ... } }
+     */
+    _collectPipelineData(session) {
+        const result = {};
+
+        // pipeline_progress (ADR-034): { "instantiate": { step: {status, order}, ... }, ... }
+        if (session.pipeline_progress && typeof session.pipeline_progress === 'object') {
+            for (const [name, stepDict] of Object.entries(session.pipeline_progress)) {
+                if (stepDict && typeof stepDict === 'object' && Object.keys(stepDict).length > 0) {
+                    result[name] = { format: 'generic', data: stepDict };
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /** Sort pipeline names in lifecycle order, unknown names appended at end. */
+    _orderPipelineNames(names) {
+        const order = SessionDetailsModal.PIPELINE_ORDER;
+        const known = names.filter(n => order.includes(n)).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        const unknown = names.filter(n => !order.includes(n)).sort();
+        return [...known, ...unknown];
+    }
+
+    /** Infer which pipeline sub-tab to activate (prefer in-progress, else last with data). */
+    _inferActivePipeline(orderedNames, pipelines) {
+        // Find first pipeline with an in-progress step
+        for (const name of orderedNames) {
+            const p = pipelines[name];
+            if (this._hasPipelineInProgressStep(p)) return name;
+        }
+        // Fall back to last pipeline with any completed/failed step (most recent activity)
+        for (let i = orderedNames.length - 1; i >= 0; i--) {
+            const name = orderedNames[i];
+            const p = pipelines[name];
+            if (this._hasPipelineActivity(p)) return name;
+        }
+        return null;
+    }
+
+    _hasPipelineInProgressStep(pipeline) {
+        return Object.values(pipeline.data).some(s => s.status === 'in_progress');
+    }
+
+    _hasPipelineActivity(pipeline) {
+        return Object.values(pipeline.data).some(s => s.status !== 'pending');
+    }
+
+    /** Render a small status dot for the pipeline sub-tab button. */
+    _pipelineStatusDot(pipeline) {
+        const steps = this._getPipelineSteps(pipeline);
+        if (steps.length === 0) return '';
+        const hasFailed = steps.some(s => s.status === 'failed');
+        const allDone = steps.every(s => ['completed', 'skipped'].includes(s.status));
+        const hasInProgress = steps.some(s => s.status === 'in_progress');
+        if (hasFailed) return '<span class="badge bg-danger rounded-pill ms-1" style="font-size:0.55rem;">!</span>';
+        if (allDone) return '<span class="badge bg-success rounded-pill ms-1" style="font-size:0.55rem;">✓</span>';
+        if (hasInProgress) return '<span class="spinner-border spinner-border-sm ms-1" style="width:0.6rem;height:0.6rem;"></span>';
+        return '';
+    }
+
+    /** Extract normalized step array. */
+    _getPipelineSteps(pipeline) {
+        // Generic format: dict of { step_name: { status, order, error?, result_data?, skip_reason? } }
+        return Object.entries(pipeline.data)
+            .map(([name, step]) => ({
+                name,
+                status: step.status || 'pending',
+                error: step.error || step.skip_reason || null,
+                result_data: step.result_data || null,
+                completed_at: step.completed_at || null,
+                attempt_count: step.attempt_count || 0,
+                requires: step.requires || [],
+                order: step.order ?? 999,
+            }))
+            .sort((a, b) => a.order - b.order);
+    }
+
+    /**
+     * Render a single pipeline panel (progress bar + step list).
+     */
+    _renderSinglePipeline(pipelineName, pipeline) {
+        const displayName = SessionDetailsModal.PIPELINE_DISPLAY_NAMES[pipelineName] || this._prettifyName(pipelineName);
+        const icon = SessionDetailsModal.PIPELINE_ICONS[pipelineName] || 'bi-gear';
+        const steps = this._getPipelineSteps(pipeline);
+
+        if (steps.length === 0) {
+            return `<div class="text-center py-3 text-muted"><i class="bi bi-hourglass me-1"></i>No steps recorded yet.</div>`;
+        }
+
+        // Summary stats
+        const completed = steps.filter(s => s.status === 'completed').length;
+        const skipped = steps.filter(s => s.status === 'skipped').length;
+        const failed = steps.filter(s => s.status === 'failed').length;
+        const inProgress = steps.filter(s => s.status === 'in_progress').length;
+        const pending = steps.filter(s => s.status === 'pending').length;
+        const total = steps.length;
+        const donePct = total > 0 ? Math.round(((completed + skipped) / total) * 100) : 0;
+        const barClass = failed > 0 ? 'bg-danger' : donePct === 100 ? 'bg-success' : 'bg-info';
+
+        // Render step rows
+        const stepRows = steps.map(step => this._renderPipelineStepRow(step)).join('');
+
+        // Progress panel
+        return `
+            <div class="border rounded p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0"><i class="bi ${icon} me-1"></i>${escapeHtml(displayName)}</h6>
+                </div>
+                <div class="progress mb-2" style="height: 6px;">
+                    <div class="progress-bar ${barClass}" role="progressbar" style="width: ${donePct}%"
+                         aria-valuenow="${donePct}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+                <div class="d-flex justify-content-between small text-muted mb-3">
+                    <span>${completed} completed · ${skipped} skipped · ${failed} failed · ${inProgress} in progress · ${pending} pending</span>
+                    <span>${donePct}%</span>
+                </div>
+                <div class="list-group list-group-flush">
+                    ${stepRows}
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Render a single pipeline step row.
+     * @param {object} step - Normalized step { name, status, error, result_data, completed_at, attempt_count, requires, order }
      * @returns {string} HTML
      */
-    _renderPipelineStep(step, currentStep, pipelineStarted) {
-        const label = SessionDetailsModal.STEP_LABELS[step.step] || step.step;
-        const isActive = step.step === currentStep;
+    _renderPipelineStepRow(step) {
+        const label = this._prettifyName(step.name);
+        const isActive = step.status === 'in_progress';
 
-        // Status indicator
         let icon, statusBadge;
         switch (step.status) {
             case 'completed':
@@ -967,6 +1156,10 @@ export class SessionDetailsModal extends BaseComponent {
                 icon = '<i class="bi bi-skip-forward-fill text-secondary me-2"></i>';
                 statusBadge = '<span class="badge bg-secondary-subtle text-secondary">skipped</span>';
                 break;
+            case 'in_progress':
+                icon = '<span class="spinner-border spinner-border-sm text-primary me-2"></span>';
+                statusBadge = '<span class="badge bg-primary-subtle text-primary">running</span>';
+                break;
             case 'pending':
             default:
                 icon = isActive ? '<span class="spinner-border spinner-border-sm text-primary me-2"></span>' : '<i class="bi bi-circle text-secondary me-2" style="opacity: 0.4;"></i>';
@@ -974,26 +1167,19 @@ export class SessionDetailsModal extends BaseComponent {
                 break;
         }
 
-        // Duration (if completed_at available)
-        let durationStr = '';
-        if (step.completed_at && pipelineStarted) {
-            // Show duration from pipeline start to step completion
-            const completedAt = new Date(step.completed_at);
-            if (!isNaN(completedAt.getTime())) {
-                durationStr = `<span class="text-muted ms-2" style="font-size: 0.75rem;">${this._formatDateTime(step.completed_at)}</span>`;
-            }
-        }
+        // Timestamp
+        const timeStr = step.completed_at ? `<span class="text-muted ms-2" style="font-size: 0.75rem;">${this._formatDateTime(step.completed_at)}</span>` : '';
 
         // Retry badge
-        const retryBadge = (step.attempt_count || 0) > 1 ? `<span class="badge bg-warning-subtle text-warning ms-1">retry ${step.attempt_count}</span>` : '';
+        const retryBadge = step.attempt_count > 1 ? `<span class="badge bg-warning-subtle text-warning ms-1">retry ${step.attempt_count}</span>` : '';
 
         // Prerequisites
-        const prereqs = (step.requires || []).length > 0 ? `<span class="text-muted ms-2" style="font-size: 0.7rem;">requires: ${step.requires.map(r => escapeHtml(SessionDetailsModal.STEP_LABELS[r] || r)).join(', ')}</span>` : '';
+        const prereqs = step.requires.length > 0 ? `<span class="text-muted ms-2" style="font-size: 0.7rem;">requires: ${step.requires.map(r => escapeHtml(this._prettifyName(r))).join(', ')}</span>` : '';
 
-        // Error detail (expandable)
+        // Error detail
         const errorDetail = step.error ? `<div class="mt-1 small text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${escapeHtml(step.error)}</div>` : '';
 
-        // Result data summary (collapsed)
+        // Result data summary
         const resultSummary = step.result_data && Object.keys(step.result_data).length > 0 ? this._renderStepResultData(step.result_data) : '';
 
         const activeClass = isActive ? 'list-group-item-primary' : step.status === 'failed' ? 'list-group-item-danger' : '';
@@ -1009,13 +1195,34 @@ export class SessionDetailsModal extends BaseComponent {
                     <div class="d-flex align-items-center gap-1">
                         ${retryBadge}
                         ${statusBadge}
-                        ${durationStr}
+                        ${timeStr}
                     </div>
                 </div>
                 ${errorDetail}
                 ${resultSummary}
             </div>
         `;
+    }
+
+    /**
+     * Convert a snake_case step/pipeline name to a human-readable label.
+     * Example: "content_sync" → "Content Sync", "lab_start" → "Lab Start"
+     */
+    _prettifyName(name) {
+        if (!name) return '—';
+        return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    /**
+     * Render a desired_status badge (shown next to current status in Overview).
+     * Only displayed when desired_status differs from current status.
+     */
+    _renderDesiredStatusBadge(session) {
+        const desired = (session.desired_status || '').toLowerCase();
+        const current = (session.status || '').toLowerCase();
+        if (!desired || desired === current) return '';
+        const icon = desired === 'terminated' ? 'bi-x-circle' : desired === 'stopped' ? 'bi-stop-circle' : 'bi-arrow-right-circle';
+        return `<span class="badge bg-warning-subtle text-warning ms-2" title="Desired status — reconciliation target"><i class="bi ${icon} me-1"></i>→ ${escapeHtml(desired)}</span>`;
     }
 
     /**

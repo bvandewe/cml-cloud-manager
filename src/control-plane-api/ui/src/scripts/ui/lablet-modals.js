@@ -9,6 +9,7 @@ import { previewPlacement } from '../api/scheduler.js';
 import { showToast } from './notifications.js';
 import { eventBus, EventTypes } from '../core/EventBus.js';
 import { showPlacementPreviewModal } from '../components/PlacementPreviewModal.js';
+import { store } from '../app/store.js';
 import * as bootstrap from 'bootstrap';
 
 // =========================================================================
@@ -188,8 +189,19 @@ export function setupCreateLabletSessionModal() {
             if (reservationId) instanceData.reservation_id = reservationId;
             if (region) instanceData.region = region;
 
-            await labletSessionsApi.createLabletSession(instanceData);
+            const result = await labletSessionsApi.createLabletSession(instanceData);
+
+            // Immediately populate the store with the full session DTO from the
+            // HTTP 201 response so the table row appears without waiting for SSE.
+            // SSE events will then progressively update status fields.
+            if (result && result.id) {
+                store.dispatch('sessions', 'upsertSession', result);
+            }
+
             showToast('Lablet session created successfully', 'success');
+
+            // Notify pages (carries full DTO for any consumers that need it)
+            eventBus.emit(EventTypes.UI_SESSION_CREATED, result || instanceData);
 
             bootstrap.Modal.getInstance(modal)?.hide();
             document.getElementById('createLabletSessionForm')?.reset();

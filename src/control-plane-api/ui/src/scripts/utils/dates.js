@@ -129,6 +129,24 @@ export function initializeDateTooltips() {
 }
 
 /**
+ * Render a date as "time ago" text with full timestamp in native tooltip.
+ * Intended for datatable cell renderers.
+ * @param {string} dateString - ISO date string
+ * @returns {string} HTML string: relative time with full timestamp tooltip
+ */
+export function renderTimeAgo(dateString) {
+    if (!dateString) return '<span class="text-muted">&mdash;</span>';
+    try {
+        const date = parseUTCDate(dateString);
+        const relative = getRelativeTime(date);
+        const full = date.toLocaleString();
+        return `<span title="${full}" style="cursor:default;">${relative}</span>`;
+    } catch (e) {
+        return dateString;
+    }
+}
+
+/**
  * Format a date string (without relative time, for backward compatibility)
  * @param {string} dateString - ISO date string
  * @returns {string} Formatted date string

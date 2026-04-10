@@ -6,6 +6,7 @@
  */
 
 import { eventBus, LcmEventTypes } from '../eventBus.js';
+import * as workersApi from '../../api/workers.js';
 
 /**
  * Initial state for workers slice
@@ -226,6 +227,43 @@ export const workersSlice = {
         reset() {
             return initialState;
         },
+
+        /**
+         * Replace all workers (full refresh from API).
+         * Resets byId/allIds to exactly the given array.
+         */
+        replaceAll(state, workers) {
+            if (!Array.isArray(workers)) return state;
+
+            const byId = {};
+            const allIds = [];
+
+            workers.forEach(w => {
+                if (!w || !w.id) return;
+                byId[w.id] = w;
+                allIds.push(w.id);
+            });
+
+            return {
+                ...state,
+                byId,
+                allIds,
+                lastRefreshedAt: new Date().toISOString(),
+            };
+        },
+
+        /**
+         * Set list-level loading state (convenience shorthand)
+         */
+        setListLoading(state, loading) {
+            return {
+                ...state,
+                loading: {
+                    ...state.loading,
+                    list: loading,
+                },
+            };
+        },
     },
 };
 
@@ -300,6 +338,83 @@ export function selectWorkersByStatus(state, status) {
     return selectAllWorkers(state).filter(w => w.status === status);
 }
 
+/**
+ * Get fleet capacity summary (aggregated from all workers)
+ */
+export function selectFleetCapacity(state) {
+    const workers = selectAllWorkers(state);
+    let totalCpu = 0,
+        usedCpu = 0,
+        totalMem = 0,
+        usedMem = 0;
+    let totalStorage = 0,
+        usedStorage = 0,
+        totalNodes = 0,
+        usedNodes = 0;
+    let running = 0;
+
+    workers.forEach(w => {
+        if (w.declared_capacity) {
+            totalCpu += w.declared_capacity.cpu_cores || 0;
+            totalMem += w.declared_capacity.memory_gb || 0;
+            totalStorage += w.declared_capacity.storage_gb || 0;
+            totalNodes += w.declared_capacity.max_nodes || 0;
+        }
+        if (w.allocated_capacity) {
+            usedCpu += w.allocated_capacity.cpu_cores || 0;
+            usedMem += w.allocated_capacity.memory_gb || 0;
+            usedStorage += w.allocated_capacity.storage_gb || 0;
+            usedNodes += w.allocated_capacity.max_nodes || 0;
+        }
+        if ((w.status || '').toLowerCase() === 'running') running++;
+    });
+
+    return {
+        totalCpuCores: totalCpu,
+        usedCpuCores: usedCpu,
+        totalMemoryGb: totalMem,
+        usedMemoryGb: usedMem,
+        totalStorageGb: totalStorage,
+        usedStorageGb: usedStorage,
+        totalMaxNodes: totalNodes,
+        usedNodes: usedNodes,
+        runningWorkers: running,
+        totalWorkers: workers.length,
+    };
+}
+
+/**
+ * Get worker status summary (count by status)
+ */
+export function selectWorkerStatusSummary(state) {
+    const workers = selectAllWorkers(state);
+    const summary = {
+        total: workers.length,
+        running: 0,
+        stopped: 0,
+        pending: 0,
+        stopping: 0,
+        terminated: 0,
+        error: 0,
+    };
+
+    workers.forEach(w => {
+        const status = (w.status || '').toLowerCase();
+        if (status in summary) {
+            summary[status]++;
+        }
+    });
+
+    return summary;
+}
+
+/**
+ * Check if workers list is loading (alias for selectIsListLoading)
+ */
+export function selectWorkersListLoading(state) {
+    return state.workers?.loading?.list || false;
+}
+
 // ============================================================================
 // Actions (thunks that dispatch reducers and emit events)
 // ============================================================================
@@ -309,6 +424,77 @@ export function selectWorkersByStatus(state, status) {
  */
 export function createWorkersActions(store) {
     return {
+        /**
+         * Load all workers from API into the store.
+         * Fetches /api/workers/ (all regions) or /api/workers/region/{region}/workers.
+         * @param {string|null} region - AWS region filter, or null/empty for all regions
+         */
+        async loadWorkers(region = null) {
+            store.dispatch('workers', 'setListLoading', true);
+            try {
+                let workers;
+                if (region) {
+                    workers = await workersApi.listWorkers(region);
+                } else {
+                    // Fetch all workers across regions via the global endpoint
+                    const response = await fetch('/api/workers/', {
+                        credentials: 'include',
+                        headers: { Accept: 'application/json' },
+                    });
+                    if (!response.ok) throw new Error(`Failed to load workers: ${response.status}`);
+                    const data = await response.json();
+                    workers = Array.isArray(data) ? data : data.items || data.data || [];
+                }
+                store.dispatch('workers', 'replaceAll', workers);
+                store.dispatch('workers', 'setLastRefreshed', new Date().toISOString());
+                eventBus.emit(LcmEventTypes.WORKERS_REFRESH_COMPLETED, { count: workers.length });
+                return workers;
+            } catch (error) {
+                console.error('[workersSlice] Failed to load workers:', error);
+                store.dispatch('workers', 'setError', { workerId: '_list', error: error.message });
+                throw error;
+            } finally {
+                store.dispatch('workers', 'setListLoading', false);
+            }
+        },
+
+        /**
+         * Start a worker via API.
+         * @param {string} workerId - Worker UUID
+         * @param {string} region - AWS region (falls back to worker's region in store)
+         */
+        async startWorker(workerId, region) {
+            const resolvedRegion = region || store.getState().workers?.byId?.[workerId]?.aws_region || store.getState().workers?.byId?.[workerId]?.region;
+            if (!resolvedRegion) throw new Error(`Cannot start worker ${workerId}: region unknown`);
+            const result = await workersApi.startWorker(resolvedRegion, workerId);
+            return result;
+        },
+
+        /**
+         * Stop a worker via API.
+         * @param {string} workerId - Worker UUID
+         * @param {string} region - AWS region (falls back to worker's region in store)
+         */
+        async stopWorker(workerId, region) {
+            const resolvedRegion = region || store.getState().workers?.byId?.[workerId]?.aws_region || store.getState().workers?.byId?.[workerId]?.region;
+            if (!resolvedRegion) throw new Error(`Cannot stop worker ${workerId}: region unknown`);
+            const result = await workersApi.stopWorker(resolvedRegion, workerId);
+            return result;
+        },
+
+        /**
+         * Terminate (delete) a worker via API.
+         * @param {string} workerId - Worker UUID
+         * @param {string} region - AWS region (falls back to worker's region in store)
+         */
+        async terminateWorker(workerId, region) {
+            const resolvedRegion = region || store.getState().workers?.byId?.[workerId]?.aws_region || store.getState().workers?.byId?.[workerId]?.region;
+            if (!resolvedRegion) throw new Error(`Cannot terminate worker ${workerId}: region unknown`);
+            const result = await workersApi.deleteWorker(resolvedRegion, workerId, true);
+            // SSE will handle store removal via WORKER_TERMINATED event
+            return result;
+        },
+
         /**
          * Set the active worker and emit event
          */

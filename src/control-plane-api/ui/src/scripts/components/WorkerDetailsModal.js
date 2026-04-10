@@ -975,9 +975,10 @@ export class WorkerDetailsModal extends BaseComponent {
                     ${labs
                         .map((lab, index) => {
                             const id = `lab-${index}`;
-                            const state = lab.state || 'UNKNOWN';
-                            const isRunning = ['STARTED', 'BOOTED', 'QUEUED', 'STARTING', 'PAUSED'].includes(state.toUpperCase());
-                            const isStopped = ['STOPPED', 'WIPED', 'DEFINED', 'DEFINED_ON_CORE', 'IMPORTED', 'DISCOVERED'].includes(state.toUpperCase());
+                            // Prefer lab.status (authoritative LabRecordStatus enum) over lab.state (raw CML string)
+                            const state = lab.status || lab.state || 'unknown';
+                            const isRunning = ['started', 'booted', 'queued', 'starting', 'paused'].includes(state.toLowerCase());
+                            const isStopped = ['stopped', 'wiped', 'defined', 'defined_on_core', 'imported', 'discovered'].includes(state.toLowerCase());
                             const bindingInfo = bindingsMap[lab.id];
                             const pendingAction = lab.pending_action;
 
@@ -1133,14 +1134,32 @@ export class WorkerDetailsModal extends BaseComponent {
 
     getLabStateBadgeClass(state) {
         switch (state?.toLowerCase()) {
-            case 'started':
-                return 'bg-success';
-            case 'stopped':
-                return 'bg-secondary';
             case 'booted':
+            case 'started': // Legacy CML raw state
+                return 'bg-success';
+            case 'starting':
+            case 'queued':
+            case 'stopping':
+            case 'wiping':
+            case 'importing':
+            case 'deleting':
+                return 'bg-warning text-dark';
+            case 'stopped':
+            case 'wiped':
+            case 'defined':
+            case 'defined_on_core':
+            case 'discovered':
+                return 'bg-secondary';
+            case 'paused':
                 return 'bg-info';
+            case 'error':
+            case 'orphaned':
+                return 'bg-danger';
+            case 'deleted':
+            case 'archived':
+                return 'bg-dark';
             default:
-                return 'bg-warning';
+                return 'bg-warning text-dark';
         }
     }
 

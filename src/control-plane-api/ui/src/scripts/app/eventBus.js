@@ -20,7 +20,7 @@ import { EventBus } from '@neuroglia/ui-core';
  * });
  *
  * // Emit events
- * eventBus.emit(LcmEventTypes.WORKER_UPDATED, { id: '123', name: 'Worker 1' });
+ * eventBus.emit(LcmEventTypes.WORKER_CREATED, { id: '123', name: 'Worker 1' });
  * ```
  */
 export const eventBus = EventBus.getInstance({

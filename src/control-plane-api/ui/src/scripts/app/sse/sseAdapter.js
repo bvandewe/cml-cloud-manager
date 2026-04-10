@@ -136,7 +136,7 @@ class LcmSSEAdapter {
      * Set up store updates from SSE events
      *
      * IMPORTANT: Use store.dispatch() directly here instead of action creators.
-     * Action creators (workersActions, labletsActions) re-emit the same EventBus
+     * Action creators (workersActions, definitionsActions, sessionsActions) re-emit the same EventBus
      * events after dispatching, which causes infinite recursion when called from
      * an EventBus handler. Action creators are intended for user-initiated actions
      * (button clicks, form submissions) where event re-emission is desirable.
@@ -162,6 +162,19 @@ class LcmSSEAdapter {
             }
         });
 
+        // Batch metrics: unwrap { batch_id, count, events: [...] } envelope (ADR-013)
+        eventBus.on(LcmEventTypes.WORKER_METRICS_UPDATED_BATCH, data => {
+            const events = data?.events;
+            if (Array.isArray(events)) {
+                for (const metric of events) {
+                    const workerId = metric.worker_id || metric.id;
+                    if (workerId) {
+                        store.dispatch('workers', 'updateMetrics', { workerId, metrics: metric });
+                    }
+                }
+            }
+        });
+
         eventBus.on(LcmEventTypes.WORKER_TERMINATED, data => {
             const workerId = data.worker_id || data.id;
             if (workerId) {
@@ -169,63 +182,197 @@ class LcmSSEAdapter {
             }
         });
 
-        // Lablet session events -> update store (Phase 7 — replaces instance events)
+        // Lablet session events -> update sessions store (M3-PREP: domain separation)
+        // NOTE: Domain SSE payloads use `session_id` as the identifier field,
+        // but the sessionsSlice `upsertSession` reducer requires `id`.
+        // All handlers below normalize `session_id` → `id` before dispatch.
         eventBus.on(LcmEventTypes.LABLET_SESSION_SNAPSHOT, data => {
-            store.dispatch('lablets', 'upsertInstance', data);
+            store.dispatch('sessions', 'upsertSession', data);
         });
 
         eventBus.on(LcmEventTypes.LABLET_SESSION_CREATED, data => {
-            store.dispatch('lablets', 'upsertInstance', data);
+            const normalized = this._normalizeSessionId(data);
+            // Created events carry minimal fields; set initial status
+            if (!normalized.status) normalized.status = 'pending';
+            store.dispatch('sessions', 'upsertSession', normalized);
         });
 
         eventBus.on(LcmEventTypes.LABLET_SESSION_UPDATED, data => {
-            store.dispatch('lablets', 'upsertInstance', data);
+            store.dispatch('sessions', 'upsertSession', this._normalizeSessionId(data));
         });
 
         eventBus.on(LcmEventTypes.LABLET_SESSION_STATUS_CHANGED, data => {
-            store.dispatch('lablets', 'upsertInstance', data);
+            store.dispatch('sessions', 'upsertSession', this._normalizeSessionId(data));
+        });
+
+        // Pipeline progress SSE → merge into session's pipeline_progress (ADR-034 Sprint E)
+        eventBus.on(LcmEventTypes.LABLET_SESSION_PIPELINE_PROGRESS, data => {
+            const sessionId = data.session_id || data.id;
+            if (!sessionId) return;
+            const pipelineName = data.pipeline_name;
+            if (!pipelineName) return;
+            // Retrieve current session from store to merge pipeline_progress
+            const sessionState = store.getState('sessions');
+            const session = sessionState?.byId?.[sessionId];
+            const merged = { ...(session?.pipeline_progress || {}) };
+            merged[pipelineName] = data.progress || {};
+            store.dispatch('sessions', 'upsertSession', {
+                id: sessionId,
+                pipeline_progress: merged,
+            });
+        });
+
+        // Desired status changed SSE → update session in store (ADR-034 Sprint E)
+        eventBus.on(LcmEventTypes.LABLET_SESSION_DESIRED_STATUS_CHANGED, data => {
+            const sessionId = data.session_id || data.id;
+            if (sessionId && data.new_desired_status) {
+                store.dispatch('sessions', 'upsertSession', {
+                    id: sessionId,
+                    desired_status: data.new_desired_status,
+                });
+            }
+        });
+
+        // Score recorded SSE → merge score data into session (AD-SSE-RACE-001 Fix 6)
+        // Backend sends: { session_id, score_report_id, grade_result, scored_at }
+        eventBus.on(LcmEventTypes.LABLET_SESSION_SCORE_RECORDED, data => {
+            const sessionId = data.session_id || data.id;
+            if (sessionId) {
+                store.dispatch('sessions', 'upsertSession', {
+                    id: sessionId,
+                    score_report_id: data.score_report_id,
+                    scored_at: data.scored_at,
+                    grade_result: data.grade_result,
+                });
+            }
+        });
+
+        // Timeslot extended SSE → update timeslot end in session (AD-SSE-RACE-001 Fix 5)
+        // Backend sends: { session_id, old_timeslot_end, new_timeslot_end, extended_by, extended_at }
+        eventBus.on(LcmEventTypes.LABLET_SESSION_TIMESLOT_EXTENDED, data => {
+            const sessionId = data.session_id || data.id;
+            if (sessionId && data.new_timeslot_end) {
+                store.dispatch('sessions', 'upsertSession', {
+                    id: sessionId,
+                    timeslot_end: data.new_timeslot_end,
+                });
+            }
+        });
+
+        // Ports released SSE → informational, update session (Track 2 §5.2)
+        eventBus.on(LcmEventTypes.LABLET_SESSION_PORTS_RELEASED, data => {
+            const sessionId = data.session_id || data.id;
+            if (sessionId) {
+                console.log(`[LCM SSE] Ports released for session ${sessionId}`);
+                store.dispatch('sessions', 'upsertSession', {
+                    id: sessionId,
+                    ports: null,
+                });
+            }
+        });
+
+        // Pipeline CloudEvents (Sprint G — G5 granular per-step observability)
+        // These carry individual step-level events for real-time pipeline visualization.
+        // Re-emit as a unified event that PipelineProgressPanel components can subscribe to.
+        eventBus.on(LcmEventTypes.PIPELINE_STEP_STARTED, data => {
+            const sessionId = data.session_id || data.aggregate_id;
+            if (!sessionId) return;
+            this._updatePipelineStep(sessionId, data.pipeline_name, data.step_name, 'in_progress');
+        });
+
+        eventBus.on(LcmEventTypes.PIPELINE_STEP_COMPLETED, data => {
+            const sessionId = data.session_id || data.aggregate_id;
+            if (!sessionId) return;
+            this._updatePipelineStep(sessionId, data.pipeline_name, data.step_name, 'completed', {
+                result_data: data.result_data,
+            });
+        });
+
+        eventBus.on(LcmEventTypes.PIPELINE_STEP_FAILED, data => {
+            const sessionId = data.session_id || data.aggregate_id;
+            if (!sessionId) return;
+            this._updatePipelineStep(sessionId, data.pipeline_name, data.step_name, 'failed', {
+                error: data.error,
+            });
+        });
+
+        eventBus.on(LcmEventTypes.PIPELINE_COMPLETED, data => {
+            const sessionId = data.session_id || data.aggregate_id;
+            if (!sessionId || !data.pipeline_name) return;
+            // Re-emit as pipeline progress update so the panel refreshes
+            eventBus.emit(LcmEventTypes.LABLET_SESSION_PIPELINE_PROGRESS, {
+                session_id: sessionId,
+                pipeline_name: data.pipeline_name,
+                pipeline_status: data.status,
+                steps_completed: data.steps_completed,
+                steps_failed: data.steps_failed,
+                steps_skipped: data.steps_skipped,
+            });
         });
 
         eventBus.on(LcmEventTypes.LABLET_SESSION_TERMINATED, data => {
             const sessionId = data.session_id || data.id;
             if (sessionId) {
-                store.dispatch('lablets', 'removeInstance', sessionId);
+                store.dispatch('sessions', 'removeSession', sessionId);
             }
         });
 
-        // Lablet definition events -> update store
+        eventBus.on(LcmEventTypes.LABLET_SESSION_DELETED, data => {
+            const sessionId = data.session_id || data.id;
+            if (sessionId) {
+                store.dispatch('sessions', 'removeSession', sessionId);
+            }
+        });
+
+        // Worker template events -> update store
+        eventBus.on(LcmEventTypes.WORKER_TEMPLATE_CREATED, data => {
+            store.dispatch('templates', 'upsertTemplate', data);
+        });
+
+        eventBus.on(LcmEventTypes.WORKER_TEMPLATE_UPDATED, data => {
+            store.dispatch('templates', 'upsertTemplate', data);
+        });
+
+        eventBus.on(LcmEventTypes.WORKER_TEMPLATE_DELETED, data => {
+            const templateId = data.template_id || data.id;
+            if (templateId) {
+                store.dispatch('templates', 'removeTemplate', templateId);
+            }
+        });
+
+        // Lablet definition events -> update definitions store (M3-PREP: domain separation)
         eventBus.on(LcmEventTypes.LABLET_DEFINITION_SNAPSHOT, data => {
-            store.dispatch('lablets', 'upsertDefinition', data);
+            store.dispatch('definitions', 'upsertDefinition', data);
         });
 
         eventBus.on(LcmEventTypes.LABLET_DEFINITION_CREATED, data => {
-            store.dispatch('lablets', 'upsertDefinition', data);
+            store.dispatch('definitions', 'upsertDefinition', data);
         });
 
         eventBus.on(LcmEventTypes.LABLET_DEFINITION_UPDATED, data => {
-            store.dispatch('lablets', 'upsertDefinition', data);
+            store.dispatch('definitions', 'upsertDefinition', data);
         });
 
         eventBus.on(LcmEventTypes.LABLET_DEFINITION_DELETED, data => {
             const defId = data.definition_id || data.id;
             if (defId) {
-                store.dispatch('lablets', 'removeDefinition', defId);
+                store.dispatch('definitions', 'removeDefinition', defId);
             }
         });
 
-        // Lablet definition activation/deactivation -> update store
+        // Lablet definition activation/deactivation -> update definitions store
         eventBus.on(LcmEventTypes.LABLET_DEFINITION_ACTIVATED, data => {
-            store.dispatch('lablets', 'upsertDefinition', { ...data, is_active: true });
+            store.dispatch('definitions', 'upsertDefinition', { ...data, is_active: true });
         });
 
         eventBus.on(LcmEventTypes.LABLET_DEFINITION_DEACTIVATED, data => {
-            store.dispatch('lablets', 'upsertDefinition', { ...data, is_active: false });
+            store.dispatch('definitions', 'upsertDefinition', { ...data, is_active: false });
         });
 
-        // Lablet definition sync lifecycle -> update store
+        // Lablet definition sync lifecycle -> update definitions store
         eventBus.on(LcmEventTypes.LABLET_DEFINITION_CONTENT_SYNCED, data => {
             if (data?.definition_id) {
-                store.dispatch('lablets', 'upsertDefinition', {
+                store.dispatch('definitions', 'upsertDefinition', {
                     id: data.definition_id,
                     sync_status: data.sync_status,
                     last_synced_at: data.synced_at,
@@ -236,7 +383,7 @@ class LcmSSEAdapter {
 
         eventBus.on(LcmEventTypes.LABLET_DEFINITION_DEPRECATED, data => {
             if (data?.definition_id) {
-                store.dispatch('lablets', 'upsertDefinition', {
+                store.dispatch('definitions', 'upsertDefinition', {
                     id: data.definition_id,
                     status: 'deprecated',
                     deprecated_by: data.deprecated_by,
@@ -249,7 +396,7 @@ class LcmSSEAdapter {
 
         eventBus.on(LcmEventTypes.LABLET_DEFINITION_SYNC_REQUESTED, data => {
             if (data?.definition_id) {
-                store.dispatch('lablets', 'upsertDefinition', {
+                store.dispatch('definitions', 'upsertDefinition', {
                     id: data.definition_id,
                     sync_status: 'sync_requested',
                 });
@@ -321,6 +468,31 @@ class LcmSSEAdapter {
             }
         });
 
+        // Lab Record binding events → update lab record in store (Track 2 §5.4)
+        eventBus.on(LcmEventTypes.LAB_RECORD_BOUND, data => {
+            if (data) {
+                store.dispatch('labRecords', 'upsertLabRecord', data);
+            }
+        });
+
+        eventBus.on(LcmEventTypes.LAB_RECORD_UNBOUND, data => {
+            if (data) {
+                store.dispatch('labRecords', 'upsertLabRecord', data);
+            }
+        });
+
+        // Lab Record error events → update lab record error state in store (Track 2 §5.4)
+        eventBus.on(LcmEventTypes.LAB_RECORD_ERROR, data => {
+            const labRecordId = data.lab_record_id || data.id;
+            if (labRecordId) {
+                store.dispatch('labRecords', 'upsertLabRecord', {
+                    id: labRecordId,
+                    last_error: data.error || data.message,
+                    last_error_at: data.occurred_at || new Date().toISOString(),
+                });
+            }
+        });
+
         // Lab Record Action events -> update pending_action state (AD-023)
         eventBus.on(LcmEventTypes.LAB_RECORD_ACTION_QUEUED, data => {
             const labRecordId = data.lab_record_id || data.id;
@@ -380,10 +552,57 @@ class LcmSSEAdapter {
                 if (!message) return; // Skip if message is null/empty
 
                 const type = typeof config.type === 'function' ? config.type(data) : config.type;
-                const duration = config.duration;
+                const duration = typeof config.duration === 'function' ? config.duration(data) : config.duration;
 
                 showToast(message, type, duration);
             });
+        });
+    }
+
+    /**
+     * Normalize session event data so it always has an `id` field.
+     * Domain SSE payloads use `session_id`, but the store's upsertSession
+     * reducer requires `id`.
+     *
+     * @param {Object} data - Raw SSE event data
+     * @returns {Object} Data with `id` field set
+     */
+    _normalizeSessionId(data) {
+        if (!data) return data;
+        const id = data.id || data.session_id;
+        if (!id) return data;
+        return { ...data, id };
+    }
+
+    /**
+     * Update a single pipeline step in the session's pipeline_progress store entry.
+     * Called by pipeline CloudEvent handlers (Sprint G — G5).
+     *
+     * @param {string} sessionId - LabletSession ID
+     * @param {string} pipelineName - Pipeline name (e.g. "instantiate")
+     * @param {string} stepName - Step name (e.g. "create_lab")
+     * @param {string} newStatus - Step status ("in_progress", "completed", "failed")
+     * @param {Object} [extra] - Optional extra fields (result_data, error)
+     */
+    _updatePipelineStep(sessionId, pipelineName, stepName, newStatus, extra = {}) {
+        if (!sessionId || !pipelineName || !stepName) return;
+
+        const sessionState = store.getState('sessions');
+        const session = sessionState?.byId?.[sessionId];
+        const currentProgress = { ...(session?.pipeline_progress || {}) };
+        const pipelineSteps = { ...(currentProgress[pipelineName] || {}) };
+
+        pipelineSteps[stepName] = {
+            ...(pipelineSteps[stepName] || {}),
+            status: newStatus,
+            ...extra,
+        };
+
+        currentProgress[pipelineName] = pipelineSteps;
+
+        store.dispatch('sessions', 'upsertSession', {
+            id: sessionId,
+            pipeline_progress: currentProgress,
         });
     }
 }

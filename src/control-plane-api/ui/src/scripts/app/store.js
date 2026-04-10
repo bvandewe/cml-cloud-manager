@@ -8,9 +8,10 @@
 import { StateStore, loggerMiddleware, devtoolsMiddleware } from '@neuroglia/ui-core';
 import { eventBus } from './eventBus.js';
 import { workersSlice } from './slices/workersSlice.js';
-import { labletsSlice } from './slices/labletsSlice.js';
+import { definitionsSlice } from './slices/definitionsSlice.js';
 import { labRecordsSlice } from './slices/labRecordsSlice.js';
 import { sessionsSlice } from './slices/sessionsSlice.js';
+import { templatesSlice } from './slices/templatesSlice.js';
 
 /**
  * Create and configure the LCM StateStore
@@ -30,9 +31,10 @@ function createStore() {
 
     // Register slices
     store.registerSlice('workers', workersSlice);
-    store.registerSlice('lablets', labletsSlice);
+    store.registerSlice('definitions', definitionsSlice);
     store.registerSlice('labRecords', labRecordsSlice);
     store.registerSlice('sessions', sessionsSlice);
+    store.registerSlice('templates', templatesSlice);
 
     return store;
 }
@@ -57,10 +59,23 @@ export function getSlice(sliceName) {
 }
 
 /**
- * Helper to subscribe to state changes
+ * Helper to subscribe to selected state changes.
+ * Uses a selector to derive a value from state and only invokes
+ * the callback when that derived value changes (by reference).
+ *
+ * @param {Function} selector - (state) => derivedValue
+ * @param {Function} callback - (derivedValue) => void
+ * @returns {Function} Unsubscribe function
  */
 export function subscribe(selector, callback) {
-    return store.subscribe(selector, callback);
+    let previousValue = selector(store.getState());
+    return store.subscribe(newState => {
+        const newValue = selector(newState);
+        if (newValue !== previousValue) {
+            previousValue = newValue;
+            callback(newValue);
+        }
+    });
 }
 
 export default store;

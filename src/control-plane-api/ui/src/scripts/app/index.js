@@ -21,22 +21,23 @@ export {
     selectWorkerError,
     selectWorkersCount,
     selectWorkersByStatus,
+    selectFleetCapacity,
+    selectWorkerStatusSummary,
+    selectWorkersListLoading,
     createWorkersActions,
 } from './slices/workersSlice.js';
 export {
-    labletsSlice,
+    definitionsSlice,
     selectAllDefinitions,
     selectDefinitionById,
     selectActiveDefinition,
-    selectDefinitionsLoading,
-    selectAllInstances,
-    selectInstanceById,
-    selectActiveInstance,
-    selectInstancesLoading,
-    selectInstancesByDefinition,
-    selectInstancesByStatus,
-    createLabletsActions,
-} from './slices/labletsSlice.js';
+    selectDefinitionsListLoading,
+    selectDefinitionsCount,
+    selectDefinitionsByStatus,
+    selectActiveDefinitions,
+    selectDefinitionStatusSummary,
+    createDefinitionsActions,
+} from './slices/definitionsSlice.js';
 export {
     labRecordsSlice,
     selectAllLabRecords,
@@ -64,6 +65,17 @@ export {
     selectSessionStatusSummary,
     createSessionsActions,
 } from './slices/sessionsSlice.js';
+
+export {
+    templatesSlice,
+    selectAllTemplates,
+    selectTemplateById,
+    selectTemplatesListLoading,
+    selectTemplatesCount,
+    selectTemplatesByEnabled,
+    selectTemplateStatusSummary,
+    createTemplatesActions,
+} from './slices/templatesSlice.js';
 
 // SSE
 export { lcmSSEAdapter, connect as connectSSE, disconnect as disconnectSSE, getStatus as getSSEStatus } from './sse/sseAdapter.js';

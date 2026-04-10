@@ -6,6 +6,7 @@
  *
  * Tabs:
  *   - Overview: identity, status, worker, resources
+ *   - Ports: allocated port mappings grouped by node (ADR-032)
  *   - Linked Lablets: lablet instance bindings
  *   - Runs: active/historical runs
  *   - Topology: node/link tables from discovery
@@ -239,6 +240,15 @@ export class LabDetailModal extends BaseComponent {
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
+                    <button class="nav-link ${this._activeTab === 'ports' ? 'active' : ''}"
+                        data-lab-tab="ports" type="button">
+                        <i class="bi bi-plug me-1"></i>Ports
+                        ${this._labRecord?.allocated_ports && Object.keys(this._labRecord.allocated_ports).length > 0
+                            ? `<span class="badge bg-primary rounded-pill ms-1">${Object.keys(this._labRecord.allocated_ports).length}</span>`
+                            : ''}
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
                     <button class="nav-link ${this._activeTab === 'linkedLablets' ? 'active' : ''}"
                         data-lab-tab="linkedLablets" type="button">
                         <i class="bi bi-link-45deg me-1"></i>Linked Lablets
@@ -303,6 +313,9 @@ export class LabDetailModal extends BaseComponent {
             case 'overview':
                 panel.innerHTML = this._renderOverviewTab();
                 this._bindOverviewCrossLinks();
+                break;
+            case 'ports':
+                panel.innerHTML = this._renderPortsTab();
                 break;
             case 'linkedLablets':
                 this._loadLinkedLabletsTab();
@@ -472,6 +485,106 @@ export class LabDetailModal extends BaseComponent {
                 }, 300);
             });
         });
+    }
+
+    // ===========================================================================
+    // Ports Tab (ADR-032)
+    // ===========================================================================
+
+    _renderPortsTab() {
+        const lr = this._labRecord;
+        if (!lr) return '';
+
+        const ports = lr.allocated_ports;
+        const hasPorts = ports && typeof ports === 'object' && Object.keys(ports).length > 0;
+
+        if (!hasPorts) {
+            return `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-plug fs-1 d-block mb-2"></i>
+                    <p>No ports allocated for this lab record.</p>
+                    <small class="text-muted">
+                        Ports are allocated during session instantiation when the
+                        associated definition includes a port template.
+                    </small>
+                </div>
+            `;
+        }
+
+        // Group ports by node label (port names follow "{node_label}_{protocol}" convention)
+        const byNode = {};
+        for (const [portName, portNumber] of Object.entries(ports)) {
+            const parts = portName.split('_');
+            const protocol = parts.pop();
+            const nodeLabel = parts.join('_');
+            if (!byNode[nodeLabel]) byNode[nodeLabel] = [];
+            byNode[nodeLabel].push({ protocol, portNumber, portName });
+        }
+
+        const nodeCards = Object.entries(byNode)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([nodeLabel, nodePorts]) => {
+                const rows = nodePorts
+                    .sort((a, b) => a.protocol.localeCompare(b.protocol))
+                    .map(p => `
+                        <tr>
+                            <td>
+                                <span class="badge bg-light text-dark">
+                                    <i class="bi ${p.protocol === 'vnc' ? 'bi-display' : p.protocol === 'serial' ? 'bi-terminal' : 'bi-ethernet'} me-1"></i>
+                                    ${escapeHtml(p.protocol)}
+                                </span>
+                            </td>
+                            <td>
+                                <code class="fs-6">${p.portNumber}</code>
+                            </td>
+                            <td>
+                                <code class="small text-muted">${escapeHtml(p.portName)}</code>
+                            </td>
+                        </tr>
+                    `)
+                    .join('');
+
+                return `
+                    <div class="col-md-6 col-lg-4">
+                        <div class="card h-100">
+                            <div class="card-header py-2">
+                                <i class="bi bi-hdd me-1"></i>
+                                <strong>${escapeHtml(nodeLabel)}</strong>
+                                <span class="badge bg-secondary float-end">${nodePorts.length}</span>
+                            </div>
+                            <div class="card-body p-0">
+                                <table class="table table-sm table-hover mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 35%;">Protocol</th>
+                                            <th style="width: 25%;">Port</th>
+                                            <th>Key</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${rows}</tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            })
+            .join('');
+
+        const totalPorts = Object.keys(ports).length;
+        const totalNodes = Object.keys(byNode).length;
+
+        return `
+            <div class="d-flex align-items-center mb-3">
+                <h6 class="mb-0">
+                    <i class="bi bi-plug me-1"></i> Allocated Ports
+                </h6>
+                <span class="badge bg-primary ms-2">${totalPorts} ports</span>
+                <span class="badge bg-secondary ms-1">${totalNodes} nodes</span>
+            </div>
+            <div class="row g-3">
+                ${nodeCards}
+            </div>
+        `;
     }
 
     // ===========================================================================

@@ -219,6 +219,53 @@ export async function requestResourceObservation(sessionId) {
 }
 
 // ==============================================================================
+// Pipeline Observability (Sprint G — G2)
+// ==============================================================================
+
+/**
+ * Get pipeline progress for a lablet session.
+ * Returns step-level status and summary for all or a single pipeline.
+ *
+ * @param {string} sessionId - Session UUID
+ * @param {string} [pipelineName] - Optional pipeline name filter
+ * @returns {Promise<Object>} Pipeline progress with step summaries
+ */
+export async function getPipelineProgress(sessionId, pipelineName = null) {
+    const params = new URLSearchParams();
+    if (pipelineName) params.append('pipeline_name', pipelineName);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    const response = await apiRequest(`/api/lablet-sessions/${sessionId}/pipeline-progress${queryString}`, {
+        method: 'GET',
+    });
+    return await response.json();
+}
+
+/**
+ * List pipeline execution history for a lablet session.
+ * Returns audit records of past pipeline runs.
+ *
+ * @param {string} sessionId - Session UUID
+ * @param {Object} [params] - Filter/pagination parameters
+ * @param {string} [params.pipeline_name] - Filter by pipeline name
+ * @param {string} [params.status] - Filter by status (running, completed, failed)
+ * @param {number} [params.skip] - Pagination offset
+ * @param {number} [params.limit] - Pagination limit
+ * @returns {Promise<Array>} List of pipeline execution summaries
+ */
+export async function listPipelineExecutions(sessionId, params = {}) {
+    const searchParams = new URLSearchParams();
+    if (params.pipeline_name) searchParams.append('pipeline_name', params.pipeline_name);
+    if (params.status) searchParams.append('status', params.status);
+    if (params.skip != null) searchParams.append('skip', params.skip.toString());
+    if (params.limit != null) searchParams.append('limit', params.limit.toString());
+    const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    const response = await apiRequest(`/api/lablet-sessions/${sessionId}/pipeline-executions${queryString}`, {
+        method: 'GET',
+    });
+    return await response.json();
+}
+
+// ==============================================================================
 // Statistics
 // ==============================================================================
 

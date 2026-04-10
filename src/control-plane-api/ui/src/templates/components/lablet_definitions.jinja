@@ -308,20 +308,19 @@
             });
         }
 
-        // Resource requirements toggle
+        // Resource requirements toggle (uses CSS classes instead of bootstrap.Collapse JS API
+        // because this inline script runs outside the ES module scope where Bootstrap is bundled)
         const resourceToggle = document.getElementById('defResourceToggle');
         const collapseEl = document.getElementById('resourceRequirementsCollapse');
         const defaultsHint = document.getElementById('resourceDefaultsHint');
 
         if (resourceToggle && collapseEl) {
-            const bsCollapse = new bootstrap.Collapse(collapseEl, { toggle: false });
-
             resourceToggle.addEventListener('change', function () {
                 if (this.checked) {
-                    bsCollapse.show();
+                    collapseEl.classList.add('show');
                     if (defaultsHint) defaultsHint.style.display = 'none';
                 } else {
-                    bsCollapse.hide();
+                    collapseEl.classList.remove('show');
                     if (defaultsHint) defaultsHint.style.display = '';
                 }
             });

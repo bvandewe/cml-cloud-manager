@@ -21,6 +21,7 @@ export const sseEventMap = {
     // Worker events
     'worker.snapshot': LcmEventTypes.WORKER_SNAPSHOT,
     'worker.metrics.updated': LcmEventTypes.WORKER_METRICS_UPDATED,
+    'worker.metrics.updated.batch': LcmEventTypes.WORKER_METRICS_UPDATED_BATCH,
     'worker.status.updated': LcmEventTypes.WORKER_STATUS_CHANGED,
     'worker.created': LcmEventTypes.WORKER_CREATED,
     'worker.imported': LcmEventTypes.WORKER_IMPORTED,
@@ -48,18 +49,33 @@ export const sseEventMap = {
     'lablet.session.updated': LcmEventTypes.LABLET_SESSION_UPDATED,
     'lablet.session.deleted': LcmEventTypes.LABLET_SESSION_DELETED,
     'lablet.session.status.changed': LcmEventTypes.LABLET_SESSION_STATUS_CHANGED,
-    'lablet.session.scheduled': LcmEventTypes.LABLET_SESSION_SCHEDULED,
-    'lablet.session.instantiating': LcmEventTypes.LABLET_SESSION_INSTANTIATING,
-    'lablet.session.ready': LcmEventTypes.LABLET_SESSION_READY,
-    'lablet.session.running': LcmEventTypes.LABLET_SESSION_RUNNING,
-    'lablet.session.collecting': LcmEventTypes.LABLET_SESSION_COLLECTING,
-    'lablet.session.grading': LcmEventTypes.LABLET_SESSION_GRADING,
-    'lablet.session.stopping': LcmEventTypes.LABLET_SESSION_STOPPING,
-    'lablet.session.stopped': LcmEventTypes.LABLET_SESSION_STOPPED,
-    'lablet.session.archived': LcmEventTypes.LABLET_SESSION_ARCHIVED,
+    // AD-SSE-RACE-001 Fix 7: The following per-status wire types are RESERVED
+    // but never emitted by the backend. All lifecycle transitions use the single
+    // 'lablet.session.status.changed' wire type with a `status` field.
+    // Kept for potential future fine-grained filtering; no sseAdapter handlers exist.
+    // 'lablet.session.scheduled': LcmEventTypes.LABLET_SESSION_SCHEDULED,
+    // 'lablet.session.instantiating': LcmEventTypes.LABLET_SESSION_INSTANTIATING,
+    // 'lablet.session.ready': LcmEventTypes.LABLET_SESSION_READY,
+    // 'lablet.session.running': LcmEventTypes.LABLET_SESSION_RUNNING,
+    // 'lablet.session.collecting': LcmEventTypes.LABLET_SESSION_COLLECTING,
+    // 'lablet.session.grading': LcmEventTypes.LABLET_SESSION_GRADING,
+    // 'lablet.session.stopping': LcmEventTypes.LABLET_SESSION_STOPPING,
+    // 'lablet.session.stopped': LcmEventTypes.LABLET_SESSION_STOPPED,
+    // 'lablet.session.archived': LcmEventTypes.LABLET_SESSION_ARCHIVED,
     'lablet.session.terminated': LcmEventTypes.LABLET_SESSION_TERMINATED,
     'lablet.session.snapshot': LcmEventTypes.LABLET_SESSION_SNAPSHOT,
+    'lablet.session.pipeline.progress': LcmEventTypes.LABLET_SESSION_PIPELINE_PROGRESS,
+    'lablet.session.desired_status.changed': LcmEventTypes.LABLET_SESSION_DESIRED_STATUS_CHANGED,
+    'lablet.session.score.recorded': LcmEventTypes.LABLET_SESSION_SCORE_RECORDED,
+    'lablet.session.timeslot.extended': LcmEventTypes.LABLET_SESSION_TIMESLOT_EXTENDED,
+    'lablet.session.ports.released': LcmEventTypes.LABLET_SESSION_PORTS_RELEASED,
     'lablet.sessions.refresh.completed': LcmEventTypes.LABLET_SESSIONS_REFRESH_COMPLETED,
+
+    // Pipeline CloudEvents (Sprint G — G5 granular per-step observability)
+    'pipeline.step.started.v1': LcmEventTypes.PIPELINE_STEP_STARTED,
+    'pipeline.step.completed.v1': LcmEventTypes.PIPELINE_STEP_COMPLETED,
+    'pipeline.step.failed.v1': LcmEventTypes.PIPELINE_STEP_FAILED,
+    'pipeline.completed.v1': LcmEventTypes.PIPELINE_COMPLETED,
     // Backward-compat: old wire names still route correctly
     'lablet.instance.created': LcmEventTypes.LABLET_SESSION_CREATED,
     'lablet.instance.updated': LcmEventTypes.LABLET_SESSION_UPDATED,
@@ -200,6 +216,35 @@ export const toastEventTypes = {
     [LcmEventTypes.LABLET_DEFINITION_DEPRECATED]: {
         message: data => (data?.name ? `Definition deprecated: ${data.name} v${data.version || '?'}` : null),
         type: 'warning',
+    },
+
+    // Pipeline CloudEvents (Sprint G — G5)
+    [LcmEventTypes.PIPELINE_STEP_FAILED]: {
+        message: data => {
+            if (!data) return null;
+            const step = data.step_name || 'step';
+            const pipeline = data.pipeline_name || 'pipeline';
+            const error = data.error ? `: ${data.error}` : '';
+            return `Pipeline ${pipeline} — step "${step}" failed${error}`;
+        },
+        type: 'error',
+        duration: 8000,
+    },
+    [LcmEventTypes.PIPELINE_COMPLETED]: {
+        message: data => {
+            if (!data) return null;
+            const pipeline = data.pipeline_name || 'pipeline';
+            const status = data.status || 'completed';
+            if (status === 'failed') return `Pipeline ${pipeline} failed`;
+            if (status === 'partial') return `Pipeline ${pipeline} completed with failures`;
+            return `Pipeline ${pipeline} completed successfully`;
+        },
+        type: data => {
+            const status = data?.status || 'completed';
+            if (status === 'failed') return 'error';
+            if (status === 'partial') return 'warning';
+            return 'success';
+        },
     },
 };
 

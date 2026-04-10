@@ -2,7 +2,11 @@
 import 'bootstrap';
 import '../styles/main.scss';
 
-// Register all core components
+// Register @neuroglia/ui-core components (ui-* prefix)
+// Must run BEFORE page components that reference ui-* elements
+import './bridge/uiCoreSetup.js';
+
+// Register all core components (lcm-* prefix)
 import './components/core/index.js';
 
 // Register page components

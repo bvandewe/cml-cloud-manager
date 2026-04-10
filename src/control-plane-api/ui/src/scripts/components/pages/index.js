@@ -7,17 +7,17 @@
  * @module components/pages
  */
 
-export { WorkersPage } from './WorkersPage.js';
+export { WorkersPageV2 } from './WorkersPageV2.js';
 export { OverviewPage } from './OverviewPage.js';
 export { SystemPage } from './SystemPage.js';
 export { SchedulerPage } from './SchedulerPage.js';
-export { LabRecordsPage } from './LabRecordsPage.js';
-export { SessionsPage } from './SessionsPage.js';
+export { LabRecordsPageV2 } from './LabRecordsPageV2.js';
+export { SessionsPageV2 } from './SessionsPageV2.js';
 
 // Register all page components
-import './WorkersPage.js';
+import './WorkersPageV2.js';
 import './OverviewPage.js';
 import './SystemPage.js';
 import './SchedulerPage.js';
-import './LabRecordsPage.js';
-import './SessionsPage.js';
+import './LabRecordsPageV2.js';
+import './SessionsPageV2.js';

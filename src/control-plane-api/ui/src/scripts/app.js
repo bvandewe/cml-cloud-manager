@@ -19,11 +19,11 @@ import { setupCreateLabletSessionModal, setupCreateLabletDefinitionModal, setupD
 
 // Import page components
 import './components/pages/OverviewPage.js';
-import './components/pages/WorkersPage.js';
+import './components/pages/WorkersPageV2.js';
 import './components/pages/SystemPage.js';
 import './components/pages/SchedulerPage.js';
-import './components/pages/LabRecordsPage.js';
-import './components/pages/SessionsPage.js';
+import './components/pages/LabRecordsPageV2.js';
+import './components/pages/SessionsPageV2.js';
 
 // Current user and active view
 let currentUser = null;
@@ -38,7 +38,7 @@ let labRecordsPageInstance = null;
 let sessionsPageInstance = null;
 
 /**
- * Initialize WorkersPage component
+ * Initialize WorkersPage component (V2 — store-driven)
  */
 function initializeWorkersPage() {
     const container = document.querySelector('#workers-section .container, #workers-section');
@@ -49,8 +49,8 @@ function initializeWorkersPage() {
 
     if (workersPageInstance) return;
 
-    container.innerHTML = '<workers-page id="workers-page"></workers-page>';
-    workersPageInstance = container.querySelector('workers-page');
+    container.innerHTML = '<workers-page-v2 id="workers-page-v2"></workers-page-v2>';
+    workersPageInstance = container.querySelector('workers-page-v2');
 
     if (workersPageInstance) {
         workersPageInstance.initialize(currentUser);
@@ -131,7 +131,7 @@ function initializeSchedulerPage() {
 }
 
 /**
- * Initialize LabRecordsPage component
+ * Initialize LabRecordsPage component (V2 — store-driven)
  */
 function initializeLabRecordsPage() {
     const container = document.querySelector('#labs-section .container, #labs-section');
@@ -142,8 +142,8 @@ function initializeLabRecordsPage() {
 
     if (labRecordsPageInstance) return;
 
-    container.innerHTML = '<lab-records-page id="lab-records-page"></lab-records-page>';
-    labRecordsPageInstance = container.querySelector('lab-records-page');
+    container.innerHTML = '<lab-records-page-v2 id="lab-records-page-v2"></lab-records-page-v2>';
+    labRecordsPageInstance = container.querySelector('lab-records-page-v2');
 
     if (labRecordsPageInstance) {
         labRecordsPageInstance.initialize(currentUser);
@@ -151,7 +151,7 @@ function initializeLabRecordsPage() {
 }
 
 /**
- * Initialize SessionsPage component
+ * Initialize SessionsPage component (V2 — store-driven)
  */
 function initializeSessionsPage() {
     const container = document.querySelector('#sessions-section .container, #sessions-section');
@@ -162,8 +162,8 @@ function initializeSessionsPage() {
 
     if (sessionsPageInstance) return;
 
-    container.innerHTML = '<sessions-page id="sessions-page"></sessions-page>';
-    sessionsPageInstance = container.querySelector('sessions-page');
+    container.innerHTML = '<sessions-page-v2 id="sessions-page-v2"></sessions-page-v2>';
+    sessionsPageInstance = container.querySelector('sessions-page-v2');
 
     if (sessionsPageInstance) {
         sessionsPageInstance.initialize(currentUser);

@@ -30,6 +30,7 @@
  * @module components/core/LcmModal
  */
 
+import * as bootstrap from 'bootstrap';
 import { BaseComponent } from '../../core/BaseComponent.js';
 
 export class LcmModal extends BaseComponent {

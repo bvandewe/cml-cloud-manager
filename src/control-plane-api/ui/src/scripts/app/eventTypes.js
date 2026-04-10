@@ -17,10 +17,12 @@ export const LcmEventTypes = {
     // Worker events
     WORKER_CREATED: 'worker.created',
     WORKER_IMPORTED: 'worker.imported',
-    WORKER_UPDATED: 'worker.updated',
+    // WORKER_UPDATED removed — phantom constant, no backend emitter, no frontend usage
+    /** @deprecated Synthetic — re-emitted by frontend (workersActions), no direct backend SSE emitter */
     WORKER_DELETED: 'worker.deleted',
     WORKER_STATUS_CHANGED: 'worker.status.changed',
     WORKER_METRICS_UPDATED: 'worker.metrics.updated',
+    WORKER_METRICS_UPDATED_BATCH: 'worker.metrics.updated.batch',
     WORKER_SNAPSHOT: 'worker.snapshot',
     WORKER_TERMINATED: 'worker.terminated',
     WORKER_ACTIVITY_UPDATED: 'worker.activity.updated',
@@ -31,7 +33,9 @@ export const LcmEventTypes = {
     WORKER_DATA_REFRESHED: 'worker.data.refreshed',
     WORKER_ENDPOINT_UPDATED: 'worker.endpoint.updated',
     WORKER_EC2_DETAILS_UPDATED: 'worker.ec2_details.updated',
+    /** @deprecated Emitted by workersSlice but never consumed — candidate for removal */
     WORKER_TIMING_UPDATED: 'worker.timing.updated',
+    /** @deprecated Emitted by workersSlice but never consumed — candidate for removal */
     WORKER_ACTIVE_CHANGED: 'worker.active.changed',
     WORKER_LICENSE_REGISTRATION_STARTED: 'worker.license.registration.started',
     WORKER_LICENSE_REGISTRATION_COMPLETED: 'worker.license.registration.completed',
@@ -45,11 +49,9 @@ export const LcmEventTypes = {
     SYSTEM_SSE_SHUTDOWN: 'system.sse.shutdown',
 
     // Lab events (legacy — worker-scoped lab sync)
-    LAB_CREATED: 'lab.created',
-    LAB_STARTED: 'lab.started',
-    LAB_STOPPED: 'lab.stopped',
-    LAB_WIPED: 'lab.wiped',
-    LAB_DELETED: 'lab.deleted',
+    // LAB_CREATED, LAB_STARTED, LAB_STOPPED, LAB_WIPED, LAB_DELETED removed — dead
+    // constants superseded by LAB_RECORD_* (Phase 10)
+    /** @deprecated Legacy SSE-mapped but no frontend subscriber — kept for backward compat */
     LAB_UPDATED: 'lab.updated',
 
     // Lab Record events (Phase 10 — LabRecord aggregate lifecycle)
@@ -85,7 +87,18 @@ export const LcmEventTypes = {
     LABLET_SESSION_ARCHIVED: 'lablet.session.archived',
     LABLET_SESSION_TERMINATED: 'lablet.session.terminated',
     LABLET_SESSION_SNAPSHOT: 'lablet.session.snapshot',
+    LABLET_SESSION_PIPELINE_PROGRESS: 'lablet.session.pipeline.progress',
+    LABLET_SESSION_DESIRED_STATUS_CHANGED: 'lablet.session.desired_status.changed',
+    LABLET_SESSION_SCORE_RECORDED: 'lablet.session.score.recorded',
+    LABLET_SESSION_TIMESLOT_EXTENDED: 'lablet.session.timeslot.extended',
+    LABLET_SESSION_PORTS_RELEASED: 'lablet.session.ports.released',
     LABLET_SESSIONS_REFRESH_COMPLETED: 'lablet.sessions.refresh.completed',
+
+    // Pipeline CloudEvents (Sprint G — G5 granular per-step observability)
+    PIPELINE_STEP_STARTED: 'pipeline.step.started',
+    PIPELINE_STEP_COMPLETED: 'pipeline.step.completed',
+    PIPELINE_STEP_FAILED: 'pipeline.step.failed',
+    PIPELINE_COMPLETED: 'pipeline.completed',
 
     // Backward-compat aliases (old SSE wire names → new keys)
     LABLET_INSTANCE_CREATED: 'lablet.session.created',
@@ -111,17 +124,22 @@ export const LcmEventTypes = {
     WORKER_TEMPLATE_CREATED: 'worker.template.created',
     WORKER_TEMPLATE_UPDATED: 'worker.template.updated',
     WORKER_TEMPLATE_DELETED: 'worker.template.deleted',
+    /** @todo Backend emits SSE but missing eventMap entry — add in future Track */
     WORKER_TEMPLATE_ENABLED: 'worker.template.enabled',
+    /** @todo Backend emits SSE but missing eventMap entry — add in future Track */
     WORKER_TEMPLATE_DISABLED: 'worker.template.disabled',
 
     // Session events (Phase 7 — composite UI events)
+    /** @deprecated Emitted by sessionsActions but never consumed — candidate for removal */
     SESSIONS_REFRESH_COMPLETED: 'sessions.refresh.completed',
 
-    // UI events
-    UI_VIEW_CHANGED: 'ui.view.changed',
+    // UI events (client-side only — no backend SSE emitter by design)
     UI_FILTER_CHANGED: 'ui.filter.changed',
     UI_MODAL_OPENED: 'ui.modal.opened',
-    UI_MODAL_CLOSED: 'ui.modal.closed',
+    // UI_VIEW_CHANGED, UI_MODAL_CLOSED removed — dead constants, never used
+    /** Emitted by lablet-modals.js after successful session creation to trigger page reload */
+    UI_SESSION_CREATED: 'ui.session.created',
+    /** @deprecated Emitted by LcmTabView but never consumed — candidate for removal */
     UI_TAB_CHANGED: 'ui.tab.changed',
 };
 
