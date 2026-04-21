@@ -27,13 +27,13 @@ All persistence goes through Control Plane API (ADR-001).
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from lcm_core.integration.clients import ControlPlaneApiClient
 from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
 
 from application.settings import Settings
-from integration.services.cml_labs_spi import CmlLabsSpiClient
+from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 
 # Supported lab actions (maps to CML SPI methods)
 SUPPORTED_ACTIONS = {"start", "stop", "wipe", "delete"}
+DELETE_STOP_STATES = {LabState.STARTED, LabState.BOOTED, LabState.QUEUED}
+DELETE_STOPPED_STATES = {LabState.STOPPED, LabState.DEFINED_ON_CORE}
 
 
 class LabRecordReconciler:
@@ -80,7 +82,7 @@ class LabRecordReconciler:
         self._cml_labs = cml_labs_client
         self._settings = settings
         self._running = False
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[Any] | None = None
 
         # Worker host cache: worker_id → host address
         # Avoids repeated CPA lookups for the same worker within a session
@@ -269,6 +271,7 @@ class LabRecordReconciler:
             lab_id: CML lab ID on the worker.
             worker_id: CML worker ID hosting the lab.
         """
+        host: str | None = None
         try:
             # Step 1: Resolve worker host
             host = await self._resolve_worker_host(worker_id)
@@ -280,25 +283,191 @@ class LabRecordReconciler:
 
             # Step 2: Execute CML API call
             logger.info(f"LabRecordReconciler: Executing {action} on lab={lab_id} (worker={worker_id}, host={host})")
-
-            if action == "start":
-                await self._cml_labs.start_lab(host=host, lab_id=lab_id)
-            elif action == "stop":
-                await self._cml_labs.stop_lab(host=host, lab_id=lab_id)
-            elif action == "wipe":
-                await self._cml_labs.wipe_lab(host=host, lab_id=lab_id)
-            elif action == "delete":
-                await self._cml_labs.delete_lab(host=host, lab_id=lab_id)
+            await self._execute_cml_action(
+                host=host,
+                lab_record_id=lab_record_id,
+                action=action,
+                lab_id=lab_id,
+                worker_id=worker_id,
+            )
 
             # Step 3: Report success
             await self._report_success(lab_record_id, action)
 
-        except Exception as e:
-            error_msg = f"{action} failed for lab={lab_id} on worker={worker_id}: {e}"
+        except Exception:
+            refreshed_host = await self._resolve_worker_host(worker_id, force_refresh=True)
+            if refreshed_host and refreshed_host != host:
+                logger.warning(
+                    "LabRecordReconciler: %s failed on cached host %s for worker=%s, retrying with refreshed host %s",
+                    action,
+                    host,
+                    worker_id,
+                    refreshed_host,
+                )
+                try:
+                    await self._execute_cml_action(
+                        host=refreshed_host,
+                        lab_record_id=lab_record_id,
+                        action=action,
+                        lab_id=lab_id,
+                        worker_id=worker_id,
+                    )
+                    await self._report_success(lab_record_id, action)
+                    return
+                except Exception as retry_error:
+                    e = retry_error
+                    host = refreshed_host
+
+            error_msg = f"{action} failed for lab={lab_id} on worker={worker_id} (host={host or 'unresolved'}): {self._format_exception(e)}"
             logger.error(f"LabRecordReconciler: {error_msg}", exc_info=True)
             await self._report_failure(lab_record_id, error_msg)
 
-    async def _resolve_worker_host(self, worker_id: str) -> str | None:
+    async def _execute_cml_action(
+        self,
+        host: str,
+        lab_record_id: str,
+        action: str,
+        lab_id: str,
+        worker_id: str,
+    ) -> None:
+        """Execute a CML action, expanding delete into stop-wipe-delete."""
+        if action == "delete":
+            await self._execute_delete_flow(
+                host=host,
+                lab_record_id=lab_record_id,
+                lab_id=lab_id,
+                worker_id=worker_id,
+            )
+            return
+
+        if action == "start":
+            await self._cml_labs.start_lab(host=host, lab_id=lab_id)
+        elif action == "stop":
+            await self._cml_labs.stop_lab(host=host, lab_id=lab_id)
+        elif action == "wipe":
+            await self._cml_labs.wipe_lab(host=host, lab_id=lab_id)
+
+    async def _execute_delete_flow(
+        self,
+        host: str,
+        lab_record_id: str,
+        lab_id: str,
+        worker_id: str,
+    ) -> None:
+        """Execute delete as a stop → wipe → delete sequence."""
+        lab = await self._cml_labs.get_lab(host=host, lab_id=lab_id)
+        if lab is None:
+            logger.info(
+                "LabRecordReconciler: Lab %s already absent on worker=%s; completing delete for lab_record=%s",
+                lab_id,
+                worker_id,
+                lab_record_id,
+            )
+            return
+
+        current_state = lab.state
+
+        if current_state in DELETE_STOP_STATES:
+            await self._cml_labs.stop_lab(host=host, lab_id=lab_id)
+            current_state = await self._wait_for_lab_state(
+                host=host,
+                lab_id=lab_id,
+                desired_states=DELETE_STOPPED_STATES,
+                timeout_seconds=self._settings.lab_action_timeout_seconds,
+                poll_interval_seconds=self._settings.lab_action_poll_interval_seconds,
+            )
+            await self._report_intermediate_status(
+                lab_record_id=lab_record_id,
+                new_status="stopped",
+                cml_state=current_state.value,
+            )
+
+        await self._cml_labs.wipe_lab(host=host, lab_id=lab_id)
+        await self._report_intermediate_status(
+            lab_record_id=lab_record_id,
+            new_status="wiped",
+            cml_state=LabState.DEFINED_ON_CORE.value,
+        )
+
+        await self._cml_labs.delete_lab(host=host, lab_id=lab_id)
+        await self._wait_for_lab_absence(
+            host=host,
+            lab_id=lab_id,
+            timeout_seconds=self._settings.lab_action_timeout_seconds,
+            poll_interval_seconds=self._settings.lab_action_poll_interval_seconds,
+        )
+
+    async def _wait_for_lab_state(
+        self,
+        host: str,
+        lab_id: str,
+        desired_states: set[LabState],
+        timeout_seconds: int,
+        poll_interval_seconds: int,
+    ) -> LabState:
+        """Poll until the lab reaches one of the desired states."""
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+
+        while True:
+            state = await self._cml_labs.get_lab_state(host=host, lab_id=lab_id)
+            if state in desired_states:
+                return state
+
+            if asyncio.get_running_loop().time() >= deadline:
+                desired_values = ", ".join(sorted(state.value for state in desired_states))
+                raise TimeoutError(f"Timed out waiting for lab {lab_id} to reach one of [{desired_values}]")
+
+            await asyncio.sleep(poll_interval_seconds)
+
+    async def _wait_for_lab_absence(
+        self,
+        host: str,
+        lab_id: str,
+        timeout_seconds: int,
+        poll_interval_seconds: int,
+    ) -> None:
+        """Poll until the lab no longer exists in CML."""
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+
+        while True:
+            lab = await self._cml_labs.get_lab(host=host, lab_id=lab_id)
+            if lab is None:
+                return
+
+            if asyncio.get_running_loop().time() >= deadline:
+                raise TimeoutError(f"Timed out waiting for lab {lab_id} to be deleted")
+
+            await asyncio.sleep(poll_interval_seconds)
+
+    async def _report_intermediate_status(
+        self,
+        lab_record_id: str,
+        new_status: str,
+        cml_state: str,
+    ) -> None:
+        """Report an intermediate delete-step status back to CPA."""
+        try:
+            await self._api.update_lab_record_status(
+                lab_record_id=lab_record_id,
+                new_status=new_status,
+                cml_state=cml_state,
+            )
+        except Exception as e:
+            logger.warning(
+                "LabRecordReconciler: Failed to report intermediate status %s for %s: %s",
+                new_status,
+                lab_record_id,
+                self._format_exception(e),
+            )
+
+    def _format_exception(self, error: Exception) -> str:
+        """Format exception types consistently for controller logs and CPA failures."""
+        message = str(error).strip()
+        if message:
+            return f"{type(error).__name__}: {message}"
+        return type(error).__name__
+
+    async def _resolve_worker_host(self, worker_id: str, force_refresh: bool = False) -> str | None:
         """Resolve the host address for a CML worker.
 
         Uses a local cache to avoid repeated CPA lookups for the same worker.
@@ -311,8 +480,11 @@ class LabRecordReconciler:
             Host address string, or None if unavailable.
         """
         # Check cache first
-        if worker_id in self._worker_host_cache:
+        if not force_refresh and worker_id in self._worker_host_cache:
             return self._worker_host_cache[worker_id]
+
+        if force_refresh:
+            self._worker_host_cache.pop(worker_id, None)
 
         try:
             worker = await self._api.get_worker(worker_id)
@@ -329,7 +501,7 @@ class LabRecordReconciler:
             logger.error(f"LabRecordReconciler: Failed to resolve worker {worker_id}: {e}")
             return None
 
-    def _extract_host_from_worker(self, worker: dict) -> str | None:
+    def _extract_host_from_worker(self, worker: dict[str, Any]) -> str | None:
         """Extract host address from worker data.
 
         Follows the same logic as LabDiscoveryService._resolve_worker_host().
@@ -403,7 +575,7 @@ class LabRecordReconciler:
     # Observability
     # =========================================================================
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """Get reconciler statistics.
 
         Returns:

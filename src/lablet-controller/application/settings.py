@@ -86,6 +86,8 @@ class Settings(ApplicationSettings):
     # Lab Record Reconciliation (AD-023)
     # ============================================================================
     lab_record_reconcile_enabled: bool = True  # Watch etcd for lab pending actions
+    lab_action_poll_interval_seconds: int = 5
+    lab_action_timeout_seconds: int = 180
 
     # ============================================================================
     # LDS (Lab Delivery System) Integration
