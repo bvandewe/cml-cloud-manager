@@ -193,8 +193,8 @@ export class LcmTabView extends BaseComponent {
             localStorage.setItem(`lcm-tab-${this.persistKey}`, tabId);
         }
 
-        // Emit event
-        this.emit('tab-change', { tabId, previousTabId });
+        // Emit DOM event (for parent component addEventListener)
+        this.dispatchEvent('tab-change', { tabId, previousTabId });
 
         // Also emit on EventBus for global listeners
         eventBus.emit(EventTypes.UI_TAB_CHANGED, {
