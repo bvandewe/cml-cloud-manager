@@ -14,6 +14,7 @@
 
 import { BaseComponent } from '../../core/BaseComponent.js';
 import { eventBus, EventTypes } from '../../core/EventBus.js';
+import * as labletDefinitionsApi from '../../api/lablet-definitions.js';
 import '../core/LcmMetricCard.js';
 import '../core/LcmGrafanaPanel.js';
 import '../core/LcmTabView.js';
@@ -636,11 +637,13 @@ export class OverviewPage extends BaseComponent {
                 break;
             }
             case 'create-lablet': {
-                const modal = document.getElementById('createLabletInstanceModal');
+                const modal = document.getElementById('createLabletSessionModal');
                 if (modal) {
-                    new bootstrap.Modal(modal).show();
+                    await this._populateDefinitionDropdown();
+                    this._setDefaultSessionFormValues();
+                    bootstrap.Modal.getOrCreateInstance(modal).show();
                 } else {
-                    console.warn('[OverviewPage] createLabletInstanceModal not found');
+                    console.warn('[OverviewPage] createLabletSessionModal not found');
                 }
                 break;
             }
@@ -655,6 +658,53 @@ export class OverviewPage extends BaseComponent {
             }
             default:
                 console.warn('[OverviewPage] Unknown action:', action);
+        }
+    }
+
+    /**
+     * Populate the definitions dropdown in the create session modal.
+     */
+    async _populateDefinitionDropdown() {
+        const select = document.getElementById('instanceDefinitionId');
+        if (!select) return;
+
+        try {
+            const definitions = await labletDefinitionsApi.listLabletDefinitions({ status: 'active' });
+
+            select.innerHTML = '<option value="">Select a definition...</option>';
+
+            definitions.forEach(def => {
+                const option = document.createElement('option');
+                option.value = def.id;
+                option.textContent = `${def.name} v${def.version || '?'} (${def.node_count || 0} nodes, ${def.cpu_cores || def.resource_requirements?.cpu_cores || 0} CPU, ${def.memory_gb || def.resource_requirements?.memory_gb || 0} GB RAM)`;
+                option.dataset.name = def.name;
+                option.dataset.version = def.version || '';
+                option.dataset.cpu = def.cpu_cores || def.resource_requirements?.cpu_cores || 0;
+                option.dataset.memory = def.memory_gb || def.resource_requirements?.memory_gb || 0;
+                option.dataset.nodes = def.node_count || 0;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('[OverviewPage] Failed to load definitions:', error);
+        }
+    }
+
+    /**
+     * Set default values for the create session form fields.
+     */
+    _setDefaultSessionFormValues() {
+        // Set default start time to now + 2 minutes
+        const startInput = document.getElementById('instanceTimeslotStart');
+        if (startInput) {
+            const defaultStart = new Date(Date.now() + 2 * 60 * 1000);
+            const pad = n => String(n).padStart(2, '0');
+            startInput.value = `${defaultStart.getFullYear()}-${pad(defaultStart.getMonth() + 1)}-${pad(defaultStart.getDate())}T${pad(defaultStart.getHours())}:${pad(defaultStart.getMinutes())}`;
+        }
+
+        // Ensure duration has default value
+        const durationInput = document.getElementById('instanceDuration');
+        if (durationInput && !durationInput.value) {
+            durationInput.value = '120';
         }
     }
 }

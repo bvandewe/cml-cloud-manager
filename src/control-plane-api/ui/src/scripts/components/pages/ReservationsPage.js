@@ -17,6 +17,7 @@
 import { BaseComponent } from '../../core/BaseComponent.js';
 import { eventBus, EventTypes } from '../../core/EventBus.js';
 import { showConfirmAsync } from '../modals.js';
+import * as labletDefinitionsApi from '../../api/lablet-definitions.js';
 import '../core/LcmTabView.js';
 import '../core/LcmDataTable.js';
 import '../core/LcmActionBar.js';
@@ -698,12 +699,59 @@ export class ReservationsPage extends BaseComponent {
     }
 
     async _openCreateModal() {
-        const modal = document.getElementById('createLabletInstanceModal');
+        const modal = document.getElementById('createLabletSessionModal');
         if (modal) {
+            await this._populateDefinitionDropdown();
+            this._setDefaultSessionFormValues();
             const bootstrap = await import('bootstrap');
-            new bootstrap.Modal(modal).show();
+            bootstrap.Modal.getOrCreateInstance(modal).show();
         } else {
-            console.warn('[ReservationsPage] createLabletInstanceModal not found');
+            console.warn('[ReservationsPage] createLabletSessionModal not found');
+        }
+    }
+
+    /**
+     * Populate the definitions dropdown in the create session modal.
+     */
+    async _populateDefinitionDropdown() {
+        const select = document.getElementById('instanceDefinitionId');
+        if (!select) return;
+
+        try {
+            const definitions = await labletDefinitionsApi.listLabletDefinitions({ status: 'active' });
+
+            select.innerHTML = '<option value="">Select a definition...</option>';
+
+            definitions.forEach(def => {
+                const option = document.createElement('option');
+                option.value = def.id;
+                option.textContent = `${def.name} v${def.version || '?'} (${def.node_count || 0} nodes, ${def.cpu_cores || def.resource_requirements?.cpu_cores || 0} CPU, ${def.memory_gb || def.resource_requirements?.memory_gb || 0} GB RAM)`;
+                option.dataset.name = def.name;
+                option.dataset.version = def.version || '';
+                option.dataset.cpu = def.cpu_cores || def.resource_requirements?.cpu_cores || 0;
+                option.dataset.memory = def.memory_gb || def.resource_requirements?.memory_gb || 0;
+                option.dataset.nodes = def.node_count || 0;
+                select.appendChild(option);
+            });
+        } catch (error) {
+            console.error('[ReservationsPage] Failed to load definitions:', error);
+        }
+    }
+
+    /**
+     * Set default values for the create session form fields.
+     */
+    _setDefaultSessionFormValues() {
+        const startInput = document.getElementById('instanceTimeslotStart');
+        if (startInput) {
+            const defaultStart = new Date(Date.now() + 2 * 60 * 1000);
+            const pad = n => String(n).padStart(2, '0');
+            startInput.value = `${defaultStart.getFullYear()}-${pad(defaultStart.getMonth() + 1)}-${pad(defaultStart.getDate())}T${pad(defaultStart.getHours())}:${pad(defaultStart.getMinutes())}`;
+        }
+
+        const durationInput = document.getElementById('instanceDuration');
+        if (durationInput && !durationInput.value) {
+            durationInput.value = '120';
         }
     }
 

@@ -34,6 +34,7 @@ export class SessionDetailsModal extends BaseComponent {
         this.modalInstance = null;
         this.currentSessionId = null;
         this.currentSession = null;
+        this._reloadTimer = null;
         this._tabCache = {
             overview: null,
             pipeline: null,
@@ -59,6 +60,7 @@ export class SessionDetailsModal extends BaseComponent {
             if (id === this.currentSessionId) {
                 this.currentSession = { ...this.currentSession, ...data };
                 this.refreshCurrentTab();
+                this._scheduleReloadFromBackend();
             }
         });
 
@@ -71,6 +73,7 @@ export class SessionDetailsModal extends BaseComponent {
                     updated_at: data.updated_at || new Date().toISOString(),
                 };
                 this.refreshCurrentTab();
+                this._scheduleReloadFromBackend();
             }
         });
 
@@ -89,6 +92,7 @@ export class SessionDetailsModal extends BaseComponent {
             if (activeTab?.dataset.tab === 'pipeline') {
                 this._renderPipelineTab();
             }
+            this._scheduleReloadFromBackend(250);
         });
 
         // SSE: desired_status changed — update session and refresh overview (ADR-034 Sprint E)
@@ -104,12 +108,17 @@ export class SessionDetailsModal extends BaseComponent {
             if (activeTab?.dataset.tab === 'overview') {
                 this._renderOverviewTab();
             }
+            this._scheduleReloadFromBackend();
         });
 
         this.render();
     }
 
     disconnectedCallback() {
+        if (this._reloadTimer) {
+            clearTimeout(this._reloadTimer);
+            this._reloadTimer = null;
+        }
         super.disconnectedCallback();
     }
 
@@ -258,6 +267,37 @@ export class SessionDetailsModal extends BaseComponent {
         } catch (error) {
             console.error('[SessionDetailsModal] Failed to load session:', error);
             showToast(`Failed to load session details: ${error.message}`, 'error');
+        }
+    }
+
+    _scheduleReloadFromBackend(delay = 500) {
+        if (!this.currentSessionId) return;
+
+        if (this._reloadTimer) {
+            clearTimeout(this._reloadTimer);
+        }
+
+        this._reloadTimer = setTimeout(() => {
+            this._reloadTimer = null;
+            this._reloadSessionDataFromBackend();
+        }, delay);
+    }
+
+    async _reloadSessionDataFromBackend() {
+        if (!this.currentSessionId) return;
+
+        try {
+            const latest = await labletSessionsApi.getLabletSession(this.currentSessionId);
+            if (!latest) return;
+
+            this.currentSession = latest;
+            this._tabCache.overview = null;
+            this._tabCache.pipeline = null;
+            this._tabCache.reports = null;
+            this._tabCache.resources = null;
+            this.refreshCurrentTab();
+        } catch (error) {
+            console.warn('[SessionDetailsModal] Failed to refresh latest session state:', error);
         }
     }
 

@@ -18,9 +18,10 @@ import '../core/LcmCodeViewer.js';
  */
 export function renderDefinitionDetailsHtml(def, formatDateTime) {
     const uss = def.upstream_sync_status || {};
+    const bucketUrl = buildObjectStorageUrl(def);
 
     return `
-        <!-- Basic Information + Resource Requirements -->
+        <!-- Row 1: Basic Information + Resource Requirements -->
         <div class="row g-3">
             <div class="col-md-6">
                 <h6 class="text-muted mb-2"><i class="bi bi-info-circle me-1"></i>Basic Information</h6>
@@ -29,11 +30,12 @@ export function renderDefinitionDetailsHtml(def, formatDateTime) {
                     <dt class="col-sm-4">Version</dt><dd class="col-sm-8">${def.version || '—'}</dd>
                     <dt class="col-sm-4">Status</dt><dd class="col-sm-8"><lcm-status-badge status="${def.status || 'unknown'}"></lcm-status-badge></dd>
                     <dt class="col-sm-4">Form QN</dt><dd class="col-sm-8">${def.form_qualified_name || '—'}</dd>
-                    <dt class="col-sm-4">Bucket Name</dt><dd class="col-sm-8"><code>${def.bucket_name || '—'}</code></dd>
+                    <dt class="col-sm-4">Bucket Name</dt>
+                    <dd class="col-sm-8">${bucketUrl ? `<a href="${bucketUrl}" target="_blank" rel="noopener" class="text-decoration-none font-monospace" title="Browse in RustFS Console"><code>${_escapeAttr(def.bucket_name)}</code> <i class="bi bi-box-arrow-up-right small"></i></a>` : `<code>${_escapeAttr(def.bucket_name || '—')}</code>`}</dd>
                 </dl>
             </div>
             <div class="col-md-6">
-                <h6 class="text-muted mb-2"><i class="bi bi-cpu me-1"></i>Resource Requirements</h6>
+                <h6 class="text-muted mb-2"><i class="bi bi-cpu me-1"></i>Resource Requirements ${_renderResourceSourceBadge(def)}</h6>
                 <dl class="row mb-0">
                     <dt class="col-sm-4">CPU Cores</dt><dd class="col-sm-8">${def.resource_requirements?.cpu_cores ?? '—'}</dd>
                     <dt class="col-sm-4">Memory</dt><dd class="col-sm-8">${def.resource_requirements?.memory_gb ?? '—'} GB</dd>
@@ -43,14 +45,22 @@ export function renderDefinitionDetailsHtml(def, formatDateTime) {
                     <dt class="col-sm-4">Nested Virt</dt><dd class="col-sm-8">${def.resource_requirements?.nested_virt ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No'}</dd>
                 </dl>
                 ${_renderResourceDefaultsNote(def)}
-                ${_renderPortDefinitionsTable(def)}
-                <h6 class="text-muted mb-2 mt-3"><i class="bi bi-clock me-1"></i>Lifecycle</h6>
+            </div>
+        </div>
+
+        <!-- Row 2: Lifecycle + Port Definitions -->
+        <div class="row g-3 mt-1">
+            <div class="col-md-6">
+                <h6 class="text-muted mb-2"><i class="bi bi-clock me-1"></i>Lifecycle</h6>
                 <dl class="row mb-0">
                     <dt class="col-sm-5">Max Duration</dt><dd class="col-sm-7">${def.max_duration_minutes ?? '—'} min</dd>
                     <dt class="col-sm-5">Warm Pool</dt><dd class="col-sm-7">${def.warm_pool_depth ?? 0}</dd>
                     <dt class="col-sm-5">Boot Lead Time</dt><dd class="col-sm-7">${def.boot_lead_time_minutes != null ? def.boot_lead_time_minutes + ' min' : '<span class="text-muted">Global default</span>'}</dd>
                     <dt class="col-sm-5">License</dt><dd class="col-sm-7">${(def.license_affinity || []).join(', ') || '—'}</dd>
                 </dl>
+            </div>
+            <div class="col-md-6">
+                ${_renderPortDefinitionsTable(def)}
             </div>
         </div>
 
@@ -199,6 +209,23 @@ function _renderResourceDefaultsNote(def) {
 }
 
 /**
+ * Render a badge indicating whether resource requirements are configured or at defaults.
+ * @param {Object} def - The full LabletDefinitionDto
+ * @returns {string} HTML badge string
+ */
+function _renderResourceSourceBadge(def) {
+    const rr = def.resource_requirements;
+    if (!rr) return '';
+
+    const isDefault = (rr.cpu_cores === 2 || !rr.cpu_cores) && (rr.memory_gb === 4 || !rr.memory_gb) && (rr.storage_gb === 20 || !rr.storage_gb);
+
+    if (isDefault) {
+        return '<span class="badge bg-warning text-dark badge-sm ms-1" title="Using system defaults — run a session observation to refine"><i class="bi bi-exclamation-triangle me-1"></i>Defaults</span>';
+    }
+    return '<span class="badge bg-info text-dark badge-sm ms-1" title="Resource values were explicitly configured"><i class="bi bi-pencil-square me-1"></i>Configured</span>';
+}
+
+/**
  * Render port definitions table in definition details (Phase 3 — ADR-030 UX).
  */
 function _renderPortDefinitionsTable(def) {
@@ -206,28 +233,31 @@ function _renderPortDefinitionsTable(def) {
     if (ports.length === 0) return '';
 
     const portRows = ports
-        .map(
-            p => `
+        .map(p => {
+            const appProto = _inferAppProtocol(p.name);
+            const protoLabel = appProto.label;
+            const protoIcon = appProto.icon;
+            return `
         <tr>
             <td class="font-monospace">${_escapeAttr(p.name || '—')}</td>
-            <td class="text-center text-uppercase">${_escapeAttr(p.protocol || 'tcp')}</td>
+            <td class="text-center" title="${_escapeAttr(p.protocol || 'tcp').toUpperCase()}"><i class="bi ${protoIcon} me-1 small"></i>${protoLabel}</td>
             <td class="text-center">${p.port || '—'}</td>
         </tr>
-    `
-        )
+    `;
+        })
         .join('');
 
     return `
-        <h6 class="text-muted mb-2 mt-3">
+        <h6 class="text-muted mb-2">
             <i class="bi bi-plug me-1"></i>Port Definitions
             <span class="badge bg-secondary ms-1">${ports.length}</span>
         </h6>
-        <div class="table-responsive">
+        <div class="table-responsive" style="max-height: 220px; overflow-y: auto;">
             <table class="table table-sm table-bordered mb-0">
                 <thead class="table-light">
                     <tr>
                         <th>Name</th>
-                        <th class="text-center">Protocol</th>
+                        <th class="text-center">Service</th>
                         <th class="text-center">Port</th>
                     </tr>
                 </thead>
@@ -235,6 +265,57 @@ function _renderPortDefinitionsTable(def) {
             </table>
         </div>
     `;
+}
+
+/**
+ * Infer the application-level protocol from a CML port definition name.
+ *
+ * CML port names follow the convention: {node_label}_{protocol} where
+ * protocol is the CML annotation (serial, vnc, ssh, telnet, http, https).
+ * Additional heuristics handle PAT-style names (e.g., "pat_22" → SSH).
+ *
+ * @param {string} portName - Port definition name (e.g., "rtr01_serial", "workstation_vnc")
+ * @returns {{ label: string, icon: string }} Display label and Bootstrap icon
+ */
+function _inferAppProtocol(portName) {
+    if (!portName) return { label: 'TCP', icon: 'bi-hdd-network' };
+    const name = portName.toLowerCase();
+
+    // Direct suffix matches from CML annotations
+    if (name.endsWith('_serial') || name.endsWith('_telnet')) {
+        return { label: 'Telnet', icon: 'bi-terminal' };
+    }
+    if (name.endsWith('_vnc')) {
+        return { label: 'VNC', icon: 'bi-display' };
+    }
+    if (name.endsWith('_ssh')) {
+        return { label: 'SSH', icon: 'bi-key' };
+    }
+    if (name.endsWith('_https')) {
+        return { label: 'HTTPS', icon: 'bi-lock' };
+    }
+    if (name.endsWith('_http')) {
+        return { label: 'HTTP', icon: 'bi-globe' };
+    }
+    if (name.endsWith('_rdp')) {
+        return { label: 'RDP', icon: 'bi-pc-display' };
+    }
+
+    // PAT-style heuristics: pat_22 → SSH, pat_443 → HTTPS, pat_80 → HTTP, etc.
+    const patMatch = name.match(/pat_(\d+)$/);
+    if (patMatch) {
+        const port = parseInt(patMatch[1], 10);
+        if (port === 22) return { label: 'SSH', icon: 'bi-key' };
+        if (port === 23) return { label: 'Telnet', icon: 'bi-terminal' };
+        if (port === 80) return { label: 'HTTP', icon: 'bi-globe' };
+        if (port === 443) return { label: 'HTTPS', icon: 'bi-lock' };
+        if (port === 3389) return { label: 'RDP', icon: 'bi-pc-display' };
+        if (port === 5900 || port === 5901) return { label: 'VNC', icon: 'bi-display' };
+        return { label: `TCP/${port}`, icon: 'bi-hdd-network' };
+    }
+
+    // Fallback: generic TCP
+    return { label: 'TCP', icon: 'bi-hdd-network' };
 }
 
 function buildObjectStorageUrl(def) {
