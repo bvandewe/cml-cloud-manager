@@ -7,13 +7,14 @@ while inheriting all standard CRUD operations with automatic domain event publis
 import logging
 from typing import TYPE_CHECKING, Optional, cast
 
-from domain.entities.worker_template import WorkerTemplate
-from domain.repositories.worker_template_repository import WorkerTemplateRepository
-from domain.value_objects.worker_capacity import WorkerCapacity
 from motor.motor_asyncio import AsyncIOMotorClient
 from neuroglia.data.infrastructure.mongo import MotorRepository
 from neuroglia.data.infrastructure.tracing_mixin import TracedRepositoryMixin
 from neuroglia.serialization.json import JsonSerializer
+
+from domain.entities.worker_template import WorkerTemplate
+from domain.repositories.worker_template_repository import WorkerTemplateRepository
+from domain.value_objects.worker_capacity import WorkerCapacity
 
 if TYPE_CHECKING:
     from neuroglia.mediation.mediator import Mediator

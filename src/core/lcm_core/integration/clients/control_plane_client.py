@@ -1454,7 +1454,7 @@ class ControlPlaneApiClient:
         steps_completed: int = 0,
         steps_failed: int = 0,
         steps_skipped: int = 0,
-        step_results: dict | None = None,
+        step_results: dict[str, Any] | None = None,
         error_message: str | None = None,
         triggered_by: str = "lablet-controller",
         lablet_session_id: str | None = None,

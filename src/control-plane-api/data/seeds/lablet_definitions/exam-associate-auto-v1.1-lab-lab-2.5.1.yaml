@@ -47,7 +47,6 @@ resource_requirements:
 node_count: 2
 license_affinity:
     - personal
-    - enterprise
 
 # Port template (ports to be dynamically allocated per instance)
 # Port names follow from_cml_nodes convention: {sanitized_node_label}_{protocol}
