@@ -100,6 +100,8 @@ export const sseEventMap = {
     'worker.template.created': LcmEventTypes.WORKER_TEMPLATE_CREATED,
     'worker.template.updated': LcmEventTypes.WORKER_TEMPLATE_UPDATED,
     'worker.template.deleted': LcmEventTypes.WORKER_TEMPLATE_DELETED,
+    'worker.template.enabled': LcmEventTypes.WORKER_TEMPLATE_ENABLED,
+    'worker.template.disabled': LcmEventTypes.WORKER_TEMPLATE_DISABLED,
 
     // Lab Record events (Phase 10)
     // Lab Record events (Phase 10)
@@ -201,6 +203,10 @@ export const toastEventTypes = {
     [LcmEventTypes.LABLET_DEFINITION_CREATED]: {
         message: data => (data?.name ? `Definition created: ${data.name} v${data.version || '?'}` : null),
         type: 'success',
+    },
+    [LcmEventTypes.LABLET_DEFINITION_SYNC_REQUESTED]: {
+        message: data => (data?.form_qualified_name ? `Sync requested for ${data.form_qualified_name}` : 'Definition sync requested'),
+        type: 'info',
     },
     [LcmEventTypes.LABLET_DEFINITION_CONTENT_SYNCED]: {
         message: data => {

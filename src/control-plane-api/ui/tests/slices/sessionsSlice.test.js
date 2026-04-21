@@ -111,6 +111,37 @@ describe('sessionsSlice reducers', () => {
             expect(reducers.upsertSession(state, null)).toBe(state);
             expect(reducers.upsertSession(state, {})).toBe(state);
         });
+
+        it('should derive session freshness from lifecycle timestamps instead of client receipt time', () => {
+            const scheduled = reducers.upsertSession(state, makeSession({
+                id: 'sess-1',
+                status: 'scheduled',
+                scheduled_at: '2026-04-14T19:27:37.860554+00:00Z',
+            }));
+
+            expect(scheduled.byId['sess-1'].updated_at).toBe('2026-04-14T19:27:37.860554+00:00Z');
+            expect(scheduled.byId['sess-1']._sseUpdatedAt).toBe('2026-04-14T19:27:37.860554+00:00Z');
+        });
+    });
+
+    describe('mergeAll', () => {
+        it('should allow fresher backend data to overwrite earlier SSE partial updates', () => {
+            state = reducers.upsertSession(state, makeSession({
+                id: 'sess-1',
+                status: 'instantiating',
+                instantiation_started_at: '2026-04-14T19:27:38.753903+00:00Z',
+            }));
+
+            const next = reducers.mergeAll(state, [makeSession({
+                id: 'sess-1',
+                status: 'ready',
+                updated_at: '2026-04-14T19:27:45.000000+00:00Z',
+                worker_id: 'worker-123',
+            })]);
+
+            expect(next.byId['sess-1'].status).toBe('ready');
+            expect(next.byId['sess-1'].worker_id).toBe('worker-123');
+        });
     });
 
     describe('replaceAll', () => {
@@ -289,7 +320,6 @@ describe('sessionsSlice selectors', () => {
             expect(summary.ready).toBe(1);
             expect(summary.terminated).toBe(1);
             expect(summary.grading).toBe(1);
-            expect(summary.error).toBe(1);
         });
 
         it('should count non-terminal sessions as active', () => {

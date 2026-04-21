@@ -15,12 +15,32 @@ import { store } from '../store.js';
 import { sseEventMap, toastEventTypes } from './eventMap.js';
 import { showToast } from '../../ui/notifications.js';
 
+const DEFINITION_EVENT_TYPES = new Set([
+    LcmEventTypes.LABLET_DEFINITION_CREATED,
+    LcmEventTypes.LABLET_DEFINITION_UPDATED,
+    LcmEventTypes.LABLET_DEFINITION_ACTIVATED,
+    LcmEventTypes.LABLET_DEFINITION_DEACTIVATED,
+    LcmEventTypes.LABLET_DEFINITION_DELETED,
+    LcmEventTypes.LABLET_DEFINITION_SNAPSHOT,
+    LcmEventTypes.LABLET_DEFINITION_CONTENT_SYNCED,
+    LcmEventTypes.LABLET_DEFINITION_DEPRECATED,
+    LcmEventTypes.LABLET_DEFINITION_SYNC_REQUESTED,
+]);
+
+const TEMPLATE_EVENT_TYPES = new Set([
+    LcmEventTypes.WORKER_TEMPLATE_CREATED,
+    LcmEventTypes.WORKER_TEMPLATE_UPDATED,
+    LcmEventTypes.WORKER_TEMPLATE_DELETED,
+    LcmEventTypes.WORKER_TEMPLATE_ENABLED,
+    LcmEventTypes.WORKER_TEMPLATE_DISABLED,
+]);
+
 /**
  * LCM SSE Adapter
  *
  * Extends SSEClient functionality with LCM-specific event handling.
  */
-class LcmSSEAdapter {
+export class LcmSSEAdapter {
     constructor() {
         this.sseClient = null;
         this._reconnectTimer = null;
@@ -91,9 +111,26 @@ class LcmSSEAdapter {
     _setupEventPreprocessing() {
         // Add middleware to preprocess events
         eventBus.use(async (event, next) => {
-            // Preprocess worker.snapshot events
+            // Unwrap CloudEvent envelope.
+            // The SSE relay wraps every event in: {type, source, time, data: {payload}}.
+            // The SSEClient parses the full envelope and emits it as `event.data`.
+            // Extract the inner `data` field so downstream handlers (store updates,
+            // toast notifications) receive the actual payload directly.
+            if (event.data && typeof event.data === 'object' && typeof event.data.type === 'string' && typeof event.data.source === 'string' && event.data.data !== undefined && typeof event.data.data === 'object') {
+                event.data = event.data.data;
+            }
+
+            // Preprocess worker.snapshot events (runs AFTER envelope unwrapping)
             if (event.type === LcmEventTypes.WORKER_SNAPSHOT) {
                 event.data = this._normalizeWorkerSnapshot(event.data);
+            }
+
+            if (DEFINITION_EVENT_TYPES.has(event.type)) {
+                event.data = this._normalizeDefinitionRecord(event.data);
+            }
+
+            if (TEMPLATE_EVENT_TYPES.has(event.type)) {
+                event.data = this._normalizeTemplateRecord(event.data);
             }
 
             await next();
@@ -101,15 +138,19 @@ class LcmSSEAdapter {
     }
 
     /**
-     * Normalize worker snapshot data from various SSE envelope formats
+     * Normalize worker snapshot data from the unwrapped SSE payload.
+     *
+     * After CloudEvent envelope unwrapping the payload is:
+     *   { worker_id, reason, worker: { id, name, status, ... } }
+     * Extract the nested `worker` object so the store receives a flat worker record.
      */
     _normalizeWorkerSnapshot(data) {
-        // Extract worker from envelope structure: {worker_id, reason, worker: {...}}
-        const workerData = data?.data?.worker || data?.data || data;
+        // Extract worker from snapshot payload: {worker_id, reason, worker: {...}}
+        const workerData = data?.worker || data;
 
         // Ensure id field is set (use worker_id if id is missing)
-        if (workerData && !workerData.id && (data?.data?.worker_id || data?.worker_id)) {
-            workerData.id = data?.data?.worker_id || data?.worker_id;
+        if (workerData && !workerData.id && data?.worker_id) {
+            workerData.id = data.worker_id;
         }
 
         // Normalize metrics from nested structures if top-level fields are missing
@@ -130,6 +171,37 @@ class LcmSSEAdapter {
         }
 
         return workerData;
+    }
+
+    _normalizeEntityRecord(data, identifierKeys = []) {
+        if (!data || typeof data !== 'object') {
+            return data;
+        }
+
+        const normalized = { ...data };
+        const identifier = [normalized.id, ...identifierKeys.map(key => normalized[key])].find(Boolean);
+
+        if (identifier && !normalized.id) {
+            normalized.id = identifier;
+        }
+
+        if (normalized.changes && typeof normalized.changes === 'object' && !Array.isArray(normalized.changes)) {
+            Object.entries(normalized.changes).forEach(([key, value]) => {
+                if (value !== undefined && normalized[key] === undefined) {
+                    normalized[key] = value;
+                }
+            });
+        }
+
+        return normalized;
+    }
+
+    _normalizeDefinitionRecord(data) {
+        return this._normalizeEntityRecord(data, ['definition_id']);
+    }
+
+    _normalizeTemplateRecord(data) {
+        return this._normalizeEntityRecord(data, ['template_id']);
     }
 
     /**
@@ -331,6 +403,14 @@ class LcmSSEAdapter {
 
         eventBus.on(LcmEventTypes.WORKER_TEMPLATE_UPDATED, data => {
             store.dispatch('templates', 'upsertTemplate', data);
+        });
+
+        eventBus.on(LcmEventTypes.WORKER_TEMPLATE_ENABLED, data => {
+            store.dispatch('templates', 'upsertTemplate', { ...data, enabled: true });
+        });
+
+        eventBus.on(LcmEventTypes.WORKER_TEMPLATE_DISABLED, data => {
+            store.dispatch('templates', 'upsertTemplate', { ...data, enabled: false });
         });
 
         eventBus.on(LcmEventTypes.WORKER_TEMPLATE_DELETED, data => {

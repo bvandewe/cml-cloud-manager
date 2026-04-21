@@ -20,6 +20,45 @@ import { eventBus, LcmEventTypes } from '../eventBus.js';
 import * as sessionsApi from '../../api/sessions.js';
 import * as labletSessionsApi from '../../api/lablet-sessions.js';
 
+const SESSION_LOGICAL_TIMESTAMP_FIELDS = [
+    'updated_at',
+    'instantiation_failed_at',
+    'instantiation_completed_at',
+    'instantiation_started_at',
+    'scheduled_at',
+    'ready_at',
+    'started_at',
+    'running_at',
+    'collecting_at',
+    'grading_at',
+    'stopped_at',
+    'terminated_at',
+    'archived_at',
+    'expired_at',
+    'scored_at',
+    'extended_at',
+    'created_at',
+];
+
+function toTimestamp(value) {
+    if (!value) return 0;
+    const normalizedValue = typeof value === 'string' ? value.replace(/([+-]\d{2}:\d{2})Z$/, '$1') : value;
+    const parsed = new Date(normalizedValue).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getLogicalSessionTimestamp(session) {
+    if (!session || typeof session !== 'object') return null;
+
+    for (const field of SESSION_LOGICAL_TIMESTAMP_FIELDS) {
+        if (session[field]) {
+            return session[field];
+        }
+    }
+
+    return null;
+}
+
 // ==============================================================================
 // Initial State
 // ==============================================================================
@@ -92,8 +131,18 @@ export const sessionsSlice = {
                     merged[key] = value;
                 }
             });
-            // Stamp with current time so mergeAll knows this was SSE-updated
-            merged._sseUpdatedAt = new Date().toISOString();
+
+            const incomingLogicalTimestamp = getLogicalSessionTimestamp(session);
+            const currentLogicalTimestamp = merged.updated_at || getLogicalSessionTimestamp(existing) || existing._sseUpdatedAt;
+
+            if (incomingLogicalTimestamp && toTimestamp(incomingLogicalTimestamp) >= toTimestamp(currentLogicalTimestamp)) {
+                merged.updated_at = incomingLogicalTimestamp;
+            }
+
+            // Stamp using the best domain/logical timestamp available so follow-up
+            // backend refreshes are not incorrectly treated as stale just because the
+            // SSE event arrived slightly later on the client.
+            merged._sseUpdatedAt = incomingLogicalTimestamp || merged.updated_at || existing._sseUpdatedAt || new Date().toISOString();
 
             return {
                 ...state,
@@ -158,8 +207,8 @@ export const sessionsSlice = {
                 } else {
                     // SSE-driven fields present — merge carefully.
                     // Keep SSE-driven status if it's newer than the HTTP data.
-                    const sseTime = new Date(existing._sseUpdatedAt).getTime();
-                    const httpTime = s.updated_at ? new Date(s.updated_at).getTime() : 0;
+                    const sseTime = toTimestamp(existing._sseUpdatedAt);
+                    const httpTime = toTimestamp(s.updated_at);
 
                     if (httpTime >= sseTime) {
                         // HTTP data is newer or equal — full overwrite
@@ -370,18 +419,21 @@ export function createSessionsActions(store) {
         /**
          * Load all sessions from API
          */
-        async loadSessions(filters = {}) {
+        async loadSessions(filters = {}, options = {}) {
             store.dispatch('sessions', 'setListLoading', true);
             try {
                 const sessions = await sessionsApi.listSessions(filters);
                 const data = Array.isArray(sessions) ? sessions : sessions.items || sessions.data || [];
-                // AD-SSE-RACE-001: Use mergeAll to avoid overwriting SSE-driven
-                // status updates with potentially stale HTTP data.
-                store.dispatch('sessions', 'mergeAll', data);
+                // Default to merge-based refreshes so partial SSE updates are not
+                // immediately clobbered by slightly older HTTP reads. Manual refreshes
+                // can opt into replace mode to force a full backend reload.
+                store.dispatch('sessions', options.replace ? 'replaceAll' : 'mergeAll', data);
                 eventBus.emit(LcmEventTypes.SESSIONS_REFRESH_COMPLETED, { count: data.length });
+                return data;
             } catch (error) {
                 console.error('[sessionsSlice] Failed to load sessions:', error);
                 store.dispatch('sessions', 'setError', { key: '_list', error: error.message });
+                return [];
             } finally {
                 store.dispatch('sessions', 'setListLoading', false);
             }
