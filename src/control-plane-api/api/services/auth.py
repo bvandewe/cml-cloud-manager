@@ -14,11 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import jwt
-from jwt import PyJWTError, algorithms
-from starlette.responses import Response
-
 from application.settings import app_settings
 from infrastructure import InMemorySessionStore, RedisSessionStore, SessionStore
+from jwt import PyJWTError, algorithms
+from starlette.responses import Response
 
 if TYPE_CHECKING:
     from fastapi import FastAPI, Request
@@ -222,7 +221,10 @@ class DualAuthService:
                                     new_tokens["refresh_token"] = refresh_token
                                 if "id_token" not in new_tokens and tokens.get("id_token"):
                                     new_tokens["id_token"] = tokens.get("id_token")
-                                self.session_store.refresh_session(session_id, new_tokens)
+                                # Pass refresh_expires_in so session timeout stays aligned with Keycloak
+                                new_refresh_expires = new_tokens.get("refresh_expires_in")
+                                new_timeout = int(new_refresh_expires) if new_refresh_expires is not None else None
+                                self.session_store.refresh_session(session_id, new_tokens, new_timeout)
                                 session = self.session_store.get_session(session_id)
                             else:
                                 self._log.info(f"Auto-refresh failed status={resp.status_code}")

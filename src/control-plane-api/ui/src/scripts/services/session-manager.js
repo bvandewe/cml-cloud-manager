@@ -120,9 +120,19 @@ class SessionManager {
 
     async extendSession() {
         try {
-            await apiRequest('/api/auth/extend-session', { method: 'POST' });
+            const response = await apiRequest('/api/auth/extend-session', { method: 'POST' });
+            const data = await response.json();
             this.hideWarning();
-            await this.checkSession(); // Update status immediately
+            // If server returned updated expiry, use it directly
+            if (data.expires_in_seconds && data.expires_in_seconds > 0) {
+                const warningMinutes = data.session_expiration_warning_minutes || 5;
+                const warningSeconds = warningMinutes * 60;
+                if (data.expires_in_seconds <= warningSeconds) {
+                    this.showWarning(data.expires_in_seconds);
+                }
+            } else {
+                await this.checkSession(); // Fallback: re-check from server
+            }
         } catch (error) {
             console.error('Failed to extend session:', error);
         }

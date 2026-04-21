@@ -6,19 +6,18 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import jwt
+from application.settings import app_settings
 from classy_fastapi.decorators import get, post
+from domain.events import UserLoggedInDomainEvent
 from fastapi import Cookie, HTTPException, status
 from fastapi.responses import RedirectResponse
+from infrastructure import SessionStore
 from keycloak import KeycloakOpenID
 from keycloak.exceptions import KeycloakConnectionError
 from neuroglia.dependency_injection import ServiceProviderBase
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Mediator
 from neuroglia.mvc import ControllerBase
-
-from application.settings import app_settings
-from domain.events import UserLoggedInDomainEvent
-from infrastructure import SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -199,20 +198,25 @@ class AuthController(ControllerBase):
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
 
             expires_in_seconds = int((expires_at - now).total_seconds())
+            session_timeout = session.get("session_timeout_seconds", app_settings.session_max_duration_minutes * 60)
             return {
                 "authenticated": True,
                 "expires_at": expires_at.isoformat(),
                 "expires_in_seconds": max(0, expires_in_seconds),
-                "session_max_duration_minutes": session.get("session_timeout_seconds", app_settings.session_max_duration_minutes * 60) // 60,
+                "session_idle_timeout_minutes": session_timeout // 60,
                 "session_expiration_warning_minutes": app_settings.session_expiration_warning_minutes,
+                # Deprecated: use session_idle_timeout_minutes instead
+                "session_max_duration_minutes": session_timeout // 60,
             }
 
         return {
             "authenticated": True,
             "expires_at": None,
             "expires_in_seconds": None,
-            "session_max_duration_minutes": app_settings.session_max_duration_minutes,
+            "session_idle_timeout_minutes": app_settings.sso_session_idle_timeout_minutes,
             "session_expiration_warning_minutes": app_settings.session_expiration_warning_minutes,
+            # Deprecated: use session_idle_timeout_minutes instead
+            "session_max_duration_minutes": app_settings.sso_session_idle_timeout_minutes,
         }
 
     @post("/refresh")
@@ -347,7 +351,15 @@ class AuthController(ControllerBase):
 
     @post("/extend-session")
     async def extend_session(self, session_id: str = Cookie(None)) -> dict:
-        """Extend the current session."""
+        """Extend the current session by refreshing Keycloak tokens.
+
+        This performs a real token refresh with Keycloak, which:
+        - Issues a new access token (resets accessTokenLifespan)
+        - Issues a new refresh token (resets ssoSessionIdleTimeout)
+        - Resets Keycloak's SSO idle timeout counter
+
+        The session expiry is always derived from Keycloak's refresh_expires_in.
+        """
         if not session_id:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No session")
 
@@ -355,7 +367,47 @@ class AuthController(ControllerBase):
         if not session:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
 
-        # Extend session
-        self.session_store.refresh_session(session_id, {})
+        # Get refresh token from session
+        session_tokens = session.get("tokens", {})
+        refresh_token = session_tokens.get("refresh_token")
+        if not refresh_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No refresh token available — please log in again",
+            )
 
-        return {"message": "Session extended"}
+        try:
+            new_tokens = self.keycloak.refresh_token(refresh_token)
+        except Exception as e:
+            logger.warning(f"Extend-session token refresh failed: {e}")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Token refresh failed: {e}")
+
+        # Preserve tokens that Keycloak may not re-issue
+        if "refresh_token" not in new_tokens:
+            new_tokens["refresh_token"] = refresh_token
+        if "id_token" not in new_tokens and session_tokens.get("id_token"):
+            new_tokens["id_token"] = session_tokens.get("id_token")
+
+        # Derive session timeout from Keycloak's refresh_expires_in (= ssoSessionIdleTimeout)
+        refresh_expires_in = new_tokens.get("refresh_expires_in")
+        session_timeout_seconds = int(refresh_expires_in) if refresh_expires_in is not None else None
+
+        self.session_store.refresh_session(session_id, new_tokens, session_timeout_seconds)
+
+        # Return updated expiry info so frontend can update its state
+        updated_session = self.session_store.get_session(session_id)
+        expires_at = updated_session.get("expires_at") if updated_session else None
+        expires_in = None
+        if expires_at:
+            now = datetime.now(timezone.utc)
+            if isinstance(expires_at, str):
+                expires_at = datetime.fromisoformat(expires_at)
+            elif not expires_at.tzinfo:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            expires_in = max(0, int((expires_at - now).total_seconds()))
+
+        return {
+            "message": "Session extended",
+            "expires_in_seconds": expires_in,
+            "session_expiration_warning_minutes": app_settings.session_expiration_warning_minutes,
+        }
