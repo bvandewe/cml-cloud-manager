@@ -427,6 +427,7 @@ class LabletSessionState(TimedResourceState):
         """Apply the terminated event to the state."""
         old_status = self.status
         self.terminated_at = event.terminated_at
+        self.desired_status = LabletSessionStatus.TERMINATED
         # Only set ended_at if not already set (e.g., from STOPPED → TERMINATED)
         if self.ended_at is None:
             self.ended_at = event.terminated_at

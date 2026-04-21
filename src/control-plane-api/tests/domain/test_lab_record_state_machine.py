@@ -583,7 +583,8 @@ class TestLabRecordPendingActions:
         discovered_lab_record.request_wipe()
         discovered_lab_record.fail_pending_action("CML unreachable")
         assert discovered_lab_record.state.pending_action_error == "CML unreachable"
-        assert discovered_lab_record.state.pending_action == "wipe"
+        assert discovered_lab_record.state.pending_action is None
+        assert discovered_lab_record.state.pending_action_at is None
 
     def test_clear_pending_action(self, discovered_lab_record: LabRecord):
         discovered_lab_record.request_delete()

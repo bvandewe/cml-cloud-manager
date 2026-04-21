@@ -378,7 +378,9 @@ class LabRecordState(ResourceState):
 
     @dispatch(LabActionFailedDomainEvent)
     def on(self, event: LabActionFailedDomainEvent) -> None:  # type: ignore[override]
-        """Apply lab action failed event — store error, keep pending for retry visibility."""
+        """Apply lab action failed event — clear pending action and preserve the error."""
+        self.pending_action = None
+        self.pending_action_at = None
         self.pending_action_error = event.error_message
 
     @dispatch(LabActionClearedDomainEvent)

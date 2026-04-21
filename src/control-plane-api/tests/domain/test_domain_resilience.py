@@ -225,17 +225,18 @@ class TestClearPendingActionEvent:
         assert len(_get_pending_events(discovered_lab_record)) == initial_events
 
     def test_clear_after_fail_resets_error(self, discovered_lab_record: LabRecord):
-        """clear should reset pending_action_error after a failed action."""
+        """clear should be a no-op after a failed action already cleared pending state."""
         discovered_lab_record.request_wipe()
         discovered_lab_record.fail_pending_action("CML unreachable")
         assert discovered_lab_record.state.pending_action_error == "CML unreachable"
-        assert discovered_lab_record.state.pending_action == "wipe"
+        assert discovered_lab_record.state.pending_action is None
+        assert discovered_lab_record.state.pending_action_at is None
 
         discovered_lab_record.clear_pending_action()
 
         assert discovered_lab_record.state.pending_action is None
         assert discovered_lab_record.state.pending_action_at is None
-        assert discovered_lab_record.state.pending_action_error is None
+        assert discovered_lab_record.state.pending_action_error == "CML unreachable"
 
 
 # =============================================================================

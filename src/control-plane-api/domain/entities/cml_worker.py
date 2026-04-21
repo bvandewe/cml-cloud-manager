@@ -2079,7 +2079,10 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
             return None
 
         now = datetime.now(timezone.utc)
-        idle_duration = now - self.state.last_activity_at
+        last_activity = self.state.last_activity_at
+        if last_activity.tzinfo is None:
+            last_activity = last_activity.replace(tzinfo=timezone.utc)
+        idle_duration = now - last_activity
         return idle_duration.total_seconds() / 60
 
     def enable_idle_detection(self, enabled_by: str | None = None) -> None:
