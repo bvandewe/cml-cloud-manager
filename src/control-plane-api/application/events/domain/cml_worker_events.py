@@ -9,11 +9,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from neuroglia.mediation import DomainEventHandler
-from neuroglia.serialization.json import JsonSerializer
-
+from application.commands.lablet_session import TerminateLabletSessionCommand
 from application.mappers import map_worker_to_dto, worker_dto_to_dict
 from application.services.sse_event_relay import SSEEventRelay
+from domain.enums import LabletSessionStatus
 from domain.events.cml_worker import (
     CMLWorkerCreatedDomainEvent,
     CMLWorkerEndpointUpdatedDomainEvent,
@@ -28,8 +27,29 @@ from domain.events.worker_metrics_events import (
 )
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.mediation import DomainEventHandler
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.serialization.json import JsonSerializer
 
 log = logging.getLogger(__name__)
+
+CASCADE_TERMINATE_SESSION_STATUSES = {
+    LabletSessionStatus.PENDING,
+    LabletSessionStatus.SCHEDULED,
+    LabletSessionStatus.INSTANTIATING,
+    LabletSessionStatus.READY,
+    LabletSessionStatus.RUNNING,
+    LabletSessionStatus.COLLECTING,
+    LabletSessionStatus.GRADING,
+    LabletSessionStatus.STOPPING,
+}
+PRESTART_TERMINATION_STATUSES = {
+    LabletSessionStatus.PENDING,
+    LabletSessionStatus.SCHEDULED,
+    LabletSessionStatus.INSTANTIATING,
+    LabletSessionStatus.READY,
+}
 
 
 def _utc_iso(dt: datetime | None) -> str | None:
@@ -85,8 +105,6 @@ class CMLWorkerImportedDomainEventHandler(DomainEventHandler[CMLWorkerImportedDo
         mediator,
         serializer: JsonSerializer,
     ):
-        from neuroglia.mediation import Mediator
-
         self._sse_relay = sse_relay
         self._repository = repository
         self._mediator: Mediator = mediator
@@ -192,11 +210,15 @@ class CMLWorkerTerminatedDomainEventHandler(DomainEventHandler[CMLWorkerTerminat
         repository: CMLWorkerRepository,
         serializer: JsonSerializer,
         lab_record_repository: LabRecordRepository,
+        lablet_session_repository: LabletSessionRepository,
+        mediator: Mediator,
     ):
         self._sse_relay = sse_relay
         self._repository = repository
         self._serializer = serializer
         self._lab_record_repository = lab_record_repository
+        self._lablet_session_repository = lablet_session_repository
+        self._mediator = mediator
 
     async def handle_async(self, notification: CMLWorkerTerminatedDomainEvent) -> None:  # type: ignore[override]
         # 1. Broadcast SSE events
@@ -224,6 +246,14 @@ class CMLWorkerTerminatedDomainEventHandler(DomainEventHandler[CMLWorkerTerminat
             log.info(
                 "Cascade-orphaned %d lab records for terminated worker %s",
                 orphaned_count,
+                notification.aggregate_id,
+            )
+
+        terminated_sessions = await self._terminate_worker_sessions(notification.aggregate_id)
+        if terminated_sessions > 0:
+            log.info(
+                "Cascade-terminated %d incomplete sessions for terminated worker %s",
+                terminated_sessions,
                 notification.aggregate_id,
             )
 
@@ -257,6 +287,57 @@ class CMLWorkerTerminatedDomainEventHandler(DomainEventHandler[CMLWorkerTerminat
             log.error("Failed to fetch lab records for worker %s during orphan cascade: %s", worker_id, e)
 
         return orphaned
+
+    async def _terminate_worker_sessions(self, worker_id: str) -> int:
+        """Force-terminate incomplete sessions assigned to a terminated worker.
+
+        Sessions that have already ended cleanly (STOPPED, ARCHIVED, EXPIRED,
+        TERMINATED) are preserved as historical records. Incomplete sessions are
+        terminated through the existing command path so port/capacity cleanup and
+        session audit behavior stay centralized.
+        """
+        terminated = 0
+        try:
+            sessions = await self._lablet_session_repository.list_by_worker_async(worker_id)
+            for session in sessions:
+                if session.state.status not in CASCADE_TERMINATE_SESSION_STATUSES:
+                    continue
+
+                try:
+                    result = await self._mediator.execute_async(
+                        TerminateLabletSessionCommand(
+                            session_id=session.id(),
+                            terminated_by="worker-termination-cascade",
+                            reason=self._session_termination_reason(session.state.status),
+                        )
+                    )
+                    if result.is_success:
+                        terminated += 1
+                    else:
+                        log.warning(
+                            "Failed to terminate session %s for worker %s: %s",
+                            session.id(),
+                            worker_id,
+                            result.error_message,
+                        )
+                except Exception as e:
+                    log.warning(
+                        "Error terminating session %s (status=%s) for worker %s: %s",
+                        session.id(),
+                        session.state.status.value,
+                        worker_id,
+                        e,
+                    )
+        except Exception as e:
+            log.error("Failed to fetch sessions for worker %s during termination cascade: %s", worker_id, e)
+
+        return terminated
+
+    def _session_termination_reason(self, status: LabletSessionStatus) -> str:
+        """Build an audit-friendly reason for worker-driven forced termination."""
+        if status in PRESTART_TERMINATION_STATUSES:
+            return "worker_terminated_before_session_start"
+        return "worker_terminated_during_active_session"
 
 
 class CMLWorkerTelemetryUpdatedDomainEventHandler(DomainEventHandler[CMLWorkerTelemetryUpdatedDomainEvent]):
