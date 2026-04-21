@@ -24,6 +24,19 @@ log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
+def _get_related_session_id(lab: LabRecord) -> str | None:
+    """Resolve the best-known LabletSession reference for a LabRecord."""
+
+    if lab.state.active_lablet_session_id:
+        return lab.state.active_lablet_session_id
+
+    for run in reversed(lab.run_history_vo):
+        if run.lablet_session_id:
+            return run.lablet_session_id
+
+    return None
+
+
 @dataclass
 class GetLabRecordQuery(Query[OperationResult[dict[str, Any]]]):
     """Query to retrieve a single LabRecord by its aggregate ID.
@@ -64,6 +77,12 @@ class GetLabRecordQueryHandler(QueryHandler[GetLabRecordQuery, OperationResult[d
             # Get active binding (1:1 via LabletSession.lab_record_id)
             session = await self._session_repository.get_by_lab_record_async(request.lab_record_id)
 
+            # Fallback to the LabRecord's own history so completed sessions
+            # remain visible as the related lablet/session.
+            if session is None:
+                related_session_id = _get_related_session_id(lab)
+                if related_session_id:
+                    session = await self._session_repository.get_by_id_async(related_session_id)
             s = lab.state
             active_bindings = []
             if session:

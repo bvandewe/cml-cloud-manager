@@ -791,12 +791,15 @@ export class LabDetailModal extends BaseComponent {
             return '<div class="text-center text-muted py-4"><i class="bi bi-link-45deg fs-1 d-block mb-2"></i>No lablet bindings yet.</div>';
         }
 
+        const getSessionId = binding => binding.lablet_session_id || binding.instance_id || binding.lablet_instance_id || '';
+        const getBindingStatus = binding => binding.status || (binding.is_active ? 'active' : 'released');
+
         return `
             <div class="table-responsive">
                 <table class="table table-sm table-hover">
                     <thead>
                         <tr>
-                            <th>Instance ID</th>
+                            <th>Session ID</th>
                             <th>Role</th>
                             <th>Bound At</th>
                             <th>Status</th>
@@ -808,13 +811,13 @@ export class LabDetailModal extends BaseComponent {
                             .map(
                                 b => `
                             <tr>
-                                <td><code class="small">${escapeHtml(b.instance_id || b.lablet_instance_id || '—')}</code></td>
+                                <td><code class="small">${escapeHtml(getSessionId(b) || '—')}</code></td>
                                 <td>${escapeHtml(b.role || '—')}</td>
                                 <td>${b.bound_at ? formatDateWithRelative(b.bound_at) : '—'}</td>
-                                <td><lcm-status-badge status="${escapeHtml(b.status || 'active')}" pill></lcm-status-badge></td>
+                                <td><lcm-status-badge status="${escapeHtml(getBindingStatus(b))}" pill></lcm-status-badge></td>
                                 <td>
                                     <button class="btn btn-sm btn-outline-danger unbind-btn"
-                                        data-instance-id="${escapeHtml(b.instance_id || b.lablet_instance_id || '')}"
+                                        data-instance-id="${escapeHtml(getSessionId(b))}"
                                         title="Unbind">
                                         <i class="bi bi-x-lg"></i>
                                     </button>
@@ -833,12 +836,12 @@ export class LabDetailModal extends BaseComponent {
         requestAnimationFrame(() => {
             this.querySelectorAll('.unbind-btn').forEach(btn => {
                 btn.addEventListener('click', async () => {
-                    const instanceId = btn.dataset.instanceId;
-                    if (!instanceId) return;
-                    const confirmed = await showConfirmAsync('Unbind Lablet', `Unbind lablet instance ${instanceId} from this lab?`, { actionLabel: 'Unbind', actionClass: 'btn-warning' });
+                    const sessionId = btn.dataset.instanceId;
+                    if (!sessionId) return;
+                    const confirmed = await showConfirmAsync('Unbind Lablet Session', `Unbind lablet session ${sessionId} from this lab?`, { actionLabel: 'Unbind', actionClass: 'btn-warning' });
                     if (!confirmed) return;
                     try {
-                        await labRecordsApi.unbindLabFromLablet(this._labRecordId, instanceId, 'Manual unbind from UI');
+                        await labRecordsApi.unbindLabFromLablet(this._labRecordId, sessionId, 'Manual unbind from UI');
                         showToast('Unbind initiated', 'info');
                         this._linkedLablets = null; // Force reload
                         this._loadLinkedLabletsTab();

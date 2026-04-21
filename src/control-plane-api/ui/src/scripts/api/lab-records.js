@@ -166,15 +166,15 @@ export async function archiveLabRecord(labRecordId) {
 }
 
 /**
- * Bind a lab to a lablet instance
+ * Bind a lab to a lablet session
  * @param {string} labRecordId - The LabRecord aggregate ID
- * @param {string} labletInstanceId - LabletInstance aggregate ID to bind to
+ * @param {string} labletSessionId - LabletSession aggregate ID to bind to
  * @param {string} [role='primary'] - Binding role: primary, secondary, or auxiliary
  * @param {Object} [metadata] - Optional binding metadata (e.g., port mappings)
  * @returns {Promise<Object>} Binding result
  */
-export async function bindLabToLablet(labRecordId, labletInstanceId, role = 'primary', metadata = null) {
-    const body = { lablet_instance_id: labletInstanceId, role };
+export async function bindLabToLablet(labRecordId, labletSessionId, role = 'primary', metadata = null) {
+    const body = { lablet_session_id: labletSessionId, role };
     if (metadata) body.metadata = metadata;
     const response = await apiRequest(`/api/lab-records/${labRecordId}/bind`, {
         method: 'POST',
@@ -184,14 +184,14 @@ export async function bindLabToLablet(labRecordId, labletInstanceId, role = 'pri
 }
 
 /**
- * Unbind a lab from a lablet instance
+ * Unbind a lab from a lablet session
  * @param {string} labRecordId - The LabRecord aggregate ID
- * @param {string} labletInstanceId - LabletInstance aggregate ID to unbind from
+ * @param {string} labletSessionId - LabletSession aggregate ID to unbind from
  * @param {string} [reason] - Reason for unbinding (e.g., timeslot_end, user_request)
  * @returns {Promise<Object>} Unbinding result
  */
-export async function unbindLabFromLablet(labRecordId, labletInstanceId, reason = null) {
-    const body = { lablet_instance_id: labletInstanceId };
+export async function unbindLabFromLablet(labRecordId, labletSessionId, reason = null) {
+    const body = { lablet_session_id: labletSessionId };
     if (reason) body.reason = reason;
     const response = await apiRequest(`/api/lab-records/${labRecordId}/unbind`, {
         method: 'POST',
@@ -199,6 +199,9 @@ export async function unbindLabFromLablet(labRecordId, labletInstanceId, reason 
     });
     return await response.json();
 }
+
+export const bindLabToLabletSession = bindLabToLablet;
+export const unbindLabFromLabletSession = unbindLabFromLablet;
 
 /**
  * Import a lab from a YAML file

@@ -20,6 +20,19 @@ log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
+def _get_related_session_id(lab: LabRecord) -> str | None:
+    """Resolve the best-known LabletSession reference for a LabRecord."""
+
+    if lab.state.active_lablet_session_id:
+        return lab.state.active_lablet_session_id
+
+    for run in reversed(lab.run_history_vo):
+        if run.lablet_session_id:
+            return run.lablet_session_id
+
+    return None
+
+
 @dataclass
 class GetLabRecordBindingsQuery(Query[OperationResult[dict[str, Any]]]):
     """Query to retrieve the LabletSession bound to a LabRecord.
@@ -70,13 +83,21 @@ class GetLabRecordBindingsQueryHandler(
             # Find session bound to this lab record (1:1 model)
             session = await self._session_repository.get_by_lab_record_async(request.lab_record_id)
 
+            # Fallback: completed sessions may no longer resolve via the direct
+            # FK, but the LabRecord still retains the related session identity.
+            if session is None:
+                related_session_id = _get_related_session_id(lab)
+                if related_session_id:
+                    session = await self._session_repository.get_by_id_async(related_session_id)
             binding_dicts: list[dict[str, Any]] = []
             if session:
                 binding_dict: dict[str, Any] = {
                     "binding_id": session.id(),
+                    "instance_id": session.id(),
                     "lablet_session_id": session.id(),
                     "lab_record_id": request.lab_record_id,
                     "role": "primary",
+                    "status": session.state.status.value,
                     "is_active": not session.is_terminal,
                     "bound_at": session.state.scheduled_at.isoformat() if session.state.scheduled_at else None,
                     "released_at": session.state.terminated_at.isoformat() if session.is_terminal else None,

@@ -35,8 +35,10 @@ from application.queries.get_lab_record_topology_query import (
 from application.queries.get_lab_records_query import GetLabRecordsQuery, GetLabRecordsQueryHandler
 from domain.entities.lab_record import LabRecord
 from domain.entities.lablet_session import LabletSession, LabletSessionState
+from domain.enums import LabletSessionStatus
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from domain.value_objects.lab_run_record import LabRunRecord
 from lcm_core.domain.enums import LabRecordStatus
 from neuroglia.core import OperationResult
 
@@ -107,10 +109,27 @@ def _make_mock_session(
     session.id.return_value = session_id
     session.state = MagicMock(spec=LabletSessionState)
     session.state.lab_record_id = lab_record_id
+    session.state.status = LabletSessionStatus.TERMINATED if is_terminal else LabletSessionStatus.RUNNING
     session.state.scheduled_at = datetime(2026, 2, 1, tzinfo=timezone.utc)
     session.state.terminated_at = datetime(2026, 2, 2, tzinfo=timezone.utc) if is_terminal else None
     session.is_terminal = is_terminal
     return session
+
+
+def _append_run_with_session(lab: LabRecord, session_id: str, run_id: str = "run-001") -> LabRecord:
+    """Attach a historical run entry that references a LabletSession."""
+    from datetime import datetime, timezone
+
+    lab.state.run_history_v2.append(
+        LabRunRecord(
+            run_id=run_id,
+            started_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+            stopped_at=datetime(2026, 2, 2, tzinfo=timezone.utc),
+            lablet_session_id=session_id,
+            final_state="stopped",
+        ).to_dict()
+    )
+    return lab
 
 
 # =============================================================================
@@ -292,6 +311,28 @@ class TestGetLabRecordQuery(BaseTestCase):
         assert result.data["active_binding_count"] == 1
         assert len(result.data["active_bindings"]) == 1
         assert result.data["active_bindings"][0]["lablet_session_id"] == "lablet-001"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_last_run_session_when_direct_binding_missing(
+        self,
+        handler: GetLabRecordQueryHandler,
+        mock_lab_repository: MagicMock,
+        mock_session_repository: MagicMock,
+    ) -> None:
+        """Historical run linkage keeps the related session visible."""
+        lab = _append_run_with_session(_make_discovered_lab(), session_id="lablet-123")
+        session = _make_mock_session(session_id="lablet-123", is_terminal=True)
+        mock_lab_repository.get_by_id_async = self.create_async_mock(return_value=lab)
+        mock_session_repository.get_by_lab_record_async = self.create_async_mock(return_value=None)
+        mock_session_repository.get_by_id_async = self.create_async_mock(return_value=session)
+
+        result = await handler.handle_async(GetLabRecordQuery(lab_record_id="lr-001"))
+
+        assert result.is_success
+        assert result.data["active_binding_count"] == 1
+        assert result.data["active_bindings"][0]["lablet_session_id"] == "lablet-123"
+        mock_session_repository.get_by_lab_record_async.assert_called_once_with("lr-001")
+        mock_session_repository.get_by_id_async.assert_called_once_with("lablet-123")
 
 
 # =============================================================================
@@ -514,14 +555,8 @@ class TestGetLabRecordBindingsQuery(BaseTestCase):
         mock_lab_repository: MagicMock,
         mock_session_repository: MagicMock,
     ) -> None:
-        """include_released=True still queries via get_by_lab_record_async.
-
-        In the 1:1 model, released bindings clear lab_record_id, so
-        get_by_lab_record_async will only ever find active bindings.
-        The flag is kept for API compatibility.
-        """
+        """include_released=True still returns a direct terminal binding."""
         lab = _make_discovered_lab()
-        # Terminal session still bound (edge case — returned as is_active=False)
         session = _make_mock_session(session_id="lablet-001", lab_record_id="lr-001", is_terminal=True)
         mock_lab_repository.get_by_id_async = self.create_async_mock(return_value=lab)
         mock_session_repository.get_by_lab_record_async = self.create_async_mock(return_value=session)
@@ -532,6 +567,29 @@ class TestGetLabRecordBindingsQuery(BaseTestCase):
         assert result.data["binding_count"] == 1
         assert result.data["bindings"][0]["is_active"] is False
         mock_session_repository.get_by_lab_record_async.assert_called_once_with("lr-001")
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_latest_run_session_when_direct_binding_missing(
+        self,
+        handler: GetLabRecordBindingsQueryHandler,
+        mock_lab_repository: MagicMock,
+        mock_session_repository: MagicMock,
+    ) -> None:
+        """Completed sessions remain visible via LabRecord run history."""
+        lab = _append_run_with_session(_make_discovered_lab(), session_id="lablet-789")
+        session = _make_mock_session(session_id="lablet-789", is_terminal=True)
+        mock_lab_repository.get_by_id_async = self.create_async_mock(return_value=lab)
+        mock_session_repository.get_by_lab_record_async = self.create_async_mock(return_value=None)
+        mock_session_repository.get_by_id_async = self.create_async_mock(return_value=session)
+
+        result = await handler.handle_async(GetLabRecordBindingsQuery(lab_record_id="lr-001", include_released=True))
+
+        assert result.is_success
+        assert result.data["binding_count"] == 1
+        assert result.data["bindings"][0]["lablet_session_id"] == "lablet-789"
+        assert result.data["bindings"][0]["is_active"] is False
+        mock_session_repository.get_by_lab_record_async.assert_called_once_with("lr-001")
+        mock_session_repository.get_by_id_async.assert_called_once_with("lablet-789")
 
     @pytest.mark.asyncio
     async def test_not_found_returns_404(
