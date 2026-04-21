@@ -1,0 +1,313 @@
+# Lablet Definition: AUTOCOR_350-901_LAB-1.2.1
+# A 9-node enterprise lab with CSR1000v routers, switches, and desktop
+#
+# Lab Topology (from CML YAML):
+#   [rtr01] ---Gi2--- Gi2 [rtr02]
+#   (csr1000v)              (csr1000v)
+#     Gi1                     Gi1
+#      |                       |
+#    port1 [oob-sw] port2------+
+#      (unmanaged_switch)
+#    port0  port3  port4
+#      |      |      |
+#  [workstation] [sw01] [sw02]
+#  (ubuntu-desktop) (iosvl2) (iosvl2)
+#       ens4
+#        |
+#    [ext-conn-0]
+#
+#   [ext-conn-1] --- [cmlctl-0]
+#
+# Source: SVN /Lablets/350-901/LAB-1.2.1
+# Mosaic: FormId=6914a7802e314568b15c9639, FormSetId=6914a77f2e314568b15c962c
+# AMI: cisco-cml2.9.1-20nodes-v0.2.2c
+#
+# Port Mapping (derived from CML node tags):
+#   - rtr01:       serial:5060
+#   - rtr02:       serial:5061
+#   - sw01:        serial:5063
+#   - sw02:        serial:5064
+#   - workstation: serial:5065, vnc:5066, pat:5067:22
+#   - cmlctl-0:    serial:5068
+
+id: exam-ccnp-auto-v2.0-lab-lab-1.2.1-v1.0.0
+name: exam-ccnp-auto-v2.0-lab-lab-1.2.1
+version: '1.0.0'
+description: >-
+    A 9-node enterprise automation lab with two CSR1000v routers, two IOSvL2
+    switches, an Ubuntu desktop workstation, and OOB management switch.
+    Part of CCNP AUTO v2.0 (350-901 AUTOCOR) LAB 1.2.1.
+
+# Content identification (FQN: trackType trackLevel trackAcronym examVersion moduleAcronym formName)
+# Source: mosaic_meta.json → TrackShortName=AUTOCOR, ExamVersion=2.0, FormName=LAB-1.2.1
+form_qualified_name: Exam CCNP AUTO v2.0 LAB LAB-1.2.1
+
+# Artifact references (populated by content sync, optional at seed time)
+lab_yaml_hash: '' # Will be populated by content sync
+grading_rules_uri: null # Will be populated by content sync
+
+# Resource requirements (based on CML node definitions)
+# - csr1000v ×2:                 ~1 vCPU, 3GB RAM each
+# - iosvl2 ×2:                  ~1 vCPU, 768MB RAM each
+# - ubuntu-desktop-24-04-v2 ×1: ~2 vCPU, 4GB RAM
+# - unmanaged_switch ×1:        ~0 vCPU, 0MB (L2 only)
+# - cmlctl ×1:                  ~1 vCPU, 1GB RAM
+# - external_connector ×2:      ~0 vCPU, 0MB
+# Total: ~7 vCPU, ~12.5 GB RAM (CSR1000v is more demanding than IOSv)
+resource_requirements:
+    cpu_cores: 8
+    memory_gb: 14
+    storage_gb: 128
+    nested_virt: true
+    ami_requirements:
+        - cml_version_min: '2.9.1'
+          node_definitions_required:
+              - csr1000v
+              - iosvl2
+              - ubuntu-desktop-24-04-v2
+              - unmanaged_switch
+              - cmlctl
+              - external_connector
+
+# Lab metadata
+node_count: 9
+license_affinity:
+    - personal
+
+# Port template (ports to be dynamically allocated per instance)
+# Port names follow from_cml_nodes convention: {sanitized_node_label}_{protocol}
+port_template:
+    ports:
+        # rtr01 — tags: [serial:5060]
+        - name: rtr01_serial
+          protocol: tcp
+          description: serial on rtr01
+        # rtr02 — tags: [serial:5061]
+        - name: rtr02_serial
+          protocol: tcp
+          description: serial on rtr02
+        # sw01 — tags: [serial:5063]
+        - name: sw01_serial
+          protocol: tcp
+          description: serial on sw01
+        # sw02 — tags: [serial:5064]
+        - name: sw02_serial
+          protocol: tcp
+          description: serial on sw02
+        # workstation — tags: [serial:5065, vnc:5066, pat:5067:22]
+        - name: workstation_serial
+          protocol: tcp
+          description: serial on workstation
+        - name: workstation_vnc
+          protocol: tcp
+          description: vnc on workstation
+        - name: workstation_pat_22
+          protocol: tcp
+          description: pat (SSH) on workstation
+        # cmlctl-0 — tags: [serial:5068]
+        - name: cmlctl-0_serial
+          protocol: tcp
+          description: serial on cmlctl-0
+
+# Session configuration
+max_duration_minutes: 120 # 2 hours max session time
+warm_pool_depth: 0 # No pre-instantiated instances
+
+# Lab binding options
+lab_reuse_enabled: true
+
+# Ownership and notifications
+owner_notification:
+    email: lab-admin@example.com
+    notify_on_start: true
+    notify_on_complete: true
+    notify_on_error: true
+
+created_by: seeder
+
+# ─────────────────────────────────────────────────────────────
+# Pipeline Definitions (AD-PIPELINE-002)
+#
+# Effective instantiate pipeline (after skip evaluation):
+#   content_sync → variables → lab_resolve → ports_alloc → tags_sync
+#   → lab_binding → lab_start → lds_provision → mark_ready
+# ─────────────────────────────────────────────────────────────
+pipelines:
+    # ── INSTANTIATE ──────────────────────────────────────────
+    instantiate:
+        description: >-
+            Prepare the lablet session environment — import lab topology,
+            allocate ports, provision LDS session, and mark ready.
+        trigger: on_status:instantiating
+        max_retries: 3
+        retry_backoff: 30
+        steps:
+            - name: content_sync
+              handler: content_sync
+              description: Verify definition content is synced (grade.xml, cml.yaml)
+              skip_when: 'not $DEFINITION.form_qualified_name'
+              timeout_seconds: 120
+              retry:
+                  max_attempts: 3
+                  delay_seconds: 30
+
+            - name: variables
+              handler: variables
+              description: Resolve session variables from definition defaults
+              optional: true # failure does not block downstream steps
+
+            - name: lab_resolve
+              handler: lab_resolve
+              description: Import or reuse a CML lab on the assigned worker
+              needs: [content_sync, variables]
+              timeout_seconds: 120
+              retry:
+                  max_attempts: 2
+                  delay_seconds: 10
+
+            - name: ports_alloc
+              handler: ports_alloc
+              description: Allocate real ports from worker pool for console access
+              needs: [lab_resolve]
+              skip_when: 'not $DEFINITION.port_template'
+              timeout_seconds: 30
+
+            - name: tags_sync
+              handler: tags_sync
+              description: Write protocol:port tags to CML nodes
+              needs: [ports_alloc]
+              skip_when: 'not $DEFINITION.port_template'
+              timeout_seconds: 30
+
+            - name: lab_binding
+              handler: lab_binding
+              description: Bind LabRecord to session, create LabRunRecord
+              needs: [lab_resolve, tags_sync]
+              timeout_seconds: 30
+
+            - name: lab_start
+              handler: lab_start
+              description: Start the CML lab and wait for BOOTED state
+              needs: [lab_binding]
+              timeout_seconds: 300
+              retry:
+                  max_attempts: 5
+                  delay_seconds: 15
+
+            - name: lds_provision
+              handler: lds_provision
+              description: Create LDS session, map devices, get launch URL
+              needs: [lab_start]
+              skip_when: 'not $DEFINITION.form_qualified_name'
+              timeout_seconds: 60
+
+            - name: mark_ready
+              handler: mark_ready
+              description: Atomic transition to READY status
+              needs: [lab_start, lds_provision]
+              timeout_seconds: 10
+
+        outputs:
+            cml_lab_id: '$STEPS.lab_resolve.cml_lab_id'
+            lab_record_id: '$STEPS.lab_resolve.lab_record_id'
+            user_session_id: '$STEPS.lds_provision.user_session_id'
+            launch_url: '$STEPS.lds_provision.launch_url'
+
+    # ── COLLECT EVIDENCE ─────────────────────────────────────
+    collect_evidence:
+        description: >-
+            Capture student evidence from the lab session —
+            device configs, screenshots, packet captures — and
+            package into an evidence bundle for grading.
+        trigger: on_status:collecting
+        steps:
+            - name: capture_configs
+              handler: capture_configs
+              description: Export running-config from all managed devices
+              timeout_seconds: 120
+
+            - name: capture_screenshots
+              handler: capture_screenshots
+              description: Capture VNC screenshots of graphical nodes
+              needs: [capture_configs]
+              optional: true # best-effort — VNC may be unavailable
+              timeout_seconds: 60
+
+            - name: export_pcaps
+              handler: export_pcaps
+              description: Export packet capture files from bridge interfaces
+              needs: [capture_configs]
+              optional: true # best-effort — not all labs have pcap
+              timeout_seconds: 60
+
+            - name: package_evidence
+              handler: package_evidence
+              description: Bundle all artifacts into a compressed evidence package
+              needs: [capture_configs] # only hard dependency
+              timeout_seconds: 30
+
+        outputs:
+            evidence_uri: '$STEPS.package_evidence.evidence_uri'
+
+    # ── COMPUTE GRADING ──────────────────────────────────────
+    compute_grading:
+        description: >-
+            Evaluate collected evidence against the grading rubric
+            and produce a score report.
+        trigger: on_status:grading
+        steps:
+            - name: load_rubric
+              handler: load_rubric
+              description: Load grading rules from definition (grade.xml)
+              timeout_seconds: 30
+
+            - name: evaluate
+              handler: evaluate
+              description: Run grading engine against evidence and rubric
+              needs: [load_rubric]
+              timeout_seconds: 120
+
+            - name: record_score
+              handler: record_score
+              description: Create ScoreReport aggregate and store results
+              needs: [evaluate]
+              timeout_seconds: 10
+
+        outputs:
+            score: '$STEPS.evaluate.score'
+            score_report_id: '$STEPS.record_score.score_report_id'
+
+    # ── TEARDOWN ─────────────────────────────────────────────
+    teardown:
+        description: >-
+            Stop the lab, deregister LDS session, wipe lab state,
+            and archive the session record.
+        trigger: on_status:stopping
+        steps:
+            - name: stop_lab
+              handler: stop_lab
+              description: Stop the CML lab (graceful shutdown)
+              timeout_seconds: 120
+
+            - name: deregister_lds
+              handler: deregister_lds
+              description: Close the LDS session and release license
+              needs: [stop_lab]
+              skip_when: 'not $SESSION.user_session_id'
+              optional: true
+              timeout_seconds: 30
+
+            - name: wipe_lab
+              handler: wipe_lab
+              description: Wipe lab state (reset to DEFINED_ON_CORE)
+              needs: [stop_lab]
+              timeout_seconds: 120
+
+            - name: archive
+              handler: archive
+              description: Archive session record and transition to ARCHIVED
+              needs: [wipe_lab, deregister_lds]
+              timeout_seconds: 10
+
+        outputs:
+            archived_at: '$STEPS.archive.archived_at'

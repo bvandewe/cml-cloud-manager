@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<section id="1">
+    <title>Content</title>
+    <item id="1" scored="true" points="8">
+        <title>1: Tasks</title>
+        <text><![CDATA[<p>For this lablet, fix the failing Python script that standardizes the naming convention for edge routers using RESTCONF. The current script fails to authenticate and push the configuration to the CSR1000v router (IP: 10.10.20.85). Search the Python script that uses RESTCONF for the sections marked <b>#TODO</b>. These are the only sections that should be modified in the code to fix the automation task.<br><br><b>Workstation Credentials</b>: username:<b>cisco</b>, password:<b>cisco</b><br><br>Task 1: Open the <b>app.py</b> file in the <b>CandidateTasks </b>folder on the desktop and complete the #TODO notes to correct the RESTCONF headers and payload.<br>Task 2: In the same <b>app.py </b>file, complete the #TODO notes to fix the request&nbsp; to push the configuration to the router.&nbsp;Run the script using the workstation's terminal. Confirm that the script returns a 204 No Content or 200 OK status code and that the router's hostname is successfully updated to "CSR1K-PROD-01".<br></p>]]></text>
+        <resources/>
+    </item>
+</section>

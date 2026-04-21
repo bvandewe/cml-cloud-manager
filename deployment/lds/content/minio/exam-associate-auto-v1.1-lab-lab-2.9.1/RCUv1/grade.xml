@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes'?>
+<grading-rules xmlns='http://www.w3.org/2009/grading'>
+    <lab title='R_AUTO_LAB-2.1.1' version='LAB-2.1.1' reportClass='Reports::LabletReport'/>
+    <!-- Section 0 : Concurrent Statements -->
+     <section index='0' mode='sequential' />
+     <!-- Content -->
+     <section index='1' points='8' description='Content'>
+        <!-- Question - Check MFA step 1: Session cookie received from POST /j_security_check -->
+         <subsection index='1' points='2' description='Check MFA step 1: Session cookie received from POST /j_security_check' domain='2.0 Understanding and Using APIs'>
+        </subsection>
+        <!-- Question - Check MFA step 2: CSRF Token -->
+         <subsection index='2' points='3' description='Check MFA step 2: CSRF Token' domain='2.0 Understanding and Using APIs'>
+        </subsection>
+        <!-- Question - Check if the devices were ever successfully pulled -->
+         <subsection index='3' points='3' description='Check if the devices were ever successfully pulled' domain='2.0 Understanding and Using APIs'>
+        </subsection>
+    </section>
+</grading-rules>

@@ -1,0 +1,352 @@
+annotations: []
+smart_annotations:
+  - tag: serial:5111
+    is_on: true
+    padding: 35
+    label: serial:5111
+    tag_offset_x: 0
+    tag_offset_y: 0
+    tag_size: 14
+    group_distance: 400
+    thickness: 1
+    border_style: ''
+    fill_color: '#D5006D80'
+    border_color: '#00000080'
+    z_index: 1
+  - tag: pat:5112:22
+    is_on: true
+    padding: 35
+    label: pat:5112:22
+    tag_offset_x: 0
+    tag_offset_y: 0
+    tag_size: 14
+    group_distance: 400
+    thickness: 1
+    border_style: ''
+    fill_color: '#4B4D4F80'
+    border_color: '#00000080'
+    z_index: 2
+  - tag: serial:5113
+    is_on: true
+    padding: 35
+    label: serial:5113
+    tag_offset_x: 0
+    tag_offset_y: 0
+    tag_size: 14
+    group_distance: 400
+    thickness: 1
+    border_style: ''
+    fill_color: '#B7E3D980'
+    border_color: '#00000080'
+    z_index: 3
+  - tag: pat:5114:22
+    is_on: true
+    padding: 35
+    label: pat:5114:22
+    tag_offset_x: 0
+    tag_offset_y: 0
+    tag_size: 14
+    group_distance: 400
+    thickness: 1
+    border_style: ''
+    fill_color: '#F8A30080'
+    border_color: '#00000080'
+    z_index: 4
+  - tag: vnc:5115
+    is_on: true
+    padding: 35
+    label: vnc:5115
+    tag_offset_x: 0
+    tag_offset_y: 0
+    tag_size: 14
+    group_distance: 400
+    thickness: 1
+    border_style: ''
+    fill_color: '#A7A8AA80'
+    border_color: '#00000080'
+    z_index: 5
+nodes:
+  - boot_disk_size: null
+    configuration:
+      - name: iosxe_config.txt
+        content: |-
+          hostname csr1kv-01-router
+          interface GigabitEthernet1
+           ip address 10.10.20.85 255.255.255.0
+           no shut
+          ip http secure-server
+          ip http authentication local
+          username administrator privilege 15 secret Cisco1234!
+          restconf
+          end
+    cpu_limit: null
+    cpus: null
+    data_volume: null
+    hide_links: false
+    id: n0
+    image_definition: csr1000v-17-03-08a
+    label: csr1000v-0
+    node_definition: csr1000v
+    parameters: {}
+    ram: null
+    tags:
+      - serial:5111
+      - pat:5112:22
+    x: -320
+    y: -160
+    interfaces:
+      - id: i0
+        label: Loopback0
+        mac_address: null
+        type: loopback
+      - id: i1
+        label: GigabitEthernet1
+        mac_address: null
+        type: physical
+        slot: 0
+      - id: i2
+        label: GigabitEthernet2
+        mac_address: null
+        type: physical
+        slot: 1
+      - id: i3
+        label: GigabitEthernet3
+        mac_address: null
+        type: physical
+        slot: 2
+      - id: i4
+        label: GigabitEthernet4
+        mac_address: null
+        type: physical
+        slot: 3
+  - boot_disk_size: null
+    configuration: []
+    cpu_limit: null
+    cpus: null
+    data_volume: null
+    hide_links: false
+    id: n1
+    image_definition: null
+    label: ext-conn-0
+    node_definition: external_connector
+    parameters: {}
+    ram: null
+    tags: []
+    x: 280
+    y: -240
+    interfaces:
+      - id: i0
+        label: port
+        mac_address: null
+        type: physical
+        slot: 0
+  - boot_disk_size: null
+    configuration:
+      - name: user-data
+        content: |-
+          #cloud-config
+
+          # Network configuration
+          manage_etc_hosts: True
+
+          # Hostname
+          hostname: workstation
+
+          # System-wide SSH configuration
+          ssh_pwauth: True
+
+          # Define the cisco user with all properties
+          users:
+            - name: cisco
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              plain_text_passwd: cisco
+              lock_passwd: false
+      
+          # The amended files
+          write_files:
+            - path: /home/cisco/Desktop/tasks/README.md
+              permissions: "0755"
+              content: |
+                # Welcome to Your AUTOCOR Workstation
+  
+                This Ubuntu Desktop has all the tools you need for your lab exercises.
+                
+                As instructed, please follow the steps below to get started.
+
+                ## Getting Started
+
+                ### Python Virtual Environment
+
+                - Open a terminal
+                - Navigate to the `~/Desktop/tasks/` directory (`cd ~/Desktop/tasks/`)
+                - Activate the Python virtual environment with `source venv/bin/activate`
+
+                (This is done automatically by VS Code when you open a terminal there.)
+
+                ### Configuration Reference
+
+                Before modifying the script, ensure you are familiar with the target environment details:
+                - Target Device IP: 10.10.20.85
+                - Management Protocol: RESTCONF (HTTPS)
+                - Authentication: Basic Auth (administrator / Cisco1234!)
+                - Required Hostname: CSR1K-PROD-01
+
+                ### Python Script Task
+
+                - You are required to fix the app.py script located in the CandidateTasks folder.
+                - Open the Code: Open the CandidateTasks folder in VS Code.
+                - Identify Errors: Locate the #TODO markers within app.py.
+                - Task 1 (Headers): Update the headers to use the correct RESTCONF media type (application/yang-data+json).
+                - Task 2 (Payload & Method): Include the JSON payload structure in the request and update the HTTP method to the appropriate verb for resource replacement.
+                - Run the script from the terminal `python app.py`
+
+                ### Verification
+
+                - Status Code: Ensure the script returns a successful HTTP status code (200 OK or 204 No Content).
+                - Device Hostname: Script verifies that the hostname has successfully changed to CSR1K-PROD-01, ensure you get a successful message output from script.
+
+                ## Desktop Package Contents
+
+                **What's installed on this desktop:**
+
+                - VS Code (code editor)
+                - Terminal (command line)
+                - Python 3.12 (includes requests, urllib, and other automation libraries)
+                - File Manager (browse your files)
+                - And more!
+            
+            - path: /home/cisco/Desktop/tasks/app.py
+              permissions: "0755"
+              content: |
+                import requests
+                from requests.auth import HTTPBasicAuth
+                import urllib3
+
+                urllib3.disable_warnings()
+
+                # Device Details
+                TARGET_IP = "10.10.20.85"
+                USER = "administrator"
+                PASS = "Cisco1234!"
+                auth=HTTPBasicAuth(USER, PASS)
+
+                # RESTCONF URL for the Hostname leaf
+                URL = f"https://{TARGET_IP}/restconf/data/Cisco-IOS-XE-native:native/hostname"
+
+                # TODO: Fix the Headers, 
+                # RestConf requires a specific 'yang-data' content type
+                headers = {
+                    "Accept": "application/json",
+                    "Content-Type": "application/json"
+                }
+
+                def get_hostname(url, auth, headers):
+                  response = requests.get(url, auth=auth, headers=headers, verify=False)
+                  if response.status_code == 200:
+                      return response.json().get("Cisco-IOS-XE-native:hostname")
+                  return "Error"
+                
+                current_name = get_hostname(URL, auth, headers)
+                print(f"Current Hostname: {current_name}")
+
+                new_hostname_payload = {
+                    "Cisco-IOS-XE-native:hostname": "CSR1K-PROD-01"
+                }
+
+                # TODO: Fix the request below to use the correct method and include the payload
+                print(f"Changing hostname to CSR1K-PROD-01...")
+                response = requests.get(
+                    URL, 
+                    auth=auth, 
+                    headers=headers, 
+                    verify=False
+                )
+
+                updated_name = get_hostname(URL, auth, headers)
+                if updated_name == "CSR1K-PROD-01":
+                    print(f"Verification Success! New Hostname: {updated_name}")
+                else:
+                    print(f"Failed to update.")
+                print(f"Status Code: {response.status_code}")
+                
+          # Commands to run on first boot
+          runcmd:
+            # Ensure proper ownership
+            - chown -R cisco:cisco /home/cisco/Desktop/tasks
+
+            # Final message
+            - echo "Desktop provisioning complete" >> /var/log/cloud-init-custom.log
+
+          # Commands to run on every boot
+          bootcmd:
+            - echo "System booted at $(date)" >> /var/log/boot-times.log
+
+      - name: network-config
+        content: |-
+          network:
+            version: 2
+            ethernets:
+              ens4:
+                dhcp4: true
+              ens3:
+                dhcp4: false
+                addresses:
+                  - 10.10.20.100/24
+    cpu_limit: null
+    cpus: null
+    data_volume: null
+    hide_links: false
+    id: n2
+    image_definition: lablet-desktop-v0.1.1
+    label: ubuntu-desktop-1
+    node_definition: ubuntu-desktop-24-04-v2
+    parameters: {}
+    ram: null
+    tags:
+      - serial:5113
+      - pat:5114:22
+      - vnc:5115
+    x: 0
+    y: -160
+    interfaces:
+      - id: i0
+        label: ens3
+        mac_address: null
+        type: physical
+        slot: 0
+      - id: i1
+        label: ens4
+        mac_address: null
+        type: physical
+        slot: 1
+      - id: i2
+        label: ens5
+        mac_address: null
+        type: physical
+        slot: 2
+      - id: i3
+        label: ens6
+        mac_address: null
+        type: physical
+        slot: 3
+links:
+  - id: l0
+    n1: n0
+    n2: n2
+    i1: i1
+    i2: i0
+    conditioning: {}
+    label: csr1000v-0-GigabitEthernet1<->ubuntu-desktop-1-ens3
+  - id: l1
+    n1: n2
+    n2: n1
+    i1: i1
+    i2: i0
+    conditioning: {}
+    label: ubuntu-desktop-1-ens4<->ext-conn-0-port
+lab:
+  description: ''
+  notes: ''
+  title: DEVASC_LAB_Test_2.9.b
+  version: 0.3.0

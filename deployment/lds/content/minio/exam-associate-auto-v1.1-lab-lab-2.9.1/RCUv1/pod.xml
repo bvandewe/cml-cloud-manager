@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<lab id="ALL">
+    <templates id="LABLETS">
+        <unit-template pattern='csr1000v-0' class='CiscoCommon' continue='1'>
+            <connector class='Telnet' timeout='3' enablepassword='cisco' prompt='csr1000v-0#' />
+        </unit-template>
+        <unit-template pattern="ubuntu-desktop-1_22" class="Unix" continue="1">
+            <connector class="UnixSSH" timeout="5" username="cisco" password="cisco"
+                prompt="#goodmorningstartshine#" />
+        </unit-template>
+        <unit-template pattern="ubuntu-desktop-1_serial" class="Unix" continue="1">
+            <connector class="Telnet" timeout="5" username="cisco" password="cisco"
+                prompt="#goodmorningstartshine#" />
+        </unit-template>
+    </templates>
+</lab>
