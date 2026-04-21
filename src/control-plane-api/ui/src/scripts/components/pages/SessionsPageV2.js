@@ -51,8 +51,13 @@ export class SessionsPageV2 extends StoreConnectedPage {
         this._clientSearchTerm = '';
         this._selectedStatus = null;
         this._includeTerminated = false;
+        this._sessionsReloadTimer = null;
         /** @type {ReturnType<typeof createDefinitionsActions>|null} */
         this._definitionsActions = null;
+        /** @type {Array} Cached sessions for metric recalculation on tab switch */
+        this._lastSessions = [];
+        /** @type {Array} Cached definitions for metric recalculation on tab switch */
+        this._lastDefinitions = [];
     }
 
     // =========================================================================
@@ -70,8 +75,11 @@ export class SessionsPageV2 extends StoreConnectedPage {
     subscribeToStore() {
         // React to sessions list changes → update table + metric cards
         this.connectSlice('sessions', selectAllSessions, sessions => {
+            this._lastSessions = sessions || [];
             this._updateSessionsView(sessions);
-            this._updateMetricCards(sessions);
+            if (this._activeTab === 'lablets') {
+                this._updateSessionMetricCards(sessions);
+            }
         });
 
         // React to sessions loading state → show/hide spinner
@@ -79,9 +87,13 @@ export class SessionsPageV2 extends StoreConnectedPage {
             this._updateLoadingState(loading);
         });
 
-        // React to definitions list changes → update definitions table
+        // React to definitions list changes → update definitions table + metric cards
         this.connectSlice('definitions', selectAllDefinitions, definitions => {
+            this._lastDefinitions = definitions || [];
             this._updateDefinitionsView(definitions);
+            if (this._activeTab === 'definitions') {
+                this._updateDefinitionMetricCards(definitions);
+            }
         });
 
         // React to definitions loading state
@@ -122,7 +134,40 @@ export class SessionsPageV2 extends StoreConnectedPage {
         // racing against the PENDING→SCHEDULED→INSTANTIATING SSE transitions
         // that complete in ~1-1.5s.
         this.subscribe(LcmEventTypes.UI_SESSION_CREATED, () => {
-            setTimeout(() => this._loadSessionsWithFilters(), 3000);
+            this._scheduleSessionsReload(1200);
+        });
+
+        const revalidateSessionState = () => {
+            this._scheduleSessionsReload();
+        };
+
+        [
+            LcmEventTypes.LABLET_SESSION_CREATED,
+            LcmEventTypes.LABLET_SESSION_UPDATED,
+            LcmEventTypes.LABLET_SESSION_STATUS_CHANGED,
+            LcmEventTypes.LABLET_SESSION_PIPELINE_PROGRESS,
+            LcmEventTypes.LABLET_SESSION_DESIRED_STATUS_CHANGED,
+            LcmEventTypes.LABLET_SESSION_SCORE_RECORDED,
+            LcmEventTypes.LABLET_SESSION_TIMESLOT_EXTENDED,
+            LcmEventTypes.LABLET_SESSION_PORTS_RELEASED,
+            LcmEventTypes.LABLET_SESSION_TERMINATED,
+            LcmEventTypes.LABLET_SESSION_DELETED,
+            LcmEventTypes.PIPELINE_STEP_COMPLETED,
+            LcmEventTypes.PIPELINE_STEP_FAILED,
+            LcmEventTypes.PIPELINE_COMPLETED,
+        ].forEach(eventType => {
+            this.subscribe(eventType, revalidateSessionState);
+        });
+
+        // Definition sync lifecycle → refresh the details modal if it's currently
+        // open for the affected definition. The store/data-table update is handled
+        // by sseAdapter → definitions slice → connectSlice. This subscription
+        // covers the *modal* which renders a one-time HTML snapshot.
+        this.subscribe(LcmEventTypes.LABLET_DEFINITION_CONTENT_SYNCED, data => {
+            this._refreshDefinitionDetailsModal(data?.definition_id);
+        });
+        this.subscribe(LcmEventTypes.LABLET_DEFINITION_SYNC_REQUESTED, data => {
+            this._refreshDefinitionDetailsModal(data?.definition_id);
         });
     }
 
@@ -397,6 +442,33 @@ export class SessionsPageV2 extends StoreConnectedPage {
         } catch (error) {
             console.error('[SessionsPageV2] Failed to sync definition:', error);
             showToast(`Sync failed: ${error.message}`, 'danger');
+        }
+    }
+
+    /**
+     * Refresh the definition details modal if it is currently open and
+     * displaying the given definition. Called when SSE sync lifecycle
+     * events arrive (sync_requested, content_synced).
+     *
+     * @param {string|undefined} definitionId
+     */
+    async _refreshDefinitionDetailsModal(definitionId) {
+        if (!definitionId) return;
+
+        const modal = document.getElementById('labletDefinitionDetailsModal');
+        if (!modal || !modal.classList.contains('show')) return;
+
+        // Check that the open modal is for *this* definition
+        const syncBtn = document.getElementById('syncDefinitionFromDetailBtn');
+        if (syncBtn?.dataset.definitionId !== definitionId) return;
+
+        // Re-fetch + re-render (modal stays open; Bootstrap show() is a no-op
+        // when already visible, and innerHTML replacement updates content in-place).
+        try {
+            await this._viewDefinition(definitionId);
+            console.log(`[SessionsPageV2] Refreshed definition details modal for ${definitionId}`);
+        } catch (err) {
+            console.warn('[SessionsPageV2] Failed to refresh definition modal:', err);
         }
     }
 
@@ -843,7 +915,11 @@ export class SessionsPageV2 extends StoreConnectedPage {
     // Metrics Panel
     // =========================================================================
 
-    _updateMetricCards(sessions) {
+    /**
+     * Update metric cards with session statistics (Lablets tab context).
+     * Configures card labels, icons, colors, and values for session lifecycle.
+     */
+    _updateSessionMetricCards(sessions) {
         // Canonical LabletSessionStatus enum (12 states)
         const stats = {
             total: 0,
@@ -867,6 +943,15 @@ export class SessionsPageV2 extends StoreConnectedPage {
             if (status in stats) stats[status]++;
         });
 
+        // Set card identities for session context
+        this._setMetricCardConfig('metric-total-v2', 'Total', 'bi-calendar-check', 'primary');
+        this._setMetricCardConfig('metric-pending-v2', 'Pending', 'bi-hourglass-split', 'warning');
+        this._setMetricCardConfig('metric-provisioning-v2', 'Instantiating', 'bi-cloud-arrow-up', 'info');
+        this._setMetricCardConfig('metric-ready-v2', 'Ready', 'bi-check-circle', 'success');
+        this._setMetricCardConfig('metric-running-v2', 'Active', 'bi-play-circle', 'success');
+        this._setMetricCardConfig('metric-terminated-v2', 'Terminal', 'bi-x-circle', 'secondary');
+
+        // Set values
         this._setMetricValue('metric-total-v2', stats.total);
         this._setMetricValue('metric-pending-v2', stats.pending + stats.scheduled);
         this._setMetricValue('metric-provisioning-v2', stats.instantiating);
@@ -876,6 +961,68 @@ export class SessionsPageV2 extends StoreConnectedPage {
 
         // Remove loading state from all metric cards
         this.querySelectorAll('lcm-metric-card[loading]').forEach(card => card.removeAttribute('loading'));
+    }
+
+    /**
+     * Update metric cards with definition statistics (Definitions tab context).
+     * Configures card labels, icons, colors, and values for definition lifecycle.
+     *
+     * Definition statuses: pending_sync, active, deprecated, archived
+     * Sync statuses: sync_requested, success, failed, null
+     */
+    _updateDefinitionMetricCards(definitions) {
+        const stats = {
+            total: 0,
+            active: 0,
+            pending_sync: 0,
+            sync_success: 0,
+            sync_failed: 0,
+            deprecated: 0,
+        };
+
+        (definitions || []).forEach(d => {
+            stats.total++;
+            const status = (d.status || '').toLowerCase();
+            const syncStatus = (d.sync_status || '').toLowerCase();
+
+            if (status === 'active') stats.active++;
+            else if (status === 'pending_sync') stats.pending_sync++;
+            else if (status === 'deprecated') stats.deprecated++;
+
+            if (syncStatus === 'success') stats.sync_success++;
+            else if (syncStatus === 'failed') stats.sync_failed++;
+        });
+
+        // Reconfigure card identities for definition context
+        this._setMetricCardConfig('metric-total-v2', 'Total', 'bi-file-earmark-code', 'primary');
+        this._setMetricCardConfig('metric-pending-v2', 'Pending Sync', 'bi-arrow-repeat', 'warning');
+        this._setMetricCardConfig('metric-provisioning-v2', 'Active', 'bi-check-circle-fill', 'success');
+        this._setMetricCardConfig('metric-ready-v2', 'Synced', 'bi-cloud-check', 'success');
+        this._setMetricCardConfig('metric-running-v2', 'Sync Failed', 'bi-exclamation-triangle', 'danger');
+        this._setMetricCardConfig('metric-terminated-v2', 'Deprecated', 'bi-archive', 'secondary');
+
+        // Set values
+        this._setMetricValue('metric-total-v2', stats.total);
+        this._setMetricValue('metric-pending-v2', stats.pending_sync);
+        this._setMetricValue('metric-provisioning-v2', stats.active);
+        this._setMetricValue('metric-ready-v2', stats.sync_success);
+        this._setMetricValue('metric-running-v2', stats.sync_failed);
+        this._setMetricValue('metric-terminated-v2', stats.deprecated);
+
+        // Remove loading state from all metric cards
+        this.querySelectorAll('lcm-metric-card[loading]').forEach(card => card.removeAttribute('loading'));
+    }
+
+    /**
+     * Configure a metric card's identity (title, icon, color).
+     * Used to switch card context between sessions and definitions tabs.
+     */
+    _setMetricCardConfig(id, title, icon, color) {
+        const card = this.querySelector(`#${id}`);
+        if (!card) return;
+        card.setAttribute('title', title);
+        card.setAttribute('icon', icon);
+        card.setAttribute('color', color);
     }
 
     _setMetricValue(id, value) {
@@ -1090,10 +1237,14 @@ export class SessionsPageV2 extends StoreConnectedPage {
     _onTabChange({ tabId }) {
         this._activeTab = tabId;
 
-        // Refresh data for the active tab
-        if (tabId === 'definitions' && this._definitionsActions) {
-            this._definitionsActions.loadDefinitions();
+        // Switch metric cards to match the active tab context
+        if (tabId === 'definitions') {
+            this._updateDefinitionMetricCards(this._lastDefinitions);
+            if (this._definitionsActions) {
+                this._definitionsActions.loadDefinitions();
+            }
         } else if (tabId === 'lablets') {
+            this._updateSessionMetricCards(this._lastSessions);
             this._loadSessionsWithFilters();
         }
     }
@@ -1291,25 +1442,44 @@ export class SessionsPageV2 extends StoreConnectedPage {
         if (searchInput) searchInput.value = '';
         if (terminalToggle) terminalToggle.checked = false;
 
-        this._loadSessionsWithFilters();
+        this._loadSessionsWithFilters({ replace: true });
     }
 
     /**
      * Load sessions from API with current filter state.
      */
-    _loadSessionsWithFilters() {
+    _loadSessionsWithFilters(options = {}) {
         const filters = {};
         if (this._selectedStatus) filters.status = this._selectedStatus;
         if (this._includeTerminated) filters.include_terminal = true;
-        this.actions.loadSessions(filters);
+        return this.actions.loadSessions(filters, options);
+    }
+
+    _scheduleSessionsReload(delay = 500) {
+        if (this._sessionsReloadTimer) {
+            clearTimeout(this._sessionsReloadTimer);
+        }
+
+        this._sessionsReloadTimer = setTimeout(() => {
+            this._sessionsReloadTimer = null;
+            this._loadSessionsWithFilters();
+        }, delay);
     }
 
     _handleRefresh() {
         if (this._activeTab === 'definitions' && this._definitionsActions) {
             this._definitionsActions.loadDefinitions();
         } else {
-            this._loadSessionsWithFilters();
+            this._loadSessionsWithFilters({ replace: true });
         }
+    }
+
+    onUnmount() {
+        if (this._sessionsReloadTimer) {
+            clearTimeout(this._sessionsReloadTimer);
+            this._sessionsReloadTimer = null;
+        }
+        super.onUnmount();
     }
 
     // =========================================================================

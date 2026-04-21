@@ -6,6 +6,11 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ## [Unreleased]
 
+### Fixed — Sessions Page Summary Metrics
+
+- **Tab-context-aware metric cards** (control-plane-api/UI): Summary metrics now switch between session stats (Lablets tab) and definition stats (Definitions tab) — previously always showed session counts regardless of active tab.
+- **LcmTabView DOM event dispatch** (control-plane-api/UI): Fixed `tab-change` event to use `dispatchEvent()` (DOM CustomEvent) instead of `emit()` (EventBus-only), enabling `addEventListener`-based tab-change handlers in SessionsPageV2 and WorkersPageV2.
+
 ### Fixed — SSE Race Condition (ADR-039)
 
 - **Timestamp-guarded `mergeAll` reducer** (control-plane-api/UI): Replaced destructive `replaceAll` with `mergeAll` that protects SSE-updated fields (`status`, `pipeline_progress`, `worker_id`, `desired_status`) using `_sseUpdatedAt` timestamp guard (5-second window). Prevents stale HTTP polling data from overwriting real-time SSE-driven state updates.
