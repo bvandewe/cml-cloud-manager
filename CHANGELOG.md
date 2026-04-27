@@ -6,6 +6,12 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ## [Unreleased]
 
+### Fixed — Fleet Capacity Panel Shows Stopped Worker Capacity
+
+- **`selectFleetCapacity` selector** (control-plane-api/UI): Only running workers now contribute to fleet capacity totals. Stopped/pending/terminated workers are counted in `totalWorkers` but their `declared_capacity` and `allocated_capacity` are excluded — a fully stopped fleet correctly shows zero capacity.
+- **`CapacityDashboard._loadData` aggregation** (control-plane-api/UI): Applied the same running-only capacity gating to the standalone Capacity Dashboard page.
+- **Tests**: 9 new vitest unit tests for `selectFleetCapacity` covering empty fleet, running-only, stopped/pending/terminated exclusion, mixed fleet, null capacity, case-insensitive status, and undefined status.
+
 ### Fixed — Sessions Page Summary Metrics
 
 - **Tab-context-aware metric cards** (control-plane-api/UI): Summary metrics now switch between session stats (Lablets tab) and definition stats (Definitions tab) — previously always showed session counts regardless of active tab.

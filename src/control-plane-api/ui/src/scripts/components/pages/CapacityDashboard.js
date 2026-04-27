@@ -93,7 +93,7 @@ export class CapacityDashboard extends BaseComponent {
 
             this._workers = workers;
 
-            // Aggregate fleet capacity
+            // Aggregate fleet capacity (only running workers contribute)
             let totalCpu = 0,
                 usedCpu = 0,
                 totalMem = 0,
@@ -105,21 +105,22 @@ export class CapacityDashboard extends BaseComponent {
                 running = 0;
 
             workers.forEach(w => {
-                // declared_capacity from template
-                if (w.declared_capacity) {
+                const isRunning = (w.status || '').toLowerCase() === 'running';
+                if (isRunning) running++;
+
+                // Only running workers contribute to fleet capacity
+                if (isRunning && w.declared_capacity) {
                     totalCpu += w.declared_capacity.cpu_cores || 0;
                     totalMem += w.declared_capacity.memory_gb || 0;
                     totalStorage += w.declared_capacity.storage_gb || 0;
                     totalNodes += w.declared_capacity.max_nodes || 0;
                 }
-                // allocated_capacity from scheduling
-                if (w.allocated_capacity) {
+                if (isRunning && w.allocated_capacity) {
                     usedCpu += w.allocated_capacity.cpu_cores || 0;
                     usedMem += w.allocated_capacity.memory_gb || 0;
                     usedStorage += w.allocated_capacity.storage_gb || 0;
                     usedNodes += w.allocated_capacity.max_nodes || 0;
                 }
-                if ((w.status || '').toLowerCase() === 'running') running++;
             });
 
             this._fleet = {

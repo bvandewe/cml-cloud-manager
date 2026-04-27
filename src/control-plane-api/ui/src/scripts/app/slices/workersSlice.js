@@ -339,7 +339,11 @@ export function selectWorkersByStatus(state, status) {
 }
 
 /**
- * Get fleet capacity summary (aggregated from all workers)
+ * Get fleet capacity summary (aggregated from running workers only).
+ *
+ * Only workers with status "running" contribute to fleet totals.
+ * Stopped/pending/terminated workers are counted in totalWorkers but
+ * their capacity is excluded — a stopped fleet correctly shows zero.
  */
 export function selectFleetCapacity(state) {
     const workers = selectAllWorkers(state);
@@ -354,19 +358,22 @@ export function selectFleetCapacity(state) {
     let running = 0;
 
     workers.forEach(w => {
-        if (w.declared_capacity) {
+        const isRunning = (w.status || '').toLowerCase() === 'running';
+        if (isRunning) running++;
+
+        // Only running workers contribute to fleet capacity
+        if (isRunning && w.declared_capacity) {
             totalCpu += w.declared_capacity.cpu_cores || 0;
             totalMem += w.declared_capacity.memory_gb || 0;
             totalStorage += w.declared_capacity.storage_gb || 0;
             totalNodes += w.declared_capacity.max_nodes || 0;
         }
-        if (w.allocated_capacity) {
+        if (isRunning && w.allocated_capacity) {
             usedCpu += w.allocated_capacity.cpu_cores || 0;
             usedMem += w.allocated_capacity.memory_gb || 0;
             usedStorage += w.allocated_capacity.storage_gb || 0;
             usedNodes += w.allocated_capacity.max_nodes || 0;
         }
-        if ((w.status || '').toLowerCase() === 'running') running++;
     });
 
     return {
