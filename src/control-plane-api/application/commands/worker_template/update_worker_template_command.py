@@ -10,6 +10,7 @@ from typing import Any
 
 from application.commands.command_handler_base import CommandHandlerBase
 from application.dtos.worker_template_dto import WorkerTemplateDto, map_worker_template_to_dto
+from domain.entities.worker_template import WorkerTemplate
 from domain.repositories.worker_template_repository import WorkerTemplateRepository
 from domain.value_objects.worker_capacity import WorkerCapacity
 from integration.enums import Ec2InstanceType
@@ -73,7 +74,7 @@ class UpdateWorkerTemplateCommandHandler(
         # Fetch existing template
         template = await self._repository.get_by_id_async(command.template_id)
         if not template:
-            return self.not_found("WorkerTemplate", f"WorkerTemplate '{command.template_id}' not found")
+            return self.not_found(WorkerTemplate, command.template_id)
 
         if template.state.deleted:
             return self.bad_request("Cannot update a deleted template")
