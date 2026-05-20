@@ -111,6 +111,39 @@ export class SessionDetailsModal extends BaseComponent {
             this._scheduleReloadFromBackend();
         });
 
+        // SSE: lab bound/unbound — update lab_record_id on this session and refresh overview
+        this.subscribe(EventTypes.LAB_RECORD_BOUND, data => {
+            const sessionId = data.lablet_session_id;
+            if (sessionId !== this.currentSessionId) return;
+            const labRecordId = data.lab_record_id || data.id;
+            this.currentSession = {
+                ...this.currentSession,
+                lab_record_id: labRecordId,
+                cml_lab_id: data.lab_id || this.currentSession?.cml_lab_id,
+            };
+            this._tabCache.overview = null;
+            const activeTab = this.$('[data-tab].active');
+            if (activeTab?.dataset.tab === 'overview') {
+                this._renderOverviewTab();
+            }
+            this._scheduleReloadFromBackend();
+        });
+
+        this.subscribe(EventTypes.LAB_RECORD_UNBOUND, data => {
+            const sessionId = data.lablet_session_id;
+            if (sessionId !== this.currentSessionId) return;
+            this.currentSession = {
+                ...this.currentSession,
+                lab_record_id: null,
+            };
+            this._tabCache.overview = null;
+            const activeTab = this.$('[data-tab].active');
+            if (activeTab?.dataset.tab === 'overview') {
+                this._renderOverviewTab();
+            }
+            this._scheduleReloadFromBackend();
+        });
+
         this.render();
     }
 
@@ -576,8 +609,12 @@ export class SessionDetailsModal extends BaseComponent {
             : workerDisplay;
 
         const labRecordDisplay = s.lab_record_id ? `${escapeHtml(s.lab_record_id.substring(0, 8))}…` : '—';
+        const labRecordLabel = s.cml_lab_title ? `${escapeHtml(s.cml_lab_title)}` : labRecordDisplay;
+        const labRecordStatusBadge = s.lab_record_status
+            ? ` <span class="badge ${s.lab_record_status === 'STARTED' ? 'bg-success' : s.lab_record_status === 'STOPPED' ? 'bg-secondary' : s.lab_record_status === 'WIPED' ? 'bg-warning text-dark' : 'bg-info text-dark'} rounded-pill">${escapeHtml(s.lab_record_status)}</span>`
+            : '';
         const labRecordLink = s.lab_record_id
-            ? `<a href="#" class="text-decoration-none xref-lab-record" data-lab-record-id="${escapeHtml(s.lab_record_id)}" title="View lab record">${labRecordDisplay} <i class="bi bi-box-arrow-up-right small"></i></a>`
+            ? `<a href="#" class="text-decoration-none xref-lab-record" data-lab-record-id="${escapeHtml(s.lab_record_id)}" title="${escapeHtml(s.lab_record_id)}">${labRecordLabel} <i class="bi bi-box-arrow-up-right small"></i></a>${labRecordStatusBadge}`
             : labRecordDisplay;
 
         // CML Lab: prefer title over raw ID, with deep-link to CML endpoint

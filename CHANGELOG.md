@@ -6,6 +6,13 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ## [Unreleased]
 
+### Fixed — LabRecord↔LabletSession Link Not Shown in Real-Time
+
+- **SSE `lab.bound`/`lab.unbound` id normalization** (control-plane-api/UI): Fixed `sseAdapter.js` to normalize `lab_record_id → id` before dispatching to the labRecords store — previously `upsertLabRecord` silently ignored payloads lacking an `id` field.
+- **Cross-store binding update** (control-plane-api/UI): `LAB_RECORD_BOUND` SSE handler now also dispatches `lab_record_id` to the sessions store (and clears it on `LAB_RECORD_UNBOUND`), keeping both sides of the 1:1 link in sync without page reload.
+- **LabDetailModal reactive binding** (control-plane-api/UI): Added `LAB_RECORD_BOUND`/`LAB_RECORD_UNBOUND` subscriptions to invalidate and re-render the "Linked Lablets" tab when the currently viewed lab is bound or unbound.
+- **SessionDetailsModal reactive binding** (control-plane-api/UI): Added `LAB_RECORD_BOUND`/`LAB_RECORD_UNBOUND` subscriptions to update the overview tab's "Lab Record" field in real-time when a lab binds to or unbinds from the viewed session.
+
 ### Fixed — Fleet Capacity Panel Shows Stopped Worker Capacity
 
 - **`selectFleetCapacity` selector** (control-plane-api/UI): Only running workers now contribute to fleet capacity totals. Stopped/pending/terminated workers are counted in `totalWorkers` but their `declared_capacity` and `allocated_capacity` are excluded — a fully stopped fleet correctly shows zero capacity.

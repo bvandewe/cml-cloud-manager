@@ -27,13 +27,7 @@ const DEFINITION_EVENT_TYPES = new Set([
     LcmEventTypes.LABLET_DEFINITION_SYNC_REQUESTED,
 ]);
 
-const TEMPLATE_EVENT_TYPES = new Set([
-    LcmEventTypes.WORKER_TEMPLATE_CREATED,
-    LcmEventTypes.WORKER_TEMPLATE_UPDATED,
-    LcmEventTypes.WORKER_TEMPLATE_DELETED,
-    LcmEventTypes.WORKER_TEMPLATE_ENABLED,
-    LcmEventTypes.WORKER_TEMPLATE_DISABLED,
-]);
+const TEMPLATE_EVENT_TYPES = new Set([LcmEventTypes.WORKER_TEMPLATE_CREATED, LcmEventTypes.WORKER_TEMPLATE_UPDATED, LcmEventTypes.WORKER_TEMPLATE_DELETED, LcmEventTypes.WORKER_TEMPLATE_ENABLED, LcmEventTypes.WORKER_TEMPLATE_DISABLED]);
 
 /**
  * LCM SSE Adapter
@@ -548,16 +542,54 @@ export class LcmSSEAdapter {
             }
         });
 
-        // Lab Record binding events → update lab record in store (Track 2 §5.4)
+        // Lab Record binding events → update BOTH lab record and session stores (Track 2 §5.4)
+        // SSE payload: { lab_record_id, lab_id, lablet_session_id, binding_id, binding_role, bound_at }
         eventBus.on(LcmEventTypes.LAB_RECORD_BOUND, data => {
-            if (data) {
-                store.dispatch('labRecords', 'upsertLabRecord', data);
+            if (!data) return;
+            const labRecordId = data.lab_record_id || data.id;
+            if (labRecordId) {
+                // Update lab record with binding info (normalize lab_record_id → id)
+                store.dispatch('labRecords', 'upsertLabRecord', {
+                    id: labRecordId,
+                    lablet_session_id: data.lablet_session_id,
+                    binding_id: data.binding_id,
+                    binding_role: data.binding_role,
+                    bound_at: data.bound_at,
+                });
+            }
+            // Cross-update: set lab_record_id on the linked session
+            const sessionId = data.lablet_session_id;
+            if (sessionId) {
+                store.dispatch('sessions', 'upsertSession', {
+                    id: sessionId,
+                    lab_record_id: labRecordId,
+                    cml_lab_id: data.lab_id || undefined,
+                });
             }
         });
 
+        // SSE payload: { lab_record_id, lab_id, lablet_session_id, binding_id, unbound_at }
         eventBus.on(LcmEventTypes.LAB_RECORD_UNBOUND, data => {
-            if (data) {
-                store.dispatch('labRecords', 'upsertLabRecord', data);
+            if (!data) return;
+            const labRecordId = data.lab_record_id || data.id;
+            if (labRecordId) {
+                // Clear binding info on the lab record (normalize lab_record_id → id)
+                store.dispatch('labRecords', 'upsertLabRecord', {
+                    id: labRecordId,
+                    lablet_session_id: null,
+                    binding_id: null,
+                    binding_role: null,
+                    bound_at: null,
+                    unbound_at: data.unbound_at,
+                });
+            }
+            // Cross-update: clear lab_record_id on the previously linked session
+            const sessionId = data.lablet_session_id;
+            if (sessionId) {
+                store.dispatch('sessions', 'upsertSession', {
+                    id: sessionId,
+                    lab_record_id: null,
+                });
             }
         });
 

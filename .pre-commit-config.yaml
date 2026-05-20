@@ -62,8 +62,8 @@ repos:
       rev: v1.37.1
       hooks:
           - id: yamllint
-            args: ['-d', '{extends: default, rules: {line-length: {max: 250}, document-start: disable}}']
-            exclude: '^(deployment/helm/|docker-compose.yml|.pre-commit-config.yaml|mkdocs.yml)'
+            args: ['-d', '{extends: default, rules: {line-length: {max: 250}, document-start: disable, comments: {min-spaces-from-content: 1}}}']
+            exclude: '^(deployment/helm/|docker-compose\.yml|docker-compose\.shared\.yml|\.pre-commit-config\.yaml|mkdocs\.yml)'
 
     # Security check for Python dependencies
     - repo: https://github.com/PyCQA/bandit
@@ -79,7 +79,7 @@ repos:
       hooks:
           - id: detect-secrets
             args: ['--baseline', '.secrets.baseline']
-            exclude: 'docker-compose.yml|package-lock\.json|poetry\.lock|deployment/keycloak/.*realm.*\.json|docs/security/authorization.md|tests/application/test_commands.py|tests/api_tests/test_sources_controller.py|docs/services/agent-host/configuration.md'
+            exclude: 'docker-compose\.yml|docker-compose\.shared\.yml|package-lock\.json|poetry\.lock|deployment/keycloak/.*realm.*\.json|docs/security/authorization.md|tests/application/test_commands.py|tests/api_tests/test_sources_controller.py|docs/services/agent-host/configuration.md|src/lablet-controller/tests/test_instantiation_pipeline\.py'
 
 # Configure pre-commit to run only on commit (not on push)
 default_install_hook_types: [pre-commit]

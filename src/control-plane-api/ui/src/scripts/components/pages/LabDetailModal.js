@@ -142,6 +142,27 @@ export class LabDetailModal extends BaseComponent {
                 showToast(`Action failed: ${data.error_message || 'Unknown error'}`, 'error');
             }
         });
+
+        // Binding lifecycle: refresh Linked Lablets tab when this lab is bound/unbound
+        this.subscribe(EventTypes.LAB_RECORD_BOUND, data => {
+            const id = data.lab_record_id || data.id;
+            if (id === this._labRecordId) {
+                this._linkedLablets = null; // Invalidate cache
+                if (this._activeTab === 'linkedLablets') {
+                    this._loadLinkedLabletsTab();
+                }
+            }
+        });
+
+        this.subscribe(EventTypes.LAB_RECORD_UNBOUND, data => {
+            const id = data.lab_record_id || data.id;
+            if (id === this._labRecordId) {
+                this._linkedLablets = null; // Invalidate cache
+                if (this._activeTab === 'linkedLablets') {
+                    this._loadLinkedLabletsTab();
+                }
+            }
+        });
     }
 
     // ===========================================================================
@@ -243,9 +264,7 @@ export class LabDetailModal extends BaseComponent {
                     <button class="nav-link ${this._activeTab === 'ports' ? 'active' : ''}"
                         data-lab-tab="ports" type="button">
                         <i class="bi bi-plug me-1"></i>Ports
-                        ${this._labRecord?.allocated_ports && Object.keys(this._labRecord.allocated_ports).length > 0
-                            ? `<span class="badge bg-primary rounded-pill ms-1">${Object.keys(this._labRecord.allocated_ports).length}</span>`
-                            : ''}
+                        ${this._labRecord?.allocated_ports && Object.keys(this._labRecord.allocated_ports).length > 0 ? `<span class="badge bg-primary rounded-pill ms-1">${Object.keys(this._labRecord.allocated_ports).length}</span>` : ''}
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -526,7 +545,8 @@ export class LabDetailModal extends BaseComponent {
             .map(([nodeLabel, nodePorts]) => {
                 const rows = nodePorts
                     .sort((a, b) => a.protocol.localeCompare(b.protocol))
-                    .map(p => `
+                    .map(
+                        p => `
                         <tr>
                             <td>
                                 <span class="badge bg-light text-dark">
@@ -541,7 +561,8 @@ export class LabDetailModal extends BaseComponent {
                                 <code class="small text-muted">${escapeHtml(p.portName)}</code>
                             </td>
                         </tr>
-                    `)
+                    `
+                    )
                     .join('');
 
                 return `
