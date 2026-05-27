@@ -317,6 +317,30 @@ describe('EventBus', () => {
 
             expect(middleware).not.toHaveBeenCalled();
         });
+
+        it('should pass middleware-transformed data to handlers', async () => {
+            // Middleware that unwraps a CloudEvent-like envelope
+            eventBus.use(async (event, next) => {
+                if (event.data && typeof event.data === 'object' && 'inner' in (event.data as Record<string, unknown>)) {
+                    event.data = (event.data as Record<string, unknown>).inner;
+                }
+                await next();
+            });
+
+            const handler = vi.fn();
+            eventBus.on('test:event', handler);
+
+            await eventBus.emit('test:event', { inner: { value: 'unwrapped' } });
+
+            // Handler should receive the unwrapped payload, not the original envelope
+            expect(handler).toHaveBeenCalledWith(
+                { value: 'unwrapped' },
+                expect.objectContaining({
+                    type: 'test:event',
+                    data: { value: 'unwrapped' },
+                })
+            );
+        });
     });
 
     describe('subscriberCount', () => {

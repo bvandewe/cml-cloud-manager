@@ -323,7 +323,9 @@ Per [ADR-011](./adr/ADR-011-apscheduler-removal.md), all APScheduler-based jobs 
 - [ADR-011: APScheduler Removal](./adr/ADR-011-apscheduler-removal.md)
 - [ADR-012: Dynamic Region Configuration](./adr/ADR-012-dynamic-region-configuration.md)
 - [ADR-013: SSE Protocol Improvements](./adr/ADR-013-sse-protocol-improvements.md)
+- [ADR-041: WebSocket-Based CML Worker Monitoring](./adr/ADR-041-websocket-based-cml-worker-monitoring.md)
 - [Real-Time Updates Architecture](./realtime-updates.md)
+- [Worker Controller: Worker Monitoring](./components/worker-controller/worker-monitoring.md)
 
    status_checks = aws_client.get_instance_status_checks(
        aws_region=worker.state.aws_region,
@@ -408,6 +410,13 @@ WORKER_METRICS_POLL_INTERVAL=300
 
 # Webhook URLs for notifications (comma-separated)
 WORKER_NOTIFICATION_WEBHOOKS=https://hooks.slack.com/services/xxx
+
+# CML WebSocket Monitoring (ADR-041)
+CML_WEBSOCKET_ENABLED=true                     # Enable real-time WebSocket monitoring
+CML_WEBSOCKET_METRICS_REPORT_INTERVAL=10       # Seconds between metrics reports to CPA
+CML_WEBSOCKET_RECONNECT_MAX_INTERVAL=30        # Max reconnect backoff (seconds)
+CML_WEBSOCKET_MAX_RECONNECT_ATTEMPTS=3         # Max consecutive failures before FAILED
+CML_WEBSOCKET_HEALTH_TIMEOUT=60               # Seconds without messages = unhealthy
 ```
 
 ## Lifecycle Integration

@@ -37,7 +37,7 @@ class OAuth2TokenManager:
         config = TokenConfig(
             token_url="https://keycloak.example.com/realms/my-realm/protocol/openid-connect/token",
             client_id="my-service",
-            client_secret="secret",
+            client_secret="secret",  # pragma: allowlist secret
         )
         manager = OAuth2TokenManager(config)
         headers = await manager.get_auth_headers()
@@ -68,23 +68,33 @@ class OAuth2TokenManager:
         if self._token and time.time() < self._expires_at:
             return self._token
 
+        # Strip any accidental surrounding quotes from config values (e.g., Make include artifacts)
+        client_id = self._config.client_id.strip('"').strip("'")
+        client_secret = self._config.client_secret.strip('"').strip("'")
+        scopes = self._config.scopes.strip('"').strip("'") if self._config.scopes else ""
+
         data: dict[str, str] = {
             "grant_type": "client_credentials",
-            "client_id": self._config.client_id,
-            "client_secret": self._config.client_secret,
+            "client_id": client_id,
+            "client_secret": client_secret,
         }
-        if self._config.scopes:
-            data["scope"] = self._config.scopes
+        if scopes:
+            data["scope"] = scopes
 
-        response = await self._http.post(self._config.token_url, data=data)
-        response.raise_for_status()
+        try:
+            response = await self._http.post(self._config.token_url, data=data)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"OAuth2 token request failed: {e.response.status_code} from {self._config.token_url} (client_id={client_id}, scopes='{scopes or '(none)'}') - {e.response.text}")
+            raise
+
         token_data = response.json()
 
         self._token = token_data["access_token"]
         expires_in = token_data.get("expires_in", 300)
         self._expires_at = time.time() + expires_in - self._leeway
 
-        logger.debug(f"OAuth2 token acquired (expires_in={expires_in}s, client_id={self._config.client_id})")
+        logger.debug(f"OAuth2 token acquired (expires_in={expires_in}s, client_id={client_id})")
         return self._token
 
     async def get_auth_headers(self) -> dict[str, str]:

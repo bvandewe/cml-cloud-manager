@@ -165,6 +165,7 @@ def make_reconciler(
         }
     )
     reconciler._api.update_worker_status = AsyncMock()
+    reconciler._api.update_worker_ec2_details = AsyncMock()
     reconciler._api.report_worker_metrics = AsyncMock()
     reconciler._api.detect_worker_idle = AsyncMock(return_value=make_idle_result(is_idle=False))
     reconciler._api.drain_worker = AsyncMock()
@@ -182,12 +183,14 @@ def make_reconciler(
     reconciler._ec2.start_instance = AsyncMock()
     reconciler._ec2.stop_instance = AsyncMock()
     reconciler._ec2.terminate_instance = AsyncMock()
+    reconciler._ec2.describe_image = AsyncMock(return_value={"name": "cisco-cml2.9", "description": "CML AMI", "creation_date": "2024-01-01"})
 
     reconciler._cloudwatch = MagicMock()
     reconciler._cloudwatch.get_ec2_metrics = AsyncMock(return_value=make_ec2_metrics())
 
     reconciler._cml = MagicMock()
     reconciler._cml.get_system_stats = AsyncMock(return_value=make_cml_stats())
+    reconciler._cml.check_health = AsyncMock(return_value=(True, "CML 2.9 ready"))
     reconciler._cml.register_license = AsyncMock(return_value=(True, "OK"))
     reconciler._cml.deregister_license = AsyncMock(return_value=(True, "OK"))
 
@@ -223,6 +226,10 @@ def make_reconciler(
     reconciler._settings.discovery_regions = [aws_region]
     reconciler._settings.aws_access_key_id = "test-key"
     reconciler._settings.aws_secret_access_key = "test-secret"
+
+    # WebSocket monitoring (ADR-041) — disabled in tests by default
+    reconciler._ws_registry = None
+    reconciler._settings.cml_websocket_enabled = False
 
     return reconciler
 
@@ -341,7 +348,6 @@ class TestHandleProvisioning:
         reconciler._api.update_worker_status.assert_called_once_with(
             worker_id="worker-001",
             status=CMLWorkerStatus.RUNNING,
-            ip_address="54.1.2.3",
         )
 
     @pytest.mark.unit
@@ -358,7 +364,6 @@ class TestHandleProvisioning:
         reconciler._api.update_worker_status.assert_called_once_with(
             worker_id="worker-001",
             status=CMLWorkerStatus.RUNNING,
-            ip_address="10.0.0.99",
         )
 
     @pytest.mark.unit
@@ -511,6 +516,51 @@ class TestHandleRunning:
             worker_id="worker-001",
             status=CMLWorkerStatus.STOPPED,
         )
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_ec2_ip_change_updates_worker_in_place(self):
+        """EC2 IP differs from worker IP → reports to CPA AND updates local read model.
+
+        This ensures the rest of the reconcile tick (WS monitoring, health checks)
+        uses the new IP immediately, not on the next tick.
+        """
+        reconciler = make_reconciler()
+        # Worker has old IP; EC2 has new IP (default make_ec2_state: public_ip="54.1.2.3")
+        worker = make_worker(status=CMLWorkerStatus.RUNNING, ip_address="10.0.0.99")
+        reconciler._ec2.get_instance_state = AsyncMock(return_value=make_ec2_state(public_ip="54.1.2.3", private_ip="10.0.0.1"))
+
+        result = await reconciler._handle_running(worker)
+
+        assert result.status == ReconciliationStatus.SUCCESS
+        # Should report to CPA
+        reconciler._api.update_worker_ec2_details.assert_called_once()
+        # Should update local read model in-place for same-tick correctness
+        assert worker.ip_address == "54.1.2.3"
+        assert worker.public_ip == "54.1.2.3"
+        assert worker.private_ip == "10.0.0.1"
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_ec2_ip_change_ws_monitor_uses_new_ip(self):
+        """After IP change detection, WS ensure_monitoring uses the new IP."""
+        reconciler = make_reconciler()
+        # Enable WS and set up registry mock
+        reconciler._settings.cml_websocket_enabled = True
+        ws_registry = MagicMock()
+        ws_registry.ensure_monitoring = AsyncMock()
+        ws_registry.get_monitor = MagicMock(return_value=None)
+        reconciler._ws_registry = ws_registry
+        # Worker has old IP
+        worker = make_worker(status=CMLWorkerStatus.RUNNING, ip_address="3.85.19.221")
+        reconciler._ec2.get_instance_state = AsyncMock(return_value=make_ec2_state(public_ip="18.234.119.175", private_ip="10.0.0.5"))
+
+        await reconciler._handle_running(worker)
+
+        # WS ensure_monitoring should be called with the NEW IP, not the old one
+        ws_registry.ensure_monitoring.assert_called_once()
+        call_kwargs = ws_registry.ensure_monitoring.call_args.kwargs
+        assert call_kwargs["host"] == "18.234.119.175"
 
     @pytest.mark.unit
     @pytest.mark.asyncio

@@ -5,10 +5,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from neuroglia.mediation import Command, CommandHandler, Mediator
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
-
 from application.queries.get_worker_idle_status_query import GetWorkerIdleStatusQuery
 from application.services.system_configuration_service import SystemConfigurationService
 from application.settings import Settings
@@ -17,6 +13,9 @@ from application.utils.telemetry_filter import (
     get_latest_activity_timestamp,
     get_most_recent_events,
 )
+from neuroglia.mediation import Command, CommandHandler, Mediator
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from .pause_worker_command import PauseWorkerCommand
 from .update_worker_activity_command import UpdateWorkerActivityCommand
@@ -187,13 +186,14 @@ class DetectWorkerIdleCommandHandler(CommandHandler[DetectWorkerIdleCommand, dic
 
                 # Step 4: Auto-pause if eligible
                 if idle_status.get("eligible_for_pause"):
-                    log.info(f"Worker {command.worker_id} is eligible for auto-pause (idle for {idle_status.get('idle_minutes'):.1f} minutes)")
+                    idle_mins = idle_status.get("idle_minutes") or 0
+                    log.info(f"Worker {command.worker_id} is eligible for auto-pause (idle for {idle_mins:.1f} minutes)")
 
                     pause_result = await self._mediator.execute_async(
                         PauseWorkerCommand(
                             worker_id=command.worker_id,
                             is_auto_pause=True,
-                            reason=f"Auto-paused after {idle_status.get('idle_minutes'):.1f} minutes idle",
+                            reason=f"Auto-paused after {idle_mins:.1f} minutes idle",
                         )
                     )
 

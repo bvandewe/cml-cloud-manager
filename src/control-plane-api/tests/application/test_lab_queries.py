@@ -36,6 +36,7 @@ from application.queries.get_lab_records_query import GetLabRecordsQuery, GetLab
 from domain.entities.lab_record import LabRecord
 from domain.entities.lablet_session import LabletSession, LabletSessionState
 from domain.enums import LabletSessionStatus
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from domain.value_objects.lab_run_record import LabRunRecord
@@ -64,6 +65,14 @@ def mock_session_repository() -> MagicMock:
     """Provide a mock LabletSessionRepository."""
     mock: MagicMock = MagicMock(spec=LabletSessionRepository)
     mock.get_by_lab_record_async = AsyncMock(return_value=None)
+    mock.get_by_id_async = AsyncMock(return_value=None)
+    return mock
+
+
+@pytest.fixture
+def mock_worker_repository() -> MagicMock:
+    """Provide a mock CMLWorkerRepository."""
+    mock: MagicMock = MagicMock(spec=CMLWorkerRepository)
     mock.get_by_id_async = AsyncMock(return_value=None)
     return mock
 
@@ -109,6 +118,7 @@ def _make_mock_session(
     session.id.return_value = session_id
     session.state = MagicMock(spec=LabletSessionState)
     session.state.lab_record_id = lab_record_id
+    session.state.definition_name = "test-definition"
     session.state.status = LabletSessionStatus.TERMINATED if is_terminal else LabletSessionStatus.RUNNING
     session.state.scheduled_at = datetime(2026, 2, 1, tzinfo=timezone.utc)
     session.state.terminated_at = datetime(2026, 2, 2, tzinfo=timezone.utc) if is_terminal else None
@@ -145,10 +155,12 @@ class TestGetLabRecordsQuery(BaseTestCase):
         self,
         mock_lab_repository: MagicMock,
         mock_session_repository: MagicMock,
+        mock_worker_repository: MagicMock,
     ) -> GetLabRecordsQueryHandler:
         return GetLabRecordsQueryHandler(
             lab_record_repository=mock_lab_repository,
             lablet_session_repository=mock_session_repository,
+            cml_worker_repository=mock_worker_repository,
         )
 
     @pytest.mark.asyncio
@@ -260,10 +272,12 @@ class TestGetLabRecordQuery(BaseTestCase):
         self,
         mock_lab_repository: MagicMock,
         mock_session_repository: MagicMock,
+        mock_worker_repository: MagicMock,
     ) -> GetLabRecordQueryHandler:
         return GetLabRecordQueryHandler(
             lab_record_repository=mock_lab_repository,
             lablet_session_repository=mock_session_repository,
+            cml_worker_repository=mock_worker_repository,
         )
 
     @pytest.mark.asyncio

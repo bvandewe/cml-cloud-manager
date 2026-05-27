@@ -331,3 +331,79 @@ flowchart TB
 ### Per-Worker Override
 
 Each worker has an `is_idle_detection_enabled` flag (default: `True`) that can disable idle detection individually without affecting global settings.
+
+---
+
+## 9. WebSocket-Based Activity Detection (ADR-041)
+
+!!! info "Added in ADR-041"
+    WebSocket monitoring provides a **real-time activity signal** that dramatically improves idle detection accuracy and responsiveness compared to periodic REST polling.
+
+### Dual-Source Architecture
+
+With ADR-041, activity detection uses **two complementary sources** with automatic failover:
+
+```mermaid
+flowchart TD
+    subgraph primary["Primary: WebSocket (Real-Time)"]
+        WS["CmlWebSocketMonitor"]
+        WS -->|"state_change, lab_event"| Buffer["Activity Event Buffer"]
+        Buffer -->|"drain_activity_events()"| Detect["Idle Detection Pipeline"]
+    end
+
+    subgraph fallback["Fallback: REST Polling"]
+        Poll["GetWorkerTelemetryEventsQuery"]
+        Poll -->|"/api/v0/events"| Detect
+    end
+
+    subgraph decision["Source Selection"]
+        Check{"ws_connected<br/>AND events fresh?"}
+        Check -->|Yes| primary
+        Check -->|No| fallback
+    end
+
+    style primary fill:#E8F5E9,stroke:#2E7D32
+    style fallback fill:#FFF3E0,stroke:#E65100
+    style decision fill:#E3F2FD,stroke:#1565C0
+```
+
+### How It Works
+
+1. **WebSocket monitors** (one per RUNNING worker) receive `state_change` and `lab_event` messages in real-time from the CML `/ws/ui` endpoint.
+
+2. **Activity classification** matches existing telemetry filter categories:
+   - `state_change` on `element_type == "node"` with event `QUEUED` or `STARTED`
+   - `lab_event` with `data.state` in `{STARTED, STOPPED}`
+
+3. **Event buffering**: Activity events accumulate in `CmlWebSocketMonitor.recent_activity_events` between idle detection checks.
+
+4. **Drain on check**: When the reconciler runs idle detection, it calls `drain_activity_events()` to atomically retrieve and clear buffered events.
+
+5. **Fallback**: If the WebSocket is disconnected (e.g., network issue, CML restart), the system automatically falls back to REST polling via `GetWorkerTelemetryEventsQuery`.
+
+### Benefits Over Pure Polling
+
+| Aspect | REST Polling (legacy) | WebSocket (ADR-041) |
+|--------|----------------------|---------------------|
+| **Latency** | 30–60s (poll interval) | < 5s (real-time push) |
+| **Accuracy** | May miss short-lived activity | Captures all events |
+| **Cost** | Repeated HTTP requests | Single persistent connection |
+| **Idle detection** | Delayed detection | Near-instant detection |
+| **Recovery** | Next poll cycle | Automatic reconnect with backoff |
+
+### Configuration
+
+| Variable | Default | Effect on Idle Detection |
+|----------|---------|--------------------------|
+| `CML_WEBSOCKET_ENABLED` | `true` | When `false`, uses REST polling only |
+| `CML_WEBSOCKET_HEALTH_TIMEOUT` | `60s` | Marks WS unhealthy → triggers fallback |
+| `CML_WEBSOCKET_MAX_RECONNECT_ATTEMPTS` | `3` | Attempts before switching to polling |
+
+### Observability
+
+WebSocket connection state is exposed via:
+
+- **OTel gauge**: `lcm.worker.websocket.connected` (1/0 per worker)
+- **OTel counter**: `lcm.worker.websocket.activity_events_total` (activity events received)
+- **SSE event**: `worker.ws.connected` / `worker.ws.disconnected` broadcast to frontend
+- **Worker read model**: `ws_connected` field visible in UI worker cards

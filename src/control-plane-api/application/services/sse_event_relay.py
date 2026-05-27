@@ -20,7 +20,10 @@ logger = logging.getLogger(__name__)
 # Batching configuration (ADR-013)
 BATCH_INTERVAL_SECONDS = 1.0  # Time window for collecting events
 MAX_BATCH_SIZE = 50  # Maximum events per batch
-BATCHABLE_EVENT_TYPES = {"worker.metrics.updated"}  # Event types eligible for batching
+BATCHABLE_EVENT_TYPES = {
+    "worker.metrics.updated",
+    "worker.lab.stats_updated",  # ADR-041: Per-lab metrics from WebSocket (high frequency ~3s/lab)
+}
 
 
 @dataclass

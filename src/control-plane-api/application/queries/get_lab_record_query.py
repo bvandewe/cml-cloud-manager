@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from domain.entities.lab_record import LabRecord
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from neuroglia.core import OperationResult
@@ -58,10 +59,12 @@ class GetLabRecordQueryHandler(QueryHandler[GetLabRecordQuery, OperationResult[d
         self,
         lab_record_repository: LabRecordRepository,
         lablet_session_repository: LabletSessionRepository,
+        cml_worker_repository: CMLWorkerRepository,
     ):
         super().__init__()
         self._lab_repository = lab_record_repository
         self._session_repository = lablet_session_repository
+        self._worker_repository = cml_worker_repository
 
     @tracer.start_as_current_span("get_lab_record_query_handler")
     async def handle_async(self, request: GetLabRecordQuery) -> OperationResult[dict[str, Any]]:
@@ -93,11 +96,19 @@ class GetLabRecordQueryHandler(QueryHandler[GetLabRecordQuery, OperationResult[d
                         "role": "primary",
                     }
                 )
+            # Resolve worker name for display
+            worker_name = None
+            if s.worker_id:
+                worker = await self._worker_repository.get_by_id_async(s.worker_id)
+                if worker and worker.state.name:
+                    worker_name = worker.state.name
+
             result: dict[str, Any] = {
                 # Identity
                 "id": lab.id(),
                 "lab_id": s.lab_id,
                 "worker_id": s.worker_id,
+                "worker_name": worker_name,
                 "worker_ip": s.worker_ip,
                 # Status
                 "status": s.status.value,

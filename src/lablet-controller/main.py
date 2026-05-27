@@ -169,7 +169,7 @@ def create_app() -> FastAPI:
         image_tag=settings.image_tag,
     )
 
-    # Custom setup for API sub-app
+    # Custom setup for API sub-app!
     def api_setup(app: FastAPI, settings: Any) -> None:
         """Configure API sub-app with admin routes and standard endpoints."""
         from api.services.openapi_config import configure_openapi_security
@@ -264,6 +264,7 @@ def main() -> None:
         host=settings.app_host,
         port=settings.app_port,
         reload=settings.debug,
+        reload_dirs=["/app", "/core"] if settings.debug else None,
         reload_excludes=["logs", "static", "data", "*.log"] if settings.debug else None,
         log_level=settings.log_level.lower(),
     )

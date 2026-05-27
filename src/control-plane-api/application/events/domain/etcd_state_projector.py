@@ -30,6 +30,7 @@ from neuroglia.mediation import DomainEventHandler
 from domain.events.cml_worker import (
     CMLWorkerCreatedDomainEvent,
     CMLWorkerDesiredStatusUpdatedDomainEvent,
+    CMLWorkerLabDiscoveryTriggeredDomainEvent,
     CMLWorkerLicenseDeregistrationCompletedDomainEvent,
     CMLWorkerLicenseDeregistrationRequestedDomainEvent,
     CMLWorkerLicenseRegistrationCompletedDomainEvent,
@@ -532,4 +533,32 @@ class ContentSyncCompletedEtcdProjector(DomainEventHandler[LabletDefinitionConte
     async def handle_async(self, event: LabletDefinitionContentSyncedDomainEvent) -> None:  # type: ignore[override]
         await self._etcd.delete_definition_content_sync(event.aggregate_id)
         log.info(f"[etcd] Projected definition.content_synced: {event.aggregate_id} (sync_status={event.sync_status}, pending sync key cleared)")
+        return None
+
+
+# =============================================================================
+# CMLWorker Lab Discovery Projector (ADR-041 Phase 2)
+# =============================================================================
+
+
+class LabDiscoveryTriggeredEtcdProjector(DomainEventHandler[CMLWorkerLabDiscoveryTriggeredDomainEvent]):
+    """Project lab discovery trigger to etcd for lablet-controller watch.
+
+    ADR-041 Phase 2: When worker-controller detects new lab_ids via WebSocket,
+    it signals CPA which emits this domain event. The projector writes an etcd
+    key that lablet-controller's LabDiscoveryService watches, triggering
+    immediate targeted REST-based discovery for the specified worker.
+    """
+
+    def __init__(self, etcd_store: EtcdStateStore):
+        self._etcd = etcd_store
+
+    async def handle_async(self, event: CMLWorkerLabDiscoveryTriggeredDomainEvent) -> None:  # type: ignore[override]
+        await self._etcd.set_worker_discover_labs(
+            worker_id=event.worker_id,
+            lab_ids=event.lab_ids,
+            source=event.source,
+            triggered_at=event.triggered_at,
+        )
+        log.info(f"[etcd] Projected worker.lab_discovery_triggered: {event.worker_id} -> lab_ids={event.lab_ids} (source={event.source})")
         return None

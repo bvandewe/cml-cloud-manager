@@ -22,11 +22,12 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from integration.services.cml_labs_spi import CmlLabsSpiClient, LabInfo, LabState
 from lcm_core.domain.enums import LabRecordStatus
 from lcm_core.integration.clients import ControlPlaneApiClient
+from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
 
 from application.settings import Settings
-from integration.services.cml_labs_spi import CmlLabsSpiClient, LabInfo, LabState
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -56,6 +57,7 @@ class LabDiscoveryService:
         self,
         api_client: ControlPlaneApiClient,
         cml_labs_client: CmlLabsSpiClient,
+        etcd_client: EtcdClient,
         settings: Settings,
     ) -> None:
         """Initialize the lab discovery service.
@@ -63,13 +65,16 @@ class LabDiscoveryService:
         Args:
             api_client: Client for Control Plane API.
             cml_labs_client: CML Labs SPI client.
+            etcd_client: Client for etcd watch (ADR-041 Phase 2).
             settings: Application settings.
         """
         self._api = api_client
         self._cml_labs = cml_labs_client
+        self._etcd = etcd_client
         self._settings = settings
         self._running = False
         self._task: asyncio.Task | None = None
+        self._watch_task: asyncio.Task | None = None
 
         # Statistics
         self._discovery_runs = 0
@@ -92,13 +97,17 @@ class LabDiscoveryService:
 
     async def start_async(self) -> None:
         """Start the lab discovery service."""
+        self._running = True
+
+        # Always start the etcd watch for targeted discovery (ADR-041 Phase 2)
+        self._watch_task = asyncio.create_task(self._discovery_watch_loop())
+        logger.info("🚀 Started LabDiscoveryService etcd watch (watching /workers/*/discover_labs)")
+
         if not self._settings.labs_refresh_enabled:
-            logger.info("⏭️ Lab discovery is disabled (LABS_REFRESH_ENABLED=false)")
+            logger.info("⏭️ Periodic lab discovery is disabled (LABS_REFRESH_ENABLED=false)")
             return
 
-        logger.info(f"🚀 Starting LabDiscoveryService (interval={self._settings.labs_refresh_interval}s)")
-
-        self._running = True
+        logger.info(f"🚀 Starting LabDiscoveryService periodic scan (interval={self._settings.labs_refresh_interval}s)")
         self._task = asyncio.create_task(self._discovery_loop())
 
     async def stop_async(self) -> None:
@@ -110,6 +119,13 @@ class LabDiscoveryService:
             self._task.cancel()
             try:
                 await self._task
+            except asyncio.CancelledError:
+                pass
+
+        if self._watch_task:
+            self._watch_task.cancel()
+            try:
+                await self._watch_task
             except asyncio.CancelledError:
                 pass
 
@@ -133,6 +149,124 @@ class LabDiscoveryService:
 
             # Wait for next interval
             await asyncio.sleep(self._settings.labs_refresh_interval)
+
+    # =========================================================================
+    # Targeted discovery via etcd watch (ADR-041 Phase 2)
+    # =========================================================================
+
+    async def _discovery_watch_loop(self) -> None:
+        """Watch etcd for targeted lab discovery triggers.
+
+        Watches /workers/*/discover_labs prefix. When worker-controller detects
+        new lab_ids via WebSocket, CPA writes an etcd key here. This service
+        reacts by executing _discover_worker_labs for the specific worker, then
+        deletes the etcd key via CPA.
+
+        Reconnects with exponential backoff on watch failures.
+        """
+        reconnect_delay = 1.0
+        max_delay = 30.0
+
+        # Initial delay to let the system stabilize
+        await asyncio.sleep(10)
+
+        while self._running:
+            try:
+                prefix = self._get_discover_labs_prefix()
+                logger.info(f"LabDiscoveryService: Watching etcd prefix: {prefix}")
+
+                async for event in self._etcd.watch_prefix(prefix):
+                    if not self._running:
+                        break
+
+                    await self._handle_discover_labs_event(event)
+
+                    # Reset delay on successful event processing
+                    reconnect_delay = 1.0
+
+            except asyncio.CancelledError:
+                logger.info("LabDiscoveryService: Discovery watch cancelled")
+                break
+            except Exception as e:
+                if not self._running:
+                    break
+                logger.error(f"LabDiscoveryService: Discovery watch error: {e}", exc_info=True)
+                await asyncio.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 2, max_delay)
+
+    def _get_discover_labs_prefix(self) -> str:
+        """Get the etcd key prefix for targeted lab discovery watches."""
+        base = getattr(self._settings, "etcd_key_prefix", "/lcm").rstrip("/")
+        return f"{base}/workers/"
+
+    async def _handle_discover_labs_event(self, event: EtcdEvent) -> None:
+        """Process a targeted lab discovery event from etcd.
+
+        Only handles PUT events on discover_labs keys.
+
+        Args:
+            event: etcd watch event.
+        """
+        # Only react to PUT events (new triggers)
+        if event.type != "PUT":
+            return
+
+        # Only process discover_labs keys (ignore other /workers/ keys)
+        if not event.key.endswith("/discover_labs"):
+            return
+
+        # Extract worker_id from key: /lcm/workers/{worker_id}/discover_labs
+        worker_id = self._extract_worker_id_from_discover_key(event.key)
+        if not worker_id:
+            logger.warning(f"LabDiscoveryService: Could not parse worker_id from key: {event.key}")
+            return
+
+        # Parse payload
+        try:
+            payload = json.loads(event.value) if event.value else None
+        except (json.JSONDecodeError, TypeError):
+            logger.error(f"LabDiscoveryService: Invalid JSON in discover_labs value for {event.key}")
+            return
+
+        lab_ids = payload.get("lab_ids", []) if payload else []
+        source = payload.get("source", "unknown") if payload else "unknown"
+
+        logger.info(f"🎯 Targeted lab discovery triggered for worker {worker_id}: " f"lab_ids={lab_ids}, source={source}")
+
+        # Execute targeted discovery for this worker
+        try:
+            # Fetch worker details from CPA
+            worker = await self._api.get_worker(worker_id)
+            if not worker:
+                logger.warning(f"LabDiscoveryService: Worker {worker_id} not found in CPA, skipping targeted discovery")
+                return
+
+            result = await self._discover_worker_labs(worker)
+            logger.info(f"✅ Targeted discovery for worker {worker_id} complete: " f"synced={result.synced}, discovered={result.discovered}, " f"updated={result.updated}")
+
+            # Update totals
+            self._total_labs_synced += result.synced
+            self._total_labs_discovered += result.discovered
+            self._total_labs_updated += result.updated
+            self._total_labs_orphaned += result.orphaned
+
+        except Exception as e:
+            logger.error(f"LabDiscoveryService: Targeted discovery failed for worker {worker_id}: {e}", exc_info=True)
+        finally:
+            # Always delete the etcd key (cleanup) — idempotent
+            try:
+                await self._api.complete_lab_discovery(worker_id)
+            except Exception as e:
+                logger.debug(f"LabDiscoveryService: Failed to clear discover_labs key for {worker_id}: {e}")
+
+    @staticmethod
+    def _extract_worker_id_from_discover_key(key: str) -> str | None:
+        """Extract worker_id from etcd key path.
+
+        Key format: /lcm/workers/{worker_id}/discover_labs
+        """
+        match = re.search(r"/workers/([^/]+)/discover_labs$", key)
+        return match.group(1) if match else None
 
     async def _run_discovery(self) -> None:
         """Execute a single discovery run across all running workers."""
@@ -227,7 +361,8 @@ class LabDiscoveryService:
             return result
 
         except Exception as e:
-            logger.error(f"Failed to discover labs for worker {worker_id}: {e}")
+            error_detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            logger.error(f"Failed to discover labs for worker {worker_id} at {host}: {error_detail}")
             return DiscoveryWorkerResult()
 
     async def _discover(
@@ -649,6 +784,7 @@ class LabDiscoveryService:
             return cls(
                 api_client=sp.get_required_service(ControlPlaneApiClient),
                 cml_labs_client=sp.get_required_service(CmlLabsSpiClient),
+                etcd_client=sp.get_required_service(EtcdClient),
                 settings=sp.get_required_service(Settings),
             )
 

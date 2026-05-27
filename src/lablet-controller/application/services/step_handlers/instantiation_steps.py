@@ -117,7 +117,7 @@ async def step_lab_resolve(
         if not topology_yaml:
             return StepResult.failed(f"No topology YAML found for definition {instance.definition_id}")
 
-    # Check if lab already resolved (from previous attempts, session state, or tracking dict)
+    # Check if lab already resolved (from previous attempts, session state, or tracking dict
     resolved_lab_ids = context.resolved_lab_ids or {}
     cml_lab_id = instance.cml_lab_id or resolved_lab_ids.get(instance.id)
     freshly_imported = False

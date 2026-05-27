@@ -214,6 +214,15 @@ class Settings(ApplicationSettings):
     session_expiration_warning_minutes: int = 10
 
     # ============================================================================
+    # CML WebSocket Monitoring (ADR-041)
+    # ============================================================================
+    cml_websocket_enabled: bool = True
+    cml_websocket_metrics_report_interval: int = 10  # Seconds between metrics reports to CPA
+    cml_websocket_reconnect_max_interval: int = 30  # Max reconnect backoff (seconds)
+    cml_websocket_max_reconnect_attempts: int = 3  # Max consecutive failures before FAILED state
+    cml_websocket_health_timeout: int = 60  # Consider unhealthy if no message in N seconds
+
+    # ============================================================================
     # Observability (OpenTelemetry)
     # ============================================================================
     service_name: str = "worker-controller"

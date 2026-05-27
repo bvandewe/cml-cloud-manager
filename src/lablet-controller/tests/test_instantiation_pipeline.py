@@ -18,14 +18,13 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from lcm_core.domain.entities import LabletSessionReadModel
-from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
-from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
-
 from application.hosted_services.lablet_reconciler import LabletReconciler
 from application.models.pipeline_result import PipelineResult
 from application.services.lifecycle_phase_handler import LifecyclePhaseHandler
 from application.services.pipeline_executor import PipelineExecutor
+from lcm_core.domain.entities import LabletSessionReadModel
+from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
+from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
 
 # =============================================================================
 # Fixtures
@@ -145,8 +144,6 @@ def _progress_with_lab_resolve(
     if cml_lab_title is not None:
         result_data["cml_lab_title"] = cml_lab_title
     return {
-        "content_sync": {"status": "skipped"},
-        "variables": {"status": "skipped"},
         "lab_resolve": {"status": "completed", "result_data": result_data},
         "ports_alloc": {"status": "skipped"},
         "tags_sync": {"status": "skipped"},
@@ -607,7 +604,7 @@ class TestHandleInstantiatingResumability:
 
 
 # =============================================================================
-# Step Methods — _step_content_sync
+# Step Methods — expired / timeslot handling
 # =============================================================================
 
 

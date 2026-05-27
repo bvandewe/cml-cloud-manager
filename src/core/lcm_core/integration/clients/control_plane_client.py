@@ -148,10 +148,10 @@ class ControlPlaneApiClient:
                 return response.json()
 
             except httpx.TimeoutException as e:
-                logger.warning(f"Request timeout (attempt {attempt + 1}/{self.max_retries + 1}): {method} {path}")
+                logger.warning(f"Request timeout (attempt {attempt + 1}/{self.max_retries + 1}): {method} {path} ({type(e).__name__})")
                 last_exception = e
             except httpx.ConnectError as e:
-                logger.warning(f"Connection error (attempt {attempt + 1}/{self.max_retries + 1}): {method} {path}")
+                logger.warning(f"Connection error (attempt {attempt + 1}/{self.max_retries + 1}): {method} {path} ({type(e).__name__})")
                 last_exception = e
             except ControlPlaneApiClientError:
                 raise
@@ -163,7 +163,8 @@ class ControlPlaneApiClient:
                 wait_time = 2**attempt  # 1, 2, 4 seconds
                 await asyncio.sleep(wait_time)
 
-        raise ControlPlaneApiClientError(f"Request failed after {self.max_retries + 1} attempts: {last_exception}")
+        exc_detail = f"{type(last_exception).__name__}: {last_exception}" if last_exception else "unknown error"
+        raise ControlPlaneApiClientError(f"Request failed after {self.max_retries + 1} attempts: {exc_detail}")
 
     # =========================================================================
     # Session Operations
@@ -1681,8 +1682,164 @@ class ControlPlaneApiClient:
         return dict(result) if result else {}
 
     # =========================================================================
+    # WebSocket Monitoring (ADR-041)
+    # =========================================================================
+
+    async def report_worker_activity_events(
+        self,
+        worker_id: str,
+        activity_events: list[dict[str, Any]],
+        source: str = "websocket",
+    ) -> dict[str, Any]:
+        """Report push-based activity events from WebSocket stream (ADR-041).
+
+        Args:
+            worker_id: ID of the worker.
+            activity_events: List of classified activity events.
+            source: Event source identifier ("websocket" or "telemetry_poll").
+
+        Returns:
+            Acknowledgment data.
+        """
+        body: dict[str, Any] = {
+            "activity_events": activity_events,
+            "source": source,
+        }
+        result = await self._request(
+            "POST",
+            f"/api/internal/workers/{worker_id}/activity-events",
+            json=body,
+        )
+        return dict(result) if result else {}
+
+    async def report_worker_lab_stats(
+        self,
+        worker_id: str,
+        lab_id: str,
+        data: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Report per-lab resource metrics from WebSocket lab_stats events (ADR-041).
+
+        Args:
+            worker_id: ID of the worker.
+            lab_id: CML lab ID.
+            data: Lab stats data (nodes, links, collected_at).
+
+        Returns:
+            Acknowledgment data.
+        """
+        result = await self._request(
+            "POST",
+            f"/api/internal/workers/{worker_id}/labs/{lab_id}/stats",
+            json=data,
+        )
+        return dict(result) if result else {}
+
+    async def report_worker_lab_state_change(
+        self,
+        worker_id: str,
+        event: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Report real-time node/interface state change from WebSocket (ADR-041).
+
+        Args:
+            worker_id: ID of the worker.
+            event: State change event data.
+
+        Returns:
+            Acknowledgment data.
+        """
+        result = await self._request(
+            "POST",
+            f"/api/internal/workers/{worker_id}/lab-state-change",
+            json=event,
+        )
+        return dict(result) if result else {}
+
+    async def report_worker_ws_status(
+        self,
+        worker_id: str,
+        connected: bool,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Report WebSocket connection status change (ADR-041).
+
+        Args:
+            worker_id: ID of the worker.
+            connected: Whether WebSocket is connected.
+            reason: Disconnect reason (if disconnected).
+
+        Returns:
+            Acknowledgment data.
+        """
+        from datetime import UTC, datetime
+
+        body: dict[str, Any] = {"connected": connected}
+        if connected:
+            body["connected_at"] = datetime.now(UTC).isoformat()
+        else:
+            body["disconnected_at"] = datetime.now(UTC).isoformat()
+            if reason:
+                body["reason"] = reason
+
+        result = await self._request(
+            "POST",
+            f"/api/internal/workers/{worker_id}/ws-status",
+            json=body,
+        )
+        return dict(result) if result else {}
+
+    # =========================================================================
     # Settings Operations
     # =========================================================================
+
+    async def trigger_lab_discovery(
+        self,
+        worker_id: str,
+        lab_ids: list[str] | None = None,
+        source: str = "websocket",
+    ) -> dict[str, Any]:
+        """Signal CPA to trigger targeted lab discovery for a worker (ADR-041 Phase 2).
+
+        Called by worker-controller when a new lab_id is detected in WebSocket
+        lab_stats events. CPA writes an etcd key that lablet-controller watches,
+        triggering immediate targeted discovery for the specified worker.
+
+        Args:
+            worker_id: ID of the worker where new lab(s) were detected.
+            lab_ids: Optional list of new CML lab IDs detected (informational).
+            source: Source of the trigger (e.g., "websocket-lab-stats").
+
+        Returns:
+            Acknowledgment data.
+        """
+        body: dict[str, Any] = {"source": source}
+        if lab_ids:
+            body["lab_ids"] = lab_ids
+        result = await self._request(
+            "POST",
+            f"/api/internal/workers/{worker_id}/trigger-lab-discovery",
+            json=body,
+        )
+        return dict(result) if result else {}
+
+    async def complete_lab_discovery(self, worker_id: str) -> dict[str, Any]:
+        """Signal CPA that targeted lab discovery is complete for a worker.
+
+        Called by lablet-controller after processing a discover_labs etcd trigger.
+        CPA deletes the etcd key so it's not processed again.
+
+        Args:
+            worker_id: ID of the worker whose discovery is complete.
+
+        Returns:
+            Acknowledgment data.
+        """
+        result = await self._request(
+            "DELETE",
+            f"/api/internal/workers/{worker_id}/discover-labs",
+        )
+        return dict(result) if result else {}
 
     async def get_discovery_settings(self) -> dict[str, Any]:
         """Get worker discovery settings from the Control Plane API.

@@ -32,7 +32,13 @@ export const LAB_RECORD_COLUMNS = {
         sortable: true,
         category: 'identity',
         visible: true,
-        render: (val, row) => val || row.worker_id || '&mdash;',
+        render: (val, row) => {
+            const display = val || row.worker_id || '&mdash;';
+            if (row.worker_id && val) {
+                return `<span title="${row.worker_id}">${display} <i class="bi bi-info-circle-fill text-muted small" style="opacity:0.4"></i></span>`;
+            }
+            return display;
+        },
         description: 'Host worker instance',
     },
     status: {

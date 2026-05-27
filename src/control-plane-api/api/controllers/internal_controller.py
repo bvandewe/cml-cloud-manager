@@ -10,17 +10,6 @@ All other services request mutations via these internal endpoints.
 import logging
 from typing import Annotated, Any
 
-from classy_fastapi.decorators import get, post
-from classy_fastapi.routable import Routable
-from fastapi import Depends, HTTPException, Path, Query, status
-from fastapi.security import APIKeyHeader
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
-from neuroglia.serialization.json import JsonSerializer
-from pydantic import BaseModel, Field
-
 from application.commands.lab import (
     AppendPipelineRunCommand,
     BindLabToLabletCommand,
@@ -44,13 +33,18 @@ from application.commands.worker import (
     InternalBulkImportWorkersCommand,
     MarkWorkerTerminatedCommand,
     RecalculateWorkerCapacityCommand,
+    ReportActivityEventsCommand,
+    ReportLabStateChangeCommand,
     RequestScaleUpCommand,
     StartLicenseDeregistrationCommand,
     StartLicenseRegistrationCommand,
+    TriggerLabDiscoveryCommand,
     UpdateCMLWorkerMetricsCommand,
     UpdateCMLWorkerStatusCommand,
     UpdateWorkerCmlDataCommand,
     UpdateWorkerEc2DetailsCommand,
+    UpdateWorkerLabStatsCommand,
+    UpdateWorkerWsStatusCommand,
 )
 from application.queries.get_lab_records_query import GetLabRecordsQuery
 from application.queries.get_lablet_definition_query import GetLabletDefinitionQuery
@@ -59,6 +53,16 @@ from application.queries.list_cml_workers_internal_query import ListCMLWorkersIn
 from application.queries.list_lablet_definitions_query import ListLabletDefinitionsQuery
 from application.queries.list_worker_templates_query import ListWorkerTemplatesQuery
 from application.settings import Settings
+from classy_fastapi.decorators import delete, get, post
+from classy_fastapi.routable import Routable
+from fastapi import Depends, HTTPException, Path, Query, status
+from fastapi.security import APIKeyHeader
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
+from neuroglia.serialization.json import JsonSerializer
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -433,6 +437,72 @@ class RecordContentSyncResultRequest(BaseModel):
     # Topology metadata auto-derived from CML YAML (AD-SEED-001)
     node_count: int | None = Field(default=None, description="Number of nodes in the CML topology")
     node_definitions_required: list[str] | None = Field(default=None, description="Unique node definitions from CML topology")
+
+
+# ==============================================================================
+# ADR-041: WebSocket-Based Monitoring Request Models
+# ==============================================================================
+
+
+class ReportActivityEventsRequest(BaseModel):
+    """Request to report push-based activity events from WebSocket stream (ADR-041).
+
+    Events are classified by worker-controller's CmlWebSocketMonitor
+    and reported continuously (decoupled from idle detection schedule).
+    """
+
+    activity_events: list[dict[str, Any]] = Field(default_factory=list, description="Classified activity events")
+    source: str = Field(default="websocket", description="Event source: 'websocket' or 'telemetry_poll'")
+
+
+class LabStatsRequest(BaseModel):
+    """Request to report per-lab metrics from WebSocket lab_stats events (ADR-041).
+
+    Contains node-level and link-level resource utilization data
+    streamed from CML's /ws/ui WebSocket endpoint.
+    """
+
+    nodes: dict[str, Any] = Field(default_factory=dict, description="Node metrics: node_id -> {cpu_usage, ram_usage, ...}")
+    links: dict[str, Any] = Field(default_factory=dict, description="Link metrics: link_id -> {readbytes, writebytes, ...}")
+    collected_at: str | None = Field(default=None, description="Timestamp of stats collection (ISO 8601)")
+
+
+class LabStateChangeRequest(BaseModel):
+    """Request to report real-time lab/node/interface state change (ADR-041).
+
+    Reports state_change and lab_event messages received from CML's
+    /ws/ui WebSocket endpoint.
+    """
+
+    event: str = Field(..., description="Event name (QUEUED, STARTED, BOOTED, STOPPED, etc.)")
+    element_type: str = Field(..., description="Element type: 'node', 'interface', or 'lab'")
+    element_id: str | None = Field(default=None, description="ID of the element that changed state")
+    lab_id: str | None = Field(default=None, description="CML lab ID (if available from event data)")
+    data: dict[str, Any] = Field(default_factory=dict, description="Additional event data from CML")
+
+
+class WsStatusRequest(BaseModel):
+    """Request to report WebSocket connection status change (ADR-041).
+
+    Reported by worker-controller when CmlWebSocketMonitor connects
+    or disconnects from a CML worker's /ws/ui endpoint.
+    """
+
+    connected: bool = Field(..., description="Whether WebSocket is currently connected")
+    reason: str | None = Field(default=None, description="Disconnect reason (if disconnected)")
+    connected_at: str | None = Field(default=None, description="Connection timestamp (ISO 8601)")
+    disconnected_at: str | None = Field(default=None, description="Disconnection timestamp (ISO 8601)")
+
+
+class TriggerLabDiscoveryRequest(BaseModel):
+    """Request to trigger targeted lab discovery for a worker (ADR-041 Phase 2).
+
+    Reported by worker-controller when new lab_ids are detected in WebSocket
+    lab_stats events that don't match any known LabRecord.
+    """
+
+    lab_ids: list[str] = Field(default_factory=list, description="New CML lab IDs detected (informational)")
+    source: str = Field(default="websocket", description="Source of the trigger")
 
 
 # ==============================================================================
@@ -1441,6 +1511,226 @@ class InternalController(ControllerBase):
         # TODO: Create a proper RecordWorkerActivityCommand
         # For now, return success acknowledgment
         return {"status": "recorded", "worker_id": worker_id, "activity_type": request.activity_type}
+
+    # ==========================================================================
+    # ADR-041: WebSocket-Based Real-Time Monitoring Endpoints
+    # ==========================================================================
+
+    @post(
+        "/workers/{worker_id}/activity-events",
+        summary="Report Worker Activity Events (ADR-041)",
+        tags=["Internal - Workers"],
+        status_code=200,
+    )
+    async def report_worker_activity_events(
+        self,
+        worker_id: worker_id_annotation,
+        request: ReportActivityEventsRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Report push-based activity events from WebSocket stream (ADR-041).
+
+        Called by worker-controller when CmlWebSocketMonitor classifies events
+        as activity indicators. Events arrive continuously, decoupled from the
+        idle detection schedule.
+
+        Args:
+            worker_id: ID of the worker.
+            request: Contains activity events and source identifier.
+            api_key: Internal API key (from header).
+
+        Returns:
+            Acknowledgment with number of events processed.
+        """
+        logger.info(f"[Internal] Reporting {len(request.activity_events)} activity events for worker {worker_id} (source={request.source})")
+
+        command = ReportActivityEventsCommand(
+            worker_id=worker_id,
+            activity_events=request.activity_events,
+            source=request.source,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @post(
+        "/workers/{worker_id}/labs/{lab_id}/stats",
+        summary="Report Lab Stats (ADR-041)",
+        tags=["Internal - Workers"],
+        status_code=200,
+    )
+    async def report_worker_lab_stats(
+        self,
+        worker_id: worker_id_annotation,
+        lab_id: Annotated[str, Path(description="The CML lab ID")],
+        request: LabStatsRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Report per-lab metrics from WebSocket lab_stats events (ADR-041).
+
+        Called by worker-controller when CmlWebSocketMonitor receives lab_stats
+        messages containing node-level and link-level resource utilization.
+
+        Args:
+            worker_id: ID of the worker hosting the lab.
+            lab_id: CML lab ID.
+            request: Contains node/link metrics and collection timestamp.
+            api_key: Internal API key (from header).
+
+        Returns:
+            Acknowledgment with update status.
+        """
+        logger.debug(f"[Internal] Reporting lab stats for worker {worker_id}, lab {lab_id}: nodes={len(request.nodes)}, links={len(request.links)}")
+
+        command = UpdateWorkerLabStatsCommand(
+            worker_id=worker_id,
+            lab_id=lab_id,
+            nodes=request.nodes,
+            links=request.links,
+            collected_at=request.collected_at,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @post(
+        "/workers/{worker_id}/lab-state-change",
+        summary="Report Lab State Change (ADR-041)",
+        tags=["Internal - Workers"],
+        status_code=200,
+    )
+    async def report_worker_lab_state_change(
+        self,
+        worker_id: worker_id_annotation,
+        request: LabStateChangeRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Report real-time lab/node/interface state change from WebSocket (ADR-041).
+
+        Called by worker-controller when CmlWebSocketMonitor receives state_change
+        or lab_event messages indicating node/interface/lab transitions.
+
+        Args:
+            worker_id: ID of the worker.
+            request: Contains event name, element type/id, and optional lab_id.
+            api_key: Internal API key (from header).
+
+        Returns:
+            Acknowledgment with broadcast confirmation.
+        """
+        logger.info(f"[Internal] Lab state change for worker {worker_id}: event={request.event}, type={request.element_type}, element_id={request.element_id}, lab_id={request.lab_id}")
+
+        command = ReportLabStateChangeCommand(
+            worker_id=worker_id,
+            lab_id=request.lab_id,
+            event=request.event,
+            element_type=request.element_type,
+            element_id=request.element_id,
+            data=request.data,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @post(
+        "/workers/{worker_id}/ws-status",
+        summary="Report WebSocket Status (ADR-041)",
+        tags=["Internal - Workers"],
+        status_code=200,
+    )
+    async def report_worker_ws_status(
+        self,
+        worker_id: worker_id_annotation,
+        request: WsStatusRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Report WebSocket connection status change (ADR-041).
+
+        Called by worker-controller when CmlWebSocketMonitor connects to or
+        disconnects from a CML worker's /ws/ui endpoint.
+
+        Args:
+            worker_id: ID of the worker.
+            request: Contains connection state and timestamps.
+            api_key: Internal API key (from header).
+
+        Returns:
+            Acknowledgment with updated status.
+        """
+        logger.info(f"[Internal] WS status change for worker {worker_id}: connected={request.connected}")
+
+        command = UpdateWorkerWsStatusCommand(
+            worker_id=worker_id,
+            connected=request.connected,
+            reason=request.reason,
+            connected_at=request.connected_at,
+            disconnected_at=request.disconnected_at,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @post(
+        "/workers/{worker_id}/trigger-lab-discovery",
+        summary="Trigger Lab Discovery (ADR-041 Phase 2)",
+        tags=["Internal - Workers"],
+        status_code=202,
+    )
+    async def trigger_lab_discovery(
+        self,
+        worker_id: worker_id_annotation,
+        request: TriggerLabDiscoveryRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Trigger targeted lab discovery for a worker (ADR-041 Phase 2).
+
+        Called by worker-controller when new lab_ids are detected in WebSocket
+        lab_stats events. Emits a domain event that is projected to etcd,
+        signaling lablet-controller to execute targeted REST-based discovery.
+
+        Args:
+            worker_id: ID of the worker where new labs were detected.
+            request: Contains lab_ids and source.
+            api_key: Internal API key (from header).
+
+        Returns:
+            202 Accepted with trigger confirmation.
+        """
+        logger.info(f"[Internal] Lab discovery triggered for worker {worker_id}: lab_ids={request.lab_ids}, source={request.source}")
+
+        command = TriggerLabDiscoveryCommand(
+            worker_id=worker_id,
+            lab_ids=request.lab_ids,
+            source=request.source,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @delete(
+        "/workers/{worker_id}/discover-labs",
+        summary="Complete Lab Discovery (ADR-041 Phase 2)",
+        tags=["Internal - Workers"],
+        status_code=200,
+    )
+    async def complete_lab_discovery(
+        self,
+        worker_id: worker_id_annotation,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Delete the discover_labs etcd key after targeted discovery completes.
+
+        Called by lablet-controller after processing a targeted discovery trigger.
+        Cleans up the etcd key so it's not re-processed.
+
+        Args:
+            worker_id: ID of the worker.
+            api_key: Internal API key (from header).
+
+        Returns:
+            Acknowledgment with deletion status.
+        """
+        from integration.services.etcd_state_store import EtcdStateStore
+
+        etcd_store = self.service_provider.get_required_service(EtcdStateStore)
+        deleted = await etcd_store.delete_worker_discover_labs(worker_id)
+        logger.info(f"[Internal] Cleared discover_labs key for worker {worker_id}: deleted={deleted}")
+        return {"worker_id": worker_id, "deleted": deleted}
 
     @post(
         "/workers/{worker_id}/detect-idle",

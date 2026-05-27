@@ -22,6 +22,7 @@ from domain.events.cml_worker import (
     CMLWorkerEndpointUpdatedDomainEvent,
     CMLWorkerImportedDomainEvent,
     CMLWorkerInstanceAssignedDomainEvent,
+    CMLWorkerLabDiscoveryTriggeredDomainEvent,
     CMLWorkerLicenseDeregisteredDomainEvent,
     CMLWorkerLicenseDeregistrationCompletedDomainEvent,
     CMLWorkerLicenseDeregistrationFailedDomainEvent,
@@ -170,6 +171,9 @@ class CMLWorkerState(TimedResourceState):
     target_pause_at: datetime | None  # Calculated pause time if no activity detected
     is_idle_detection_enabled: bool  # Whether idle detection is enabled for this worker
 
+    # WebSocket monitoring state (ADR-041)
+    ws_connected: bool  # Whether WebSocket monitor is connected to this worker
+
     # Audit
     created_by: str | None
     terminated_by: str | None
@@ -250,6 +254,9 @@ class CMLWorkerState(TimedResourceState):
         self.next_idle_check_at = None
         self.target_pause_at = None
         self.is_idle_detection_enabled = True  # Enabled by default
+
+        # WebSocket monitoring state (ADR-041)
+        self.ws_connected = False
 
         # On-demand refresh
         self.refresh_requested_at = None
@@ -779,6 +786,12 @@ class CMLWorkerState(TimedResourceState):
     def on(self, event: WorkerDataRefreshCompletedDomainEvent) -> None:  # type: ignore[override]
         """Apply data refresh completed event to the state."""
         # No state changes needed - event is for notification only
+        pass
+
+    @dispatch(CMLWorkerLabDiscoveryTriggeredDomainEvent)
+    def on(self, event: CMLWorkerLabDiscoveryTriggeredDomainEvent) -> None:  # type: ignore[override]
+        """Apply lab discovery triggered event to the state (ADR-041 Phase 2)."""
+        # No state changes needed - event is for etcd projection/notification only
         pass
 
     @dispatch(CloudWatchMonitoringUpdatedDomainEvent)
@@ -1907,6 +1920,34 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
             )
         )
 
+    def trigger_lab_discovery(
+        self,
+        lab_ids: list[str],
+        source: str,
+        triggered_at: str,
+    ) -> None:
+        """Trigger targeted lab discovery for this worker (ADR-041 Phase 2).
+
+        Emits CMLWorkerLabDiscoveryTriggeredDomainEvent which is projected
+        to etcd for lablet-controller to execute REST-based discovery.
+
+        Args:
+            lab_ids: New CML lab IDs detected via WebSocket
+            source: Source of the trigger (e.g., "websocket-lab-stats")
+            triggered_at: ISO timestamp when triggered
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                CMLWorkerLabDiscoveryTriggeredDomainEvent(
+                    aggregate_id=self.id(),
+                    worker_id=self.id(),
+                    lab_ids=lab_ids,
+                    source=source,
+                    triggered_at=triggered_at,
+                )
+            )
+        )
+
     def is_idle(self, idle_threshold_minutes: int) -> bool:
         """Check if the worker has been idle beyond the threshold.
 
@@ -2066,7 +2107,10 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
             return False
 
         now = datetime.now(timezone.utc)
-        elapsed = now - self.state.last_resumed_at
+        last_resumed = self.state.last_resumed_at
+        if last_resumed.tzinfo is None:
+            last_resumed = last_resumed.replace(tzinfo=timezone.utc)
+        elapsed = now - last_resumed
         return elapsed.total_seconds() / 60 < snooze_minutes
 
     def calculate_idle_duration(self) -> float | None:

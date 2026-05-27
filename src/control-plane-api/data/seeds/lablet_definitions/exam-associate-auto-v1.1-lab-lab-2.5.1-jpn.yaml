@@ -88,187 +88,20 @@ owner_notification:
 created_by: seeder
 
 # ─────────────────────────────────────────────────────────────
-# Pipeline Definitions (AD-PIPELINE-002)
+# Pipeline Definitions (AD-PIPELINE-012)
 #
 # Same pipeline structure as ENU variant.
-# Content sync will pull Japanese-localized content package.
+# Uses standard templates via `extends`.
 # ─────────────────────────────────────────────────────────────
 pipelines:
-    # ── INSTANTIATE ──────────────────────────────────────────
     instantiate:
-        description: >-
-            Prepare the lablet session environment — import lab topology,
-            allocate ports, provision LDS session, and mark ready.
-        trigger: on_status:instantiating
-        max_retries: 3
-        retry_backoff: 30
-        steps:
-            - name: content_sync
-              handler: content_sync
-              description: Verify definition content is synced (grade.xml, cml.yaml)
-              skip_when: 'not $DEFINITION.form_qualified_name'
-              timeout_seconds: 120
-              retry:
-                  max_attempts: 3
-                  delay_seconds: 30
+        extends: standard-instantiate
 
-            - name: variables
-              handler: variables
-              description: Resolve session variables from definition defaults
-              optional: true # failure does not block downstream steps
-
-            - name: lab_resolve
-              handler: lab_resolve
-              description: Import or reuse a CML lab on the assigned worker
-              needs: [content_sync, variables]
-              timeout_seconds: 120
-              retry:
-                  max_attempts: 2
-                  delay_seconds: 10
-
-            - name: ports_alloc
-              handler: ports_alloc
-              description: Allocate real ports from worker pool for console access
-              needs: [lab_resolve]
-              skip_when: 'not $DEFINITION.port_template'
-              timeout_seconds: 30
-
-            - name: tags_sync
-              handler: tags_sync
-              description: Write protocol:port tags to CML nodes
-              needs: [ports_alloc]
-              skip_when: 'not $DEFINITION.port_template'
-              timeout_seconds: 30
-
-            - name: lab_binding
-              handler: lab_binding
-              description: Bind LabRecord to session, create LabRunRecord
-              needs: [lab_resolve, tags_sync]
-              timeout_seconds: 30
-
-            - name: lab_start
-              handler: lab_start
-              description: Start the CML lab and wait for BOOTED state
-              needs: [lab_binding]
-              timeout_seconds: 300
-              retry:
-                  max_attempts: 5
-                  delay_seconds: 15
-
-            - name: lds_provision
-              handler: lds_provision
-              description: Create LDS session, map devices, get launch URL
-              needs: [lab_start]
-              skip_when: 'not $DEFINITION.form_qualified_name'
-              timeout_seconds: 60
-
-            - name: mark_ready
-              handler: mark_ready
-              description: Atomic transition to READY status
-              needs: [lab_start, lds_provision]
-              timeout_seconds: 10
-
-        outputs:
-            cml_lab_id: '$STEPS.lab_resolve.cml_lab_id'
-            lab_record_id: '$STEPS.lab_resolve.lab_record_id'
-            user_session_id: '$STEPS.lds_provision.user_session_id'
-            launch_url: '$STEPS.lds_provision.launch_url'
-
-    # ── COLLECT EVIDENCE ─────────────────────────────────────
     collect_evidence:
-        description: >-
-            Capture student evidence from the lab session —
-            device configs, screenshots — and package into
-            an evidence bundle for grading.
-        trigger: on_status:collecting
-        steps:
-            - name: capture_configs
-              handler: capture_configs
-              description: Export running-config from all managed devices
-              timeout_seconds: 120
+        extends: standard-collect-evidence
 
-            - name: capture_screenshots
-              handler: capture_screenshots
-              description: Capture VNC screenshots of graphical nodes
-              needs: [capture_configs]
-              optional: true # best-effort — VNC may be unavailable
-              timeout_seconds: 60
-
-            - name: export_pcaps
-              handler: export_pcaps
-              description: Export packet capture files from bridge interfaces
-              needs: [capture_configs]
-              optional: true # best-effort — not all labs have pcap
-              timeout_seconds: 60
-
-            - name: package_evidence
-              handler: package_evidence
-              description: Bundle all artifacts into a compressed evidence package
-              needs: [capture_configs] # only hard dependency
-              timeout_seconds: 30
-
-        outputs:
-            evidence_uri: '$STEPS.package_evidence.evidence_uri'
-
-    # ── COMPUTE GRADING ──────────────────────────────────────
     compute_grading:
-        description: >-
-            Evaluate collected evidence against the grading rubric
-            and produce a score report.
-        trigger: on_status:grading
-        steps:
-            - name: load_rubric
-              handler: load_rubric
-              description: Load grading rules from definition (grade.xml)
-              timeout_seconds: 30
+        extends: standard-compute-grading
 
-            - name: evaluate
-              handler: evaluate
-              description: Run grading engine against evidence and rubric
-              needs: [load_rubric]
-              timeout_seconds: 120
-
-            - name: record_score
-              handler: record_score
-              description: Create ScoreReport aggregate and store results
-              needs: [evaluate]
-              timeout_seconds: 10
-
-        outputs:
-            score: '$STEPS.evaluate.score'
-            score_report_id: '$STEPS.record_score.score_report_id'
-
-    # ── TEARDOWN ─────────────────────────────────────────────
     teardown:
-        description: >-
-            Stop the lab, deregister LDS session, wipe lab state,
-            and archive the session record.
-        trigger: on_status:stopping
-        steps:
-            - name: stop_lab
-              handler: stop_lab
-              description: Stop the CML lab (graceful shutdown)
-              timeout_seconds: 120
-
-            - name: deregister_lds
-              handler: deregister_lds
-              description: Close the LDS session and release license
-              needs: [stop_lab]
-              skip_when: 'not $SESSION.user_session_id'
-              optional: true
-              timeout_seconds: 30
-
-            - name: wipe_lab
-              handler: wipe_lab
-              description: Wipe lab state (reset to DEFINED_ON_CORE)
-              needs: [stop_lab]
-              timeout_seconds: 120
-
-            - name: archive
-              handler: archive
-              description: Archive session record and transition to ARCHIVED
-              needs: [wipe_lab, deregister_lds]
-              timeout_seconds: 10
-
-        outputs:
-            archived_at: '$STEPS.archive.archived_at'
+        extends: standard-teardown

@@ -38,6 +38,7 @@ from fastapi import FastAPI
 from integration.services.aws_cloudwatch_spi import AwsCloudWatchSpiClient
 from integration.services.aws_ec2_spi import AwsEc2SpiClient
 from integration.services.cml_system_spi import CmlSystemSpiClient
+from integration.services.cml_websocket_registry import CmlWebSocketMonitorRegistry
 from lcm_core.infrastructure import configure_logging
 from lcm_core.infrastructure.mixins import ServiceInfo, StandardEndpointsMixin
 from lcm_core.integration.clients import ControlPlaneApiClient, EtcdClient
@@ -121,6 +122,23 @@ def create_app() -> FastAPI:
         default_username=settings.cml_worker_api_username,
         default_password=settings.cml_worker_api_password,
     )
+
+    # Configure CML WebSocket Monitor Registry (ADR-041)
+    if settings.cml_websocket_enabled:
+        builder.services.add_singleton(
+            CmlWebSocketMonitorRegistry,
+            implementation_factory=lambda _: CmlWebSocketMonitorRegistry(
+                default_username=settings.cml_worker_api_username,
+                default_password=settings.cml_worker_api_password,
+                verify_ssl=False,
+                metrics_report_interval=settings.cml_websocket_metrics_report_interval,
+                reconnect_max_interval=settings.cml_websocket_reconnect_max_interval,
+                max_reconnect_attempts=settings.cml_websocket_max_reconnect_attempts,
+            ),
+        )
+        logger.info("✅ CmlWebSocketMonitorRegistry configured (ADR-041)")
+    else:
+        logger.info("CML WebSocket monitoring disabled (cml_websocket_enabled=False)")
 
     # Configure DualAuth service
     DualAuthService.configure(builder)
@@ -232,6 +250,7 @@ def main() -> None:
         host=settings.app_host,
         port=settings.app_port,
         reload=settings.debug,
+        reload_dirs=["/app", "/core"] if settings.debug else None,
         reload_excludes=["logs", "static", "data", "*.log"] if settings.debug else None,
         log_level=settings.log_level.lower(),
     )

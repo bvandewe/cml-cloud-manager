@@ -8,6 +8,7 @@ class SessionManager {
         this.warningShown = false;
         this.bannerId = 'session-warning-banner';
         this.secondsRemaining = 0;
+        this._extending = false;
     }
 
     async init() {
@@ -17,6 +18,8 @@ class SessionManager {
     }
 
     async checkSession() {
+        if (this._extending) return;
+
         try {
             const response = await apiRequest('/api/auth/session');
             const data = await response.json();
@@ -119,10 +122,15 @@ class SessionManager {
     }
 
     async extendSession() {
+        this._extending = true;
         try {
             const response = await apiRequest('/api/auth/extend-session', { method: 'POST' });
             const data = await response.json();
             this.hideWarning();
+
+            // Clear guard before any re-check so checkSession() can proceed
+            this._extending = false;
+
             // If server returned updated expiry, use it directly
             if (data.expires_in_seconds && data.expires_in_seconds > 0) {
                 const warningMinutes = data.session_expiration_warning_minutes || 5;
@@ -133,8 +141,15 @@ class SessionManager {
             } else {
                 await this.checkSession(); // Fallback: re-check from server
             }
+
+            // Reset interval so next periodic check is a full cycle away
+            if (this.checkInterval) {
+                clearInterval(this.checkInterval);
+                this.checkInterval = setInterval(() => this.checkSession(), 60000);
+            }
         } catch (error) {
             console.error('Failed to extend session:', error);
+            this._extending = false;
         }
     }
 

@@ -137,3 +137,5 @@ deployment/docker-compose/*.local.env
 docker-compose.prod.yml
 .env.prod
 .env.prod.remote
+graphify-out/
+src/graphify-out/

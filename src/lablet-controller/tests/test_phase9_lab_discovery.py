@@ -44,6 +44,7 @@ def make_lab_discovery_service(
     """Create a LabDiscoveryService with mocked dependencies."""
     api = AsyncMock()
     cml_labs = AsyncMock()
+    etcd = AsyncMock()
     settings = MagicMock()
     settings.labs_refresh_enabled = labs_refresh_enabled
     settings.labs_refresh_interval = labs_refresh_interval
@@ -52,6 +53,7 @@ def make_lab_discovery_service(
     svc = LabDiscoveryService(
         api_client=api,
         cml_labs_client=cml_labs,
+        etcd_client=etcd,
         settings=settings,
     )
     return svc
@@ -184,13 +186,21 @@ class TestLabDiscoveryServiceInit:
 
     @pytest.mark.asyncio
     async def test_start_when_disabled_does_nothing(self):
-        """When labs_refresh_enabled=False, start should not create task."""
+        """When labs_refresh_enabled=False, start should not create periodic task.
+
+        ADR-041 Phase 2: The etcd watch task still starts (for targeted discovery),
+        but the periodic polling task (_task) is not created.
+        """
         svc = make_lab_discovery_service(labs_refresh_enabled=False)
 
         await svc.start_async()
 
-        assert svc._running is False
-        assert svc._task is None
+        assert svc._running is True  # Always True (etcd watch runs)
+        assert svc._task is None  # Periodic polling NOT started
+        assert svc._watch_task is not None  # etcd watch IS started
+
+        # Cleanup
+        await svc.stop_async()
 
     def test_get_stats_returns_correct_shape(self):
         """get_stats should return all expected keys."""

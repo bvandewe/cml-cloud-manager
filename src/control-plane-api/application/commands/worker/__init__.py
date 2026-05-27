@@ -50,17 +50,22 @@ from .recalculate_worker_capacity_command import (
 )
 from .register_cml_worker_license_command import RegisterCMLWorkerLicenseCommand, RegisterCMLWorkerLicenseCommandHandler
 from .release_capacity_command import ReleaseCapacityCommand, ReleaseCapacityCommandHandler
+from .report_activity_events_command import ReportActivityEventsCommand, ReportActivityEventsCommandHandler
+from .report_lab_state_change_command import ReportLabStateChangeCommand, ReportLabStateChangeCommandHandler
 from .request_scale_up_command import RequestScaleUpCommand, RequestScaleUpCommandHandler
 from .request_worker_refresh_command import RequestWorkerRefreshCommand, RequestWorkerRefreshCommandHandler
 from .start_cml_worker_command import StartCMLWorkerCommand, StartCMLWorkerCommandHandler
 from .stop_cml_worker_command import StopCMLWorkerCommand, StopCMLWorkerCommandHandler
 from .terminate_cml_worker_command import TerminateCMLWorkerCommand, TerminateCMLWorkerCommandHandler
+from .trigger_lab_discovery_command import TriggerLabDiscoveryCommand, TriggerLabDiscoveryCommandHandler
 from .update_cml_worker_metrics_command import UpdateCMLWorkerMetricsCommand, UpdateCMLWorkerMetricsCommandHandler
 from .update_cml_worker_status_command import UpdateCMLWorkerStatusCommand, UpdateCMLWorkerStatusCommandHandler
 from .update_cml_worker_tags_command import UpdateCMLWorkerTagsCommand, UpdateCMLWorkerTagsCommandHandler
 from .update_worker_activity_command import UpdateWorkerActivityCommand, UpdateWorkerActivityCommandHandler
 from .update_worker_cml_data_command import UpdateWorkerCmlDataCommand, UpdateWorkerCmlDataCommandHandler
 from .update_worker_ec2_details_command import UpdateWorkerEc2DetailsCommand, UpdateWorkerEc2DetailsCommandHandler
+from .update_worker_lab_stats_command import UpdateWorkerLabStatsCommand, UpdateWorkerLabStatsCommandHandler
+from .update_worker_ws_status_command import UpdateWorkerWsStatusCommand, UpdateWorkerWsStatusCommandHandler
 
 __all__ = [
     # Capacity Management (Phase 1 - Lablet Integration)
@@ -145,4 +150,16 @@ __all__ = [
     "CompleteLicenseDeregistrationCommandHandler",
     "FailLicenseDeregistrationCommand",
     "FailLicenseDeregistrationCommandHandler",
+    # ADR-041: WebSocket-based real-time monitoring
+    "ReportActivityEventsCommand",
+    "ReportActivityEventsCommandHandler",
+    "ReportLabStateChangeCommand",
+    "ReportLabStateChangeCommandHandler",
+    "UpdateWorkerLabStatsCommand",
+    "UpdateWorkerLabStatsCommandHandler",
+    "UpdateWorkerWsStatusCommand",
+    "UpdateWorkerWsStatusCommandHandler",
+    # ADR-041 Phase 2: Targeted lab discovery trigger
+    "TriggerLabDiscoveryCommand",
+    "TriggerLabDiscoveryCommandHandler",
 ]

@@ -110,11 +110,13 @@ function makeSession(overrides = {}) {
 function makePipelineProgress(overrides = {}) {
     return {
         instantiate: {
-            content_sync: { status: 'completed', order: 1, error: null, result_data: {} },
-            lab_import: { status: 'completed', order: 2, error: null, result_data: { lab_id: 'lab-123' } },
-            lab_start: { status: 'in_progress', order: 3, error: null, result_data: null },
-            wait_converge: { status: 'pending', order: 4, error: null, result_data: null },
-            mark_ready: { status: 'pending', order: 5, error: null, result_data: null },
+            lab_resolve: { status: 'completed', order: 1, error: null, result_data: { lab_id: 'lab-123' } },
+            ports_alloc: { status: 'completed', order: 2, error: null, result_data: {} },
+            tags_sync: { status: 'completed', order: 3, error: null, result_data: {} },
+            lab_binding: { status: 'in_progress', order: 4, error: null, result_data: null },
+            lab_start: { status: 'pending', order: 5, error: null, result_data: null },
+            lds_provision: { status: 'pending', order: 6, error: null, result_data: null },
+            mark_ready: { status: 'pending', order: 7, error: null, result_data: null },
         },
         ...overrides,
     };
@@ -123,11 +125,13 @@ function makePipelineProgress(overrides = {}) {
 function makeCompletedPipelineProgress() {
     return {
         instantiate: {
-            content_sync: { status: 'completed', order: 1, error: null },
-            lab_import: { status: 'completed', order: 2, error: null },
-            lab_start: { status: 'completed', order: 3, error: null },
-            wait_converge: { status: 'completed', order: 4, error: null },
-            mark_ready: { status: 'completed', order: 5, error: null },
+            lab_resolve: { status: 'completed', order: 1, error: null },
+            ports_alloc: { status: 'completed', order: 2, error: null },
+            tags_sync: { status: 'completed', order: 3, error: null },
+            lab_binding: { status: 'completed', order: 4, error: null },
+            lab_start: { status: 'completed', order: 5, error: null },
+            lds_provision: { status: 'completed', order: 6, error: null },
+            mark_ready: { status: 'completed', order: 7, error: null },
         },
     };
 }
@@ -135,11 +139,13 @@ function makeCompletedPipelineProgress() {
 function makeMultiPipelineProgress() {
     return {
         instantiate: {
-            content_sync: { status: 'completed', order: 1, error: null },
-            lab_import: { status: 'completed', order: 2, error: null },
-            lab_start: { status: 'completed', order: 3, error: null },
-            wait_converge: { status: 'completed', order: 4, error: null },
-            mark_ready: { status: 'completed', order: 5, error: null },
+            lab_resolve: { status: 'completed', order: 1, error: null },
+            ports_alloc: { status: 'completed', order: 2, error: null },
+            tags_sync: { status: 'completed', order: 3, error: null },
+            lab_binding: { status: 'completed', order: 4, error: null },
+            lab_start: { status: 'completed', order: 5, error: null },
+            lds_provision: { status: 'completed', order: 6, error: null },
+            mark_ready: { status: 'completed', order: 7, error: null },
         },
         teardown: {
             stop_lab: { status: 'completed', order: 1, error: null },
@@ -152,8 +158,8 @@ function makeMultiPipelineProgress() {
 function makeFailedPipelineProgress() {
     return {
         instantiate: {
-            content_sync: { status: 'completed', order: 1, error: null },
-            lab_import: { status: 'failed', order: 2, error: 'Lab import failed: invalid topology', result_data: null },
+            lab_resolve: { status: 'failed', order: 1, error: 'Lab resolve failed: invalid topology', result_data: null },
+            ports_alloc: { status: 'pending', order: 2, error: null },
             lab_start: { status: 'pending', order: 3, error: null },
         },
     };
@@ -403,18 +409,22 @@ describe('PipelineProgressPanel', () => {
         });
 
         it('should render multiple pipeline tabs', () => {
-            element.setSession(makeSession({
-                status: 'stopping',
-                pipeline_progress: makeMultiPipelineProgress(),
-            }));
+            element.setSession(
+                makeSession({
+                    status: 'stopping',
+                    pipeline_progress: makeMultiPipelineProgress(),
+                })
+            );
             const tabs = element.querySelectorAll('.pipeline-tab');
             expect(tabs.length).toBe(2); // "instantiate" + "teardown"
         });
 
         it('should display formatted pipeline name in tabs', () => {
-            element.setSession(makeSession({
-                pipeline_progress: { collect_evidence: { step_a: { status: 'pending', order: 1 } } },
-            }));
+            element.setSession(
+                makeSession({
+                    pipeline_progress: { collect_evidence: { step_a: { status: 'pending', order: 1 } } },
+                })
+            );
             const tab = element.querySelector('.pipeline-tab');
             expect(tab.textContent).toContain('Collect Evidence');
         });
@@ -423,8 +433,8 @@ describe('PipelineProgressPanel', () => {
             const progress = makePipelineProgress();
             element.setSession(makeSession({ pipeline_progress: progress }));
             const tab = element.querySelector('.pipeline-tab');
-            // 2 completed out of 5 total → "2/5"
-            expect(tab.textContent).toContain('2/5');
+            // 3 completed out of 7 total → "3/7"
+            expect(tab.textContent).toContain('3/7');
         });
 
         it('should highlight active pipeline tab', () => {
@@ -451,13 +461,13 @@ describe('PipelineProgressPanel', () => {
         it('should render step pills for pipeline steps', () => {
             element.setSession(makeSession({ pipeline_progress: makePipelineProgress() }));
             const pills = element.querySelectorAll('.step-pill');
-            expect(pills.length).toBe(5); // content_sync, lab_import, lab_start, wait_converge, mark_ready
+            expect(pills.length).toBe(7); // lab_resolve, ports_alloc, tags_sync, lab_binding, lab_start, lds_provision, mark_ready
         });
 
         it('should show completed status styling', () => {
             element.setSession(makeSession({ pipeline_progress: makePipelineProgress() }));
             const completedPills = element.querySelectorAll('.step-pill[data-status="completed"]');
-            expect(completedPills.length).toBe(2); // content_sync, lab_import
+            expect(completedPills.length).toBe(3); // lab_resolve, ports_alloc, tags_sync
         });
 
         it('should show in_progress status styling', () => {
@@ -469,15 +479,15 @@ describe('PipelineProgressPanel', () => {
         it('should show pending status styling', () => {
             element.setSession(makeSession({ pipeline_progress: makePipelineProgress() }));
             const pendingPills = element.querySelectorAll('.step-pill[data-status="pending"]');
-            expect(pendingPills.length).toBe(2); // wait_converge, mark_ready
+            expect(pendingPills.length).toBe(3); // lab_start, lds_provision, mark_ready
         });
 
         it('should format step names as Title Case', () => {
             element.setSession(makeSession({ pipeline_progress: makePipelineProgress() }));
             const pills = element.querySelectorAll('.step-pill');
             const names = [...pills].map(p => p.textContent.trim());
-            expect(names).toContain('Content Sync');
-            expect(names).toContain('Lab Import');
+            expect(names).toContain('Lab Resolve');
+            expect(names).toContain('Ports Alloc');
             expect(names).toContain('Lab Start');
         });
 
@@ -485,14 +495,14 @@ describe('PipelineProgressPanel', () => {
             element.setSession(makeSession({ pipeline_progress: makePipelineProgress() }));
             const pills = element.querySelectorAll('.step-pill');
             const stepNames = [...pills].map(p => p.dataset.step);
-            expect(stepNames).toEqual(['content_sync', 'lab_import', 'lab_start', 'wait_converge', 'mark_ready']);
+            expect(stepNames).toEqual(['lab_resolve', 'ports_alloc', 'tags_sync', 'lab_binding', 'lab_start', 'lds_provision', 'mark_ready']);
         });
 
         it('should include error info in tooltip for failed steps', () => {
             element.setSession(makeSession({ pipeline_progress: makeFailedPipelineProgress() }));
             const failedPill = element.querySelector('.step-pill[data-status="failed"]');
             expect(failedPill).toBeDefined();
-            expect(failedPill.title).toContain('Lab import failed');
+            expect(failedPill.title).toContain('Lab resolve failed');
         });
 
         it('should show "No steps reported" when pipeline has empty steps', () => {
@@ -518,8 +528,8 @@ describe('PipelineProgressPanel', () => {
 
         it('should show correct completion percentage', () => {
             element.setSession(makeSession({ pipeline_progress: makePipelineProgress() }));
-            // 2 completed out of 5 = 40%
-            expect(element.textContent).toContain('40% complete');
+            // 3 completed out of 7 ≈ 43%
+            expect(element.textContent).toContain('43% complete');
         });
 
         it('should show 100% for fully completed pipeline', () => {
@@ -529,9 +539,9 @@ describe('PipelineProgressPanel', () => {
 
         it('should show step count summary', () => {
             element.setSession(makeSession({ pipeline_progress: makePipelineProgress() }));
-            // 2 completed, 1 in progress out of 5 total
-            expect(element.textContent).toContain('2✓');
-            expect(element.textContent).toContain('/ 5');
+            // 3 completed, 1 in progress out of 7 total
+            expect(element.textContent).toContain('3✓');
+            expect(element.textContent).toContain('/ 7');
         });
 
         it('should show failed count when failures exist', () => {
@@ -558,10 +568,12 @@ describe('PipelineProgressPanel', () => {
         });
 
         it('should switch active pipeline on tab click', () => {
-            element.setSession(makeSession({
-                status: 'stopping',
-                pipeline_progress: makeMultiPipelineProgress(),
-            }));
+            element.setSession(
+                makeSession({
+                    status: 'stopping',
+                    pipeline_progress: makeMultiPipelineProgress(),
+                })
+            );
 
             // The "teardown" tab should be the second one
             const tabs = element.querySelectorAll('.pipeline-tab');
@@ -576,10 +588,12 @@ describe('PipelineProgressPanel', () => {
         });
 
         it('should render step pills for the selected pipeline', () => {
-            element.setSession(makeSession({
-                status: 'stopping',
-                pipeline_progress: makeMultiPipelineProgress(),
-            }));
+            element.setSession(
+                makeSession({
+                    status: 'stopping',
+                    pipeline_progress: makeMultiPipelineProgress(),
+                })
+            );
 
             // Initially shows "instantiate" pipeline (5 steps) — the detected active one has in_progress
             // Actually teardown has in_progress, so it should be auto-detected
@@ -638,11 +652,7 @@ describe('PipelineProgressPanel', () => {
         });
 
         it('should count completed steps', () => {
-            const steps = [
-                { status: 'completed' },
-                { status: 'completed' },
-                { status: 'in_progress' },
-            ];
+            const steps = [{ status: 'completed' }, { status: 'completed' }, { status: 'in_progress' }];
             const summary = element._computeSummary(steps);
             expect(summary.completed).toBe(2);
             expect(summary.in_progress).toBe(1);
@@ -650,19 +660,13 @@ describe('PipelineProgressPanel', () => {
         });
 
         it('should count failed steps', () => {
-            const steps = [
-                { status: 'completed' },
-                { status: 'failed' },
-            ];
+            const steps = [{ status: 'completed' }, { status: 'failed' }];
             const summary = element._computeSummary(steps);
             expect(summary.failed).toBe(1);
         });
 
         it('should count skipped steps', () => {
-            const steps = [
-                { status: 'completed' },
-                { status: 'skipped' },
-            ];
+            const steps = [{ status: 'completed' }, { status: 'skipped' }];
             const summary = element._computeSummary(steps);
             expect(summary.skipped).toBe(1);
         });
@@ -674,13 +678,7 @@ describe('PipelineProgressPanel', () => {
         });
 
         it('should compute pending from remainder', () => {
-            const steps = [
-                { status: 'completed' },
-                { status: 'completed' },
-                { status: 'in_progress' },
-                { status: 'pending' },
-                { status: 'pending' },
-            ];
+            const steps = [{ status: 'completed' }, { status: 'completed' }, { status: 'in_progress' }, { status: 'pending' }, { status: 'pending' }];
             const summary = element._computeSummary(steps);
             expect(summary.pending).toBe(2);
         });
@@ -920,10 +918,12 @@ describe('PipelineProgressPanel', () => {
         });
 
         it('should render lifecycle rail + pipelines + history toggle together', () => {
-            element.setSession(makeSession({
-                status: 'instantiating',
-                pipeline_progress: makePipelineProgress(),
-            }));
+            element.setSession(
+                makeSession({
+                    status: 'instantiating',
+                    pipeline_progress: makePipelineProgress(),
+                })
+            );
 
             // Lifecycle rail present
             expect(element.querySelector('.lifecycle-rail')).toBeDefined();
@@ -932,7 +932,7 @@ describe('PipelineProgressPanel', () => {
             expect(element.querySelector('.pipeline-tab')).toBeDefined();
 
             // Step pills present
-            expect(element.querySelectorAll('.step-pill').length).toBe(5);
+            expect(element.querySelectorAll('.step-pill').length).toBe(7);
 
             // History toggle present
             expect(element.querySelector('#toggle-history')).toBeDefined();
@@ -942,10 +942,12 @@ describe('PipelineProgressPanel', () => {
         });
 
         it('should render correctly for stopped session with completed pipeline', () => {
-            element.setSession(makeSession({
-                status: 'stopped',
-                pipeline_progress: makeCompletedPipelineProgress(),
-            }));
+            element.setSession(
+                makeSession({
+                    status: 'stopped',
+                    pipeline_progress: makeCompletedPipelineProgress(),
+                })
+            );
 
             // Current phase should be stopped
             const currentPhase = element.querySelector('.phase-step.phase-current');
@@ -953,14 +955,16 @@ describe('PipelineProgressPanel', () => {
 
             // All steps should be completed
             const completedPills = element.querySelectorAll('.step-pill[data-status="completed"]');
-            expect(completedPills.length).toBe(5);
+            expect(completedPills.length).toBe(7);
         });
 
         it('should render correctly for failed pipeline', () => {
-            element.setSession(makeSession({
-                status: 'instantiating',
-                pipeline_progress: makeFailedPipelineProgress(),
-            }));
+            element.setSession(
+                makeSession({
+                    status: 'instantiating',
+                    pipeline_progress: makeFailedPipelineProgress(),
+                })
+            );
 
             // Failed step pill should exist
             const failedPill = element.querySelector('.step-pill[data-status="failed"]');

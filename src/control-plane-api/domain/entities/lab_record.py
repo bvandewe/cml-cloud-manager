@@ -171,6 +171,11 @@ class LabRecordState(ResourceState):
     active_lablet_session_id: str | None
     active_binding_id: str | None
 
+    # Real-time lab stats from WebSocket monitoring (ADR-041)
+    node_stats: dict[str, Any] | None  # node_id -> {cpu_usage, ram_usage, disk_usage, ...}
+    link_stats: dict[str, Any] | None  # link_id -> {readbytes, writebytes, ...}
+    stats_collected_at: str | None  # ISO 8601 timestamp of last stats collection
+
     # Pending action (ADR-017 reconciliation)
     pending_action: str | None
     pending_action_at: datetime | None
@@ -241,6 +246,11 @@ class LabRecordState(ResourceState):
         # Active binding (ADR-031 / AD-BIND-001)
         self.active_lablet_session_id = None
         self.active_binding_id = None
+
+        # Real-time lab stats (ADR-041)
+        self.node_stats = None
+        self.link_stats = None
+        self.stats_collected_at = None
 
         # Pending action (ADR-017 reconciliation)
         self.pending_action = None

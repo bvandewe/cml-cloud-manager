@@ -19,6 +19,11 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
+from api.controllers import AdminController, SchedulingController
+from api.services import DualAuthService
+from application.hosted_services import CleanupHostedService, SchedulerHostedService, TimeslotManagerHostedService
+from application.services.placement_engine import PlacementEngine
+from application.settings import Settings, app_settings
 from fastapi import FastAPI
 from lcm_core.infrastructure import configure_logging
 from lcm_core.infrastructure.mixins import ServiceInfo, StandardEndpointsMixin
@@ -26,12 +31,6 @@ from lcm_core.integration.clients import ControlPlaneApiClient, EtcdClient
 from neuroglia.hosting.abstractions import HostedService
 from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
 from neuroglia.serialization.json import JsonSerializer
-
-from api.controllers import AdminController, SchedulingController
-from api.services import DualAuthService
-from application.hosted_services import CleanupHostedService, SchedulerHostedService, TimeslotManagerHostedService
-from application.services.placement_engine import PlacementEngine
-from application.settings import Settings, app_settings
 
 # Configure logging
 configure_logging(log_level=app_settings.log_level)
@@ -235,6 +234,7 @@ def main() -> None:
         host=settings.app_host,
         port=settings.app_port,
         reload=settings.debug,
+        reload_dirs=["/app", "/core"] if settings.debug else None,
         reload_excludes=["logs", "static", "data", "*.log"] if settings.debug else None,
         log_level=settings.log_level.lower(),
     )

@@ -8,7 +8,7 @@ packages = [{include = "application"}, {include = "domain"}, {include = "integra
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
-neuroglia-python = ">=0.6.9,<0.7.0"
+neuroglia-python = ">=0.9.1,<0.10.0"
 httpx = ">=0.24.0,<0.28.0"
 etcd3-py = "^0.1.6"  # etcd client for leader election and state watches
 aiohttp = "^3.9.0"

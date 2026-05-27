@@ -73,6 +73,22 @@ export function renderMonitoringTab(worker) {
     // Build monitoring settings section
     let html = '<div class="row g-4">';
 
+    // ADR-041: WebSocket Connection Status Card
+    const wsConnected = worker.ws_connected === true;
+    const lastWsUpdate = worker.last_ws_update_at;
+    const isLive = wsConnected && lastWsUpdate && Date.now() - new Date(lastWsUpdate).getTime() < 15000;
+
+    html += `
+        <div class="col-12 mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <span class="d-inline-flex align-items-center gap-1">
+                    <span class="rounded-circle d-inline-block" style="width: 10px; height: 10px; background-color: ${wsConnected ? '#198754' : '#ffc107'};" title="${wsConnected ? 'WebSocket connected' : 'Polling fallback'}"></span>
+                    <small class="text-muted">${wsConnected ? 'WebSocket' : 'Polling'}</small>
+                </span>
+                ${isLive ? '<span class="badge bg-success bg-opacity-75"><i class="bi bi-broadcast"></i> Live</span>' : ''}
+            </div>
+        </div>`;
+
     // Idle Detection Settings Card
     html += `
         <div class="col-md-6">

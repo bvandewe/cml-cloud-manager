@@ -142,6 +142,11 @@ make format
 | `HEALTH_PORT` | Health check endpoint port | `8083` |
 | `CML_WORKER_API_USERNAME` | CML system API username | - |
 | `CML_WORKER_API_PASSWORD` | CML system API password | - |
+| `CML_WEBSOCKET_ENABLED` | Enable WebSocket-based real-time monitoring (ADR-041) | `true` |
+| `CML_WEBSOCKET_METRICS_REPORT_INTERVAL` | Seconds between metrics reports to CPA via WebSocket | `10` |
+| `CML_WEBSOCKET_RECONNECT_MAX_INTERVAL` | Max reconnect backoff in seconds | `30` |
+| `CML_WEBSOCKET_MAX_RECONNECT_ATTEMPTS` | Max consecutive failures before FAILED state | `3` |
+| `CML_WEBSOCKET_HEALTH_TIMEOUT` | Seconds without messages before connection is unhealthy | `60` |
 
 ## Related Documents
 

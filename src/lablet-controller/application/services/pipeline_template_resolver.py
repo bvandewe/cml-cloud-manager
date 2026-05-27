@@ -35,24 +35,9 @@ _TEMPLATES: dict[str, dict[str, Any]] = {
         "retry_backoff": 30,
         "steps": [
             {
-                "name": "content_sync",
-                "handler": "content_sync",
-                "description": "Verify definition content is synced (grade.xml, cml.yaml)",
-                "skip_when": "not $DEFINITION.form_qualified_name",
-                "timeout_seconds": 120,
-                "retry": {"max_attempts": 3, "delay_seconds": 30},
-            },
-            {
-                "name": "variables",
-                "handler": "variables",
-                "description": "Resolve session variables from definition defaults",
-                "optional": True,
-            },
-            {
                 "name": "lab_resolve",
                 "handler": "lab_resolve",
                 "description": "Import or reuse a CML lab on the assigned worker",
-                "needs": ["content_sync", "variables"],
                 "timeout_seconds": 120,
                 "retry": {"max_attempts": 2, "delay_seconds": 10},
             },

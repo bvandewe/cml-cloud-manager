@@ -57,6 +57,8 @@ class CMLWorkerReadModel(TimedResourceReadModel):
     name: str = ""
     ec2_instance_id: str | None = None
     ip_address: str | None = None
+    public_ip: str | None = None
+    private_ip: str | None = None
     template_id: str | None = None
     template_name: str | None = None
     instance_type: str | None = None
@@ -93,6 +95,8 @@ class CMLWorkerReadModel(TimedResourceReadModel):
             desired_status=data.get("desired_status", "running"),
             ec2_instance_id=data.get("ec2_instance_id") or data.get("aws_instance_id"),
             ip_address=data.get("ip_address") or data.get("public_ip") or data.get("private_ip"),
+            public_ip=data.get("public_ip"),
+            private_ip=data.get("private_ip"),
             template_id=data.get("template_id"),
             template_name=data.get("template_name"),
             instance_type=data.get("instance_type"),

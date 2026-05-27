@@ -1,7 +1,5 @@
 # TODO
 
-- [x] Fix LabletSession's "LDS Session" URL (http://localhost:8048/lablet/v1/start/7ec38856-f5e4-4614-8517-9221f55b6b2b/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NzQ4NTgwNDIsImV4cCI6MTc3NDk0NDQ0MiwiZXhwaXJlcyI6MTc3NDk0NDQ0Mi4wODYwMDQsInNlc3Npb25faWQiOiI3ZWMzODg1Ni1mNWU0LTQ2MTQtODUxNy05MjIxZjU1YjZiMmIifQ.nB3RsFB_pfVcopV7d8pTQ7LK7xWCBOZ0-vWs9SsAzow fails to open the Lablet UI and redirs to LDS login http://localhost:8048/static/v3client/login!? < Likely a nginx or LDS config issue? >)
-- [ ] Fix timeslot
 - [ ] Fix LabRecord vs LabletSession binding (must appear from both sides in UI: Workers' and Labs' "Linked Lablets" as well as Sessions's "No lablet bindings yet.")
 - [ ] Use Worker.name instead of worker.id in Lab Records' table and details views (set the worker id in an info icon' s tool tip using bootstrap tooltip)
 - [ ] Add "Allocated Ports" to Worker Details modal > Labs > perLab ports
@@ -9,13 +7,11 @@
 - [ ] Add clear activity indicator to "Lablets" Sessions when its actively being reconciliated (e.g. emit SSE event to show 'active tasks')
 
 - [ ] Fix inconsistencies in frontend:
-  - [x] Worker > Details > Labs: Fixed — WorkerDetailsModal.loadLabsTab() now uses `lab.status` (authoritative LabRecordStatus enum) instead of `lab.state` (raw CML string). Badge helper `getLabStateBadgeClass` updated to handle all 16 lifecycle states.
-  - [ ] Workers > Fleet Capacity: counts/total are all wrong when workers imported without templates (declared_capacity is null) → see "Auto-detect worker capacity" below
-  - [x] Fix Labs counter column in Workers' datatable (field mismatch: column read 'labs_count' but DTO sends 'cml_labs_count') — split into two columns: "CML Labs" (cml_labs_count, incl. untracked) and "Lab Records" (tracked LabRecords count from labRecords store)
+  - [ ]
+    - [x] Fix Labs counter column in Workers' datatable (field mismatch: column read 'labs_count' but DTO sends 'cml_labs_count') — split into two columns: "CML Labs" (cml_labs_count, incl. untracked) and "Lab Records" (tracked LabRecords count from labRecords store)
   - [x] Fix Region column in Workers' datatable (field mismatch: column read 'region' but DTO sends 'aws_region')
   - [x] Fix Created column in workers' datatable: shows "time-ago" format (e.g. "2 hours ago") with full timestamp in native tooltip. Added `renderTimeAgo` utility to `dates.js`.
   - [x] Use icon-only buttons for all actions in all datatables: DataTable.ts core renders icon-only with label as tooltip, matching lcm-data-table pattern.
-
   - [x] Fix Workers' datatable component to show footer with pagination: now shows entry count when single page, full pagination controls when >1 page.
 
 - [x] When a session is manually created from the frontend, the page now dynamically refreshes: lablet-modals.js emits `UI_SESSION_CREATED` event, SessionsPageV2 listens and reloads sessions from API. SSE `lablet.session.terminated` already triggers `removeSession` in store.

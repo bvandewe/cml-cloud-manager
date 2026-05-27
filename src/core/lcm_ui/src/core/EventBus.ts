@@ -204,8 +204,12 @@ export class EventBus {
 
         // Create the handler execution function
         const executeHandlers = async (): Promise<void> => {
+            // Use envelope.data (not the captured `data` param) so middleware
+            // transformations (e.g. CloudEvent unwrapping) are visible to handlers.
+            const processedData = envelope.data;
+
             if (this.config.debug) {
-                this.config.logger.log(`[EventBus] Emit "${eventType}"`, data);
+                this.config.logger.log(`[EventBus] Emit "${eventType}"`, processedData);
             }
 
             // Collect all matching handlers
@@ -237,12 +241,12 @@ export class EventBus {
             // Execute handlers
             for (const { registration, eventType: subEventType } of matchingHandlers) {
                 // Apply filter if present
-                if (registration.filter && !registration.filter(data)) {
+                if (registration.filter && !registration.filter(processedData)) {
                     continue;
                 }
 
                 try {
-                    await registration.handler(data, envelope as EventEnvelope);
+                    await registration.handler(processedData, envelope as EventEnvelope);
                 } catch (error) {
                     this.config.logger.error(`[EventBus] Error in handler for "${eventType}":`, error);
                 }

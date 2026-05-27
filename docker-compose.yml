@@ -239,6 +239,14 @@ services:
             OTEL_SERVICE_NAME: lablet-controller
             OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
 
+            # Environment Resolver OAuth2 (Content Sync)
+            ENVIRONMENT_RESOLVER_URL: ${ENVIRONMENT_RESOLVER_URL:-https://environment-resolver.expert.certs.cloud}
+            ENVIRONMENT_RESOLVER_ENVIRONMENT: ${ENVIRONMENT_RESOLVER_ENVIRONMENT:-CERTS-DEV}
+            ENVIRONMENT_RESOLVER_TOKEN_URL: ${ENVIRONMENT_RESOLVER_TOKEN_URL:-https://keycloak.aws-k.certs.cloud/auth/realms/mozart/protocol/openid-connect/token}
+            ENVIRONMENT_RESOLVER_CLIENT_ID: ${ENVIRONMENT_RESOLVER_CLIENT_ID:-lcm-environment-resolver}
+            ENVIRONMENT_RESOLVER_CLIENT_SECRET: ${ENVIRONMENT_RESOLVER_CLIENT_SECRET:-}
+            ENVIRONMENT_RESOLVER_SCOPES: ${ENVIRONMENT_RESOLVER_SCOPES:-}
+
             # Keycloak Authentication (for admin endpoints)
             KEYCLOAK_URL: http://localhost:${KEYCLOAK_PORT:-8021}
             KEYCLOAK_URL_INTERNAL: http://keycloak:8080

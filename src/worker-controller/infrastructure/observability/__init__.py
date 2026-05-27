@@ -61,6 +61,39 @@ scale_down_skipped_total = meter.create_counter(
 
 
 # =============================================================================
+# WebSocket Monitoring Metrics (ADR-041)
+# =============================================================================
+
+# Gauge: Active WebSocket connections to CML workers
+ws_connections_active = meter.create_up_down_counter(
+    name="lcm_worker_controller_ws_connections_active",
+    description="Number of active WebSocket connections to CML workers",
+    unit="1",
+)
+
+# Counter: Total WebSocket messages received
+ws_messages_total = meter.create_counter(
+    name="lcm_worker_controller_ws_messages_total",
+    description="Total WebSocket messages received from CML workers",
+    unit="1",
+)
+
+# Counter: WebSocket reconnection attempts
+ws_reconnections_total = meter.create_counter(
+    name="lcm_worker_controller_ws_reconnections_total",
+    description="Total WebSocket reconnection attempts",
+    unit="1",
+)
+
+# Histogram: Message processing latency (receipt to callback completion)
+ws_message_latency_seconds = meter.create_histogram(
+    name="lcm_worker_controller_ws_message_latency_seconds",
+    description="Time from WS message receipt to callback completion",
+    unit="s",
+)
+
+
+# =============================================================================
 # Reconciliation Metrics
 # =============================================================================
 
@@ -198,6 +231,51 @@ def measure_reconciliation(status: str) -> Generator[dict[str, Any], None, None]
         reconciliation_cycles_total.add(1, {"status": status})
 
 
+# =============================================================================
+# WebSocket Monitoring Helpers (ADR-041)
+# =============================================================================
+
+
+def record_ws_connection_opened(worker_id: str) -> None:
+    """Record a WebSocket connection becoming active."""
+    ws_connections_active.add(1, {"worker_id": worker_id})
+
+
+def record_ws_connection_closed(worker_id: str) -> None:
+    """Record a WebSocket connection being closed."""
+    ws_connections_active.add(-1, {"worker_id": worker_id})
+
+
+def record_ws_message(worker_id: str, event_type: str) -> None:
+    """Record a WebSocket message received.
+
+    Args:
+        worker_id: Worker the message came from.
+        event_type: CML event type (system_stats, lab_stats, state_change, lab_event).
+    """
+    ws_messages_total.add(1, {"worker_id": worker_id, "event_type": event_type})
+
+
+def record_ws_reconnection(worker_id: str, reason: str) -> None:
+    """Record a WebSocket reconnection attempt.
+
+    Args:
+        worker_id: Worker being reconnected.
+        reason: Why reconnection was triggered.
+    """
+    ws_reconnections_total.add(1, {"worker_id": worker_id, "reason": reason})
+
+
+def record_ws_message_latency(event_type: str, duration_seconds: float) -> None:
+    """Record the processing latency for a WebSocket message.
+
+    Args:
+        event_type: CML event type.
+        duration_seconds: Time from message receipt to callback completion.
+    """
+    ws_message_latency_seconds.record(duration_seconds, {"event_type": event_type})
+
+
 __all__ = [
     # Metric instruments
     "scaling_events_total",
@@ -207,10 +285,19 @@ __all__ = [
     "scale_down_skipped_total",
     "reconciliation_cycles_total",
     "reconciliation_duration",
+    "ws_connections_active",
+    "ws_messages_total",
+    "ws_reconnections_total",
+    "ws_message_latency_seconds",
     # Helper functions
     "record_scaling_event",
     "record_scale_down_evaluation",
     "record_provisioning_complete",
     "record_reconciliation",
     "measure_reconciliation",
+    "record_ws_connection_opened",
+    "record_ws_connection_closed",
+    "record_ws_message",
+    "record_ws_reconnection",
+    "record_ws_message_latency",
 ]

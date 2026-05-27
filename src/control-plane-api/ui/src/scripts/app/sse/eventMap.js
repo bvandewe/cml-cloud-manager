@@ -37,6 +37,12 @@ export const sseEventMap = {
     'worker.labs.updated': LcmEventTypes.LAB_UPDATED,
     'workers.refresh.completed': LcmEventTypes.WORKERS_REFRESH_COMPLETED,
 
+    // ADR-041: WebSocket-derived real-time events
+    'worker.lab.state_change': LcmEventTypes.WORKER_LAB_STATE_CHANGE,
+    'worker.lab.stats_updated': LcmEventTypes.WORKER_LAB_STATS_UPDATED,
+    'worker.ws.connected': LcmEventTypes.WORKER_WS_CONNECTED,
+    'worker.ws.disconnected': LcmEventTypes.WORKER_WS_DISCONNECTED,
+
     // License events
     'worker.license.registration.started': LcmEventTypes.WORKER_LICENSE_REGISTRATION_STARTED,
     'worker.license.registration.completed': LcmEventTypes.WORKER_LICENSE_REGISTRATION_COMPLETED,

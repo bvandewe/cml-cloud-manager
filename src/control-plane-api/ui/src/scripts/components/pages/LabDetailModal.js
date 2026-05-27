@@ -806,7 +806,7 @@ export class LabDetailModal extends BaseComponent {
     }
 
     _renderLinkedLabletsContent(bindings) {
-        const bindingList = Array.isArray(bindings) ? bindings : bindings?.items || [];
+        const bindingList = Array.isArray(bindings) ? bindings : bindings?.bindings || bindings?.items || [];
 
         if (bindingList.length === 0) {
             return '<div class="text-center text-muted py-4"><i class="bi bi-link-45deg fs-1 d-block mb-2"></i>No lablet bindings yet.</div>';

@@ -8,6 +8,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from lcm_core.domain.enums import LabRecordStatus
@@ -53,10 +54,12 @@ class GetLabRecordsQueryHandler(QueryHandler[GetLabRecordsQuery, OperationResult
         self,
         lab_record_repository: LabRecordRepository,
         lablet_session_repository: LabletSessionRepository,
+        cml_worker_repository: CMLWorkerRepository,
     ):
         super().__init__()
         self._lab_repository = lab_record_repository
         self._session_repository = lablet_session_repository
+        self._worker_repository = cml_worker_repository
 
     @tracer.start_as_current_span("get_lab_records_query_handler")
     async def handle_async(self, request: GetLabRecordsQuery) -> OperationResult[list[dict[str, Any]]]:
@@ -101,6 +104,14 @@ class GetLabRecordsQueryHandler(QueryHandler[GetLabRecordsQuery, OperationResult
                 records = filtered
 
             # Map to response dicts
+            # Batch-resolve worker names to avoid N+1 queries
+            unique_worker_ids = {r.state.worker_id for r in records if r.state.worker_id}
+            worker_name_map: dict[str, str] = {}
+            for wid in unique_worker_ids:
+                worker = await self._worker_repository.get_by_id_async(wid)
+                if worker and worker.state.name:
+                    worker_name_map[wid] = worker.state.name
+
             labs = []
             for record in records:
                 s = record.state
@@ -108,6 +119,7 @@ class GetLabRecordsQueryHandler(QueryHandler[GetLabRecordsQuery, OperationResult
                     "id": record.id(),
                     "lab_id": s.lab_id,
                     "worker_id": s.worker_id,
+                    "worker_name": worker_name_map.get(s.worker_id),
                     "worker_ip": s.worker_ip,
                     "title": s.title,
                     "description": s.description,

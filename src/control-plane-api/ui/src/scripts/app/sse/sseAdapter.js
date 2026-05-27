@@ -248,6 +248,35 @@ export class LcmSSEAdapter {
             }
         });
 
+        // ADR-041: WebSocket-derived real-time events → update stores
+        eventBus.on(LcmEventTypes.WORKER_LAB_STATE_CHANGE, data => {
+            const labId = data.lab_id;
+            if (labId) {
+                store.dispatch('labRecords', 'updateLabNodeState', data);
+            }
+        });
+
+        eventBus.on(LcmEventTypes.WORKER_LAB_STATS_UPDATED, data => {
+            const labId = data.lab_id;
+            if (labId) {
+                store.dispatch('labRecords', 'updateLabStats', data);
+            }
+        });
+
+        eventBus.on(LcmEventTypes.WORKER_WS_CONNECTED, data => {
+            const workerId = data.worker_id;
+            if (workerId) {
+                store.dispatch('workers', 'upsertWorker', { id: workerId, ws_connected: true });
+            }
+        });
+
+        eventBus.on(LcmEventTypes.WORKER_WS_DISCONNECTED, data => {
+            const workerId = data.worker_id;
+            if (workerId) {
+                store.dispatch('workers', 'upsertWorker', { id: workerId, ws_connected: false });
+            }
+        });
+
         // Lablet session events -> update sessions store (M3-PREP: domain separation)
         // NOTE: Domain SSE payloads use `session_id` as the identifier field,
         // but the sessionsSlice `upsertSession` reducer requires `id`.

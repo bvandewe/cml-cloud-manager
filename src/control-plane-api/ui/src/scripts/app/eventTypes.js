@@ -42,6 +42,12 @@ export const LcmEventTypes = {
     WORKER_LICENSE_REGISTRATION_FAILED: 'worker.license.registration.failed',
     WORKER_LICENSE_DEREGISTERED: 'worker.license.deregistered',
 
+    // ADR-041: WebSocket-derived real-time events
+    WORKER_LAB_STATE_CHANGE: 'worker.lab.state_change',
+    WORKER_LAB_STATS_UPDATED: 'worker.lab.stats_updated',
+    WORKER_WS_CONNECTED: 'worker.ws.connected',
+    WORKER_WS_DISCONNECTED: 'worker.ws.disconnected',
+
     // Workers list events (bulk operations)
     WORKERS_REFRESH_COMPLETED: 'workers.refresh.completed',
 

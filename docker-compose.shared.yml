@@ -26,7 +26,7 @@ services:
         build:
             context: ./src
             dockerfile: control-plane-api/Dockerfile
-        command: ['sh', '-c', 'pip install debugpy watchfiles -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        command: ['sh', '-c', 'pip install debugpy watchfiles && python -m debugpy --listen 0.0.0.0:5678 main.py']
         ports:
             - '${APP_PORT:-8020}:8080'
             - '5680:5678' # Debug port
@@ -149,7 +149,7 @@ services:
         build:
             context: ./src/resource-scheduler
             dockerfile: Dockerfile
-        command: ['sh', '-c', 'pip install debugpy -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        command: ['sh', '-c', 'pip install debugpy watchfiles && python -m debugpy --listen 0.0.0.0:5678 main.py']
         ports:
             - '${RESOURCE_SCHEDULER_PORT:-8081}:8081' # Health check
             - '5681:5678' # Debug port
@@ -166,6 +166,7 @@ services:
             LOG_FILE_TRUNCATE_ON_START: 'true'
             APP_HOST: 0.0.0.0
             APP_PORT: 8081
+            PYTHONPATH: '/app:/core'
 
             # etcd Configuration (LCM-specific)
             ETCD_HOST: lcm-etcd
@@ -215,7 +216,7 @@ services:
         build:
             context: ./src/lablet-controller
             dockerfile: Dockerfile
-        command: ['sh', '-c', 'pip install debugpy -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        command: ['sh', '-c', 'pip install debugpy watchfiles && python -m debugpy --listen 0.0.0.0:5678 main.py']
         ports:
             - '${LABLET_CONTROLLER_PORT:-8082}:8082' # Health check
             - '5682:5678' # Debug port
@@ -232,6 +233,7 @@ services:
             LOG_FILE_TRUNCATE_ON_START: 'true'
             APP_HOST: 0.0.0.0
             APP_PORT: 8082
+            PYTHONPATH: '/app:/core'
 
             # etcd Configuration (LCM-specific)
             ETCD_HOST: lcm-etcd
@@ -318,7 +320,7 @@ services:
         build:
             context: ./src/worker-controller
             dockerfile: Dockerfile
-        command: ['sh', '-c', 'pip install debugpy -t /tmp && PYTHONPATH=/tmp:/app:/core python -m debugpy --listen 0.0.0.0:5678 main.py']
+        command: ['sh', '-c', 'pip install debugpy watchfiles && python -m debugpy --listen 0.0.0.0:5678 main.py']
         ports:
             - '${WORKER_CONTROLLER_PORT:-8083}:8083'
             - '5683:5678' # debugpy

@@ -94,7 +94,9 @@ class GetLabRecordBindingsQueryHandler(
                 binding_dict: dict[str, Any] = {
                     "binding_id": session.id(),
                     "instance_id": session.id(),
+                    "lablet_instance_id": session.id(),
                     "lablet_session_id": session.id(),
+                    "definition_name": session.state.definition_name,
                     "lab_record_id": request.lab_record_id,
                     "role": "primary",
                     "status": session.state.status.value,

@@ -126,6 +126,23 @@ export class WorkerCard extends BaseComponent {
             }
         });
 
+        // ADR-041: WebSocket connection status updates
+        this.subscribe(EventTypes.WORKER_WS_CONNECTED, data => {
+            if (data.worker_id === workerId) {
+                this.setState(prevState => ({
+                    worker: { ...prevState.worker, ws_connected: true },
+                }));
+            }
+        });
+
+        this.subscribe(EventTypes.WORKER_WS_DISCONNECTED, data => {
+            if (data.worker_id === workerId) {
+                this.setState(prevState => ({
+                    worker: { ...prevState.worker, ws_connected: false },
+                }));
+            }
+        });
+
         // Initial render
         this.loadWorkerData();
     }
@@ -248,7 +265,8 @@ export class WorkerCard extends BaseComponent {
                 <div class="card-header ${headerClass}">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <strong>${escapeHtml(worker.name)}</strong>
-                        <div style="display: flex; gap: 0.25rem;">
+                        <div style="display: flex; gap: 0.25rem; align-items: center;">
+                            ${worker.ws_connected ? '<span class="rounded-circle d-inline-block" style="width: 8px; height: 8px; background-color: #198754;" data-bs-toggle="tooltip" title="WebSocket connected (Live)"></span>' : ''}
                             ${
                                 isLicensed
                                     ? '<span class="badge bg-success" data-bs-toggle="tooltip" title="Licensed"><i class="bi bi-key-fill"></i></span>'

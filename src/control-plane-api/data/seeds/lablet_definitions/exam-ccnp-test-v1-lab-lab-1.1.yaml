@@ -67,147 +67,22 @@ owner_notification:
 created_by: seeder
 
 # ─────────────────────────────────────────────────────────────
-# Pipeline Definitions (AD-PIPELINE-002)
+# Pipeline Definitions (AD-PIPELINE-012)
 #
-# Effective instantiate pipeline (after skip evaluation):
-#   content_sync → lab_resolve → lab_binding → lab_start → lds_provision → mark_ready
-#   (variables: optional, ports_alloc: skipped, tags_sync: skipped)
+# Uses standard templates via `extends`. This simpler definition
+# has no compute_grading pipeline (router-only, no automated grading).
+# Evidence collection is config-only (no screenshots or pcaps).
 # ─────────────────────────────────────────────────────────────
 pipelines:
-    # ── INSTANTIATE ──────────────────────────────────────────
-    # Same pipeline structure as exam-associate.
-    # skip_when conditions will prune ports_alloc + tags_sync (no port_template).
     instantiate:
-        description: >-
-            Prepare the lab environment — import topology,
-            start lab, provision LDS session. No port allocation
-            for this definition (CML nodes have no tags).
-        trigger: on_status:instantiating
-        max_retries: 3
-        retry_backoff: 30
-        steps:
-            - name: content_sync
-              handler: content_sync
-              description: Verify definition content is synced
-              skip_when: 'not $DEFINITION.form_qualified_name'
-              timeout_seconds: 120
-              retry:
-                  max_attempts: 3
-                  delay_seconds: 30
+        extends: standard-instantiate
 
-            - name: variables
-              handler: variables
-              description: Resolve session variables from definition defaults
-              optional: true
-
-            - name: lab_resolve
-              handler: lab_resolve
-              description: Import or reuse a CML lab on the assigned worker
-              needs: [content_sync, variables]
-              timeout_seconds: 120
-              retry:
-                  max_attempts: 2
-                  delay_seconds: 10
-
-            - name: ports_alloc
-              handler: ports_alloc
-              description: Allocate real ports from worker pool
-              needs: [lab_resolve]
-              skip_when: 'not $DEFINITION.port_template'
-              timeout_seconds: 30
-
-            - name: tags_sync
-              handler: tags_sync
-              description: Write protocol:port tags to CML nodes
-              needs: [ports_alloc]
-              skip_when: 'not $DEFINITION.port_template'
-              timeout_seconds: 30
-
-            - name: lab_binding
-              handler: lab_binding
-              description: Bind LabRecord to session
-              needs: [lab_resolve, tags_sync]
-              timeout_seconds: 30
-
-            - name: lab_start
-              handler: lab_start
-              description: Start the CML lab and wait for BOOTED
-              needs: [lab_binding]
-              timeout_seconds: 300
-              retry:
-                  max_attempts: 5
-                  delay_seconds: 15
-
-            - name: lds_provision
-              handler: lds_provision
-              description: Create LDS session, map devices, get launch URL
-              needs: [lab_start]
-              skip_when: 'not $DEFINITION.form_qualified_name'
-              timeout_seconds: 60
-
-            - name: mark_ready
-              handler: mark_ready
-              description: Atomic transition to READY status
-              needs: [lab_start, lds_provision]
-              timeout_seconds: 10
-
-        outputs:
-            cml_lab_id: '$STEPS.lab_resolve.cml_lab_id'
-            lab_record_id: '$STEPS.lab_resolve.lab_record_id'
-
-    # ── COLLECT EVIDENCE ─────────────────────────────────────
-    # Evidence collection for this router-only lab focuses on device configs.
     collect_evidence:
-        description: >-
-            Capture device configurations from all network nodes.
-            No screenshots or pcaps for this lab type.
-        trigger: on_status:collecting
-        steps:
-            - name: capture_configs
-              handler: capture_configs
-              description: Export running-config from all managed devices
-              timeout_seconds: 180 # 2 nodes
+        extends: standard-collect-evidence
+        remove: [capture_screenshots, export_pcaps]
+        overrides:
+            capture_configs:
+                timeout_seconds: 180 # 2 nodes
 
-            - name: package_evidence
-              handler: package_evidence
-              description: Bundle configs into evidence package
-              needs: [capture_configs]
-              timeout_seconds: 30
-
-        outputs:
-            evidence_uri: '$STEPS.package_evidence.evidence_uri'
-
-    # ── TEARDOWN ─────────────────────────────────────────────
     teardown:
-        description: >-
-            Stop the lab, deregister LDS session, wipe lab state,
-            and archive the session record.
-        trigger: on_status:stopping
-        steps:
-            - name: stop_lab
-              handler: stop_lab
-              description: Stop the CML lab (graceful shutdown)
-              timeout_seconds: 120
-
-            - name: deregister_lds
-              handler: deregister_lds
-              description: Close the LDS session and release license
-              needs: [stop_lab]
-              skip_when: 'not $SESSION.user_session_id'
-              optional: true # LDS deregistration failure should not block teardown
-              timeout_seconds: 30
-
-            - name: wipe_lab
-              handler: wipe_lab
-              description: Wipe lab state (reset to DEFINED_ON_CORE)
-              needs: [stop_lab]
-              timeout_seconds: 120
-
-            - name: archive
-              handler: archive
-              description: Archive session record and transition to ARCHIVED
-              needs: [wipe_lab, deregister_lds]
-              timeout_seconds: 10
-
-        outputs:
-            archived_at: '$STEPS.archive.archived_at'
+        extends: standard-teardown

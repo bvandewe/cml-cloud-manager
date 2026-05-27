@@ -182,7 +182,7 @@ describe('SessionDetailsModal', () => {
         });
 
         it('should convert snake_case to Title Case', () => {
-            expect(element._prettifyName('content_sync')).toBe('Content Sync');
+            expect(element._prettifyName('lab_resolve')).toBe('Lab Resolve');
         });
 
         it('should handle single word', () => {
@@ -234,8 +234,8 @@ describe('SessionDetailsModal', () => {
         it('should collect instantiate pipeline from pipeline_progress', () => {
             const genericInstantiate = {
                 instantiate: {
-                    content_sync: { status: 'completed', order: 1 },
-                    lab_import: { status: 'in_progress', order: 2 },
+                    lab_resolve: { status: 'completed', order: 1 },
+                    lab_start: { status: 'in_progress', order: 2 },
                 },
             };
             const session = makeSession({
@@ -605,11 +605,11 @@ describe('SessionDetailsModal', () => {
         });
 
         it('should render completed step with success icon', () => {
-            const step = { name: 'content_sync', status: 'completed', error: null, result_data: null, completed_at: '2025-01-15T10:01:00Z', attempt_count: 1, requires: [], order: 1 };
+            const step = { name: 'lab_resolve', status: 'completed', error: null, result_data: null, completed_at: '2025-01-15T10:01:00Z', attempt_count: 1, requires: [], order: 1 };
             const html = element._renderPipelineStepRow(step);
             expect(html).toContain('bi-check-circle-fill');
             expect(html).toContain('text-success');
-            expect(html).toContain('Content Sync');
+            expect(html).toContain('Lab Resolve');
             expect(html).toContain('completed');
         });
 
@@ -651,15 +651,15 @@ describe('SessionDetailsModal', () => {
         });
 
         it('should show prerequisites when present', () => {
-            const step = { name: 'lab_start', status: 'pending', error: null, result_data: null, completed_at: null, attempt_count: 0, requires: ['content_sync', 'lab_import'], order: 3 };
+            const step = { name: 'lab_start', status: 'pending', error: null, result_data: null, completed_at: null, attempt_count: 0, requires: ['lab_resolve', 'lab_binding'], order: 3 };
             const html = element._renderPipelineStepRow(step);
             expect(html).toContain('requires:');
-            expect(html).toContain('Content Sync');
-            expect(html).toContain('Lab Import');
+            expect(html).toContain('Lab Resolve');
+            expect(html).toContain('Lab Binding');
         });
 
         it('should render result data when present', () => {
-            const step = { name: 'lab_import', status: 'completed', error: null, result_data: { lab_id: 'lab-42' }, completed_at: null, attempt_count: 1, requires: [], order: 1 };
+            const step = { name: 'lab_resolve', status: 'completed', error: null, result_data: { lab_id: 'lab-42' }, completed_at: null, attempt_count: 1, requires: [], order: 1 };
             const html = element._renderPipelineStepRow(step);
             expect(html).toContain('lab_id');
             expect(html).toContain('lab-42');
@@ -710,7 +710,7 @@ describe('SessionDetailsModal', () => {
                         load_rubric: { status: 'pending', order: 1 },
                     },
                     instantiate: {
-                        content_sync: { status: 'completed', order: 1 },
+                        lab_resolve: { status: 'completed', order: 1 },
                     },
                     teardown: {
                         stop_lab: { status: 'completed', order: 1 },
@@ -805,7 +805,7 @@ describe('SessionDetailsModal', () => {
             element.currentSession = makeSession({
                 pipeline_progress: {
                     instantiate: {
-                        content_sync: { status: 'completed', order: 1 },
+                        lab_resolve: { status: 'completed', order: 1 },
                     },
                     teardown: {
                         stop_lab: { status: 'in_progress', order: 1 },
@@ -839,7 +839,7 @@ describe('SessionDetailsModal', () => {
         it('should switch sub-tabs on click', () => {
             element.currentSession = makeSession({
                 pipeline_progress: {
-                    instantiate: { content_sync: { status: 'completed', order: 1 } },
+                    instantiate: { lab_resolve: { status: 'completed', order: 1 } },
                     teardown: { stop_lab: { status: 'pending', order: 1 } },
                 },
             });
@@ -861,7 +861,7 @@ describe('SessionDetailsModal', () => {
             element._activePipelineSubTab = 'teardown';
             element.currentSession = makeSession({
                 pipeline_progress: {
-                    instantiate: { content_sync: { status: 'in_progress', order: 1 } },
+                    instantiate: { lab_resolve: { status: 'in_progress', order: 1 } },
                     teardown: { stop_lab: { status: 'pending', order: 1 } },
                 },
             });

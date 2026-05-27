@@ -152,6 +152,32 @@ export class LabletsPage extends BaseComponent {
         this.subscribe(EventTypes.LABLET_SESSION_STATUS_CHANGED, () => this._loadData());
         this.subscribe(EventTypes.LABLET_SESSION_TERMINATED, () => this._loadData());
         this.subscribe(EventTypes.LABLET_SESSIONS_REFRESH_COMPLETED, () => this._loadData());
+
+        // Definition sync lifecycle -> update table row in-place
+        this.subscribe(EventTypes.LABLET_DEFINITION_CONTENT_SYNCED, data => {
+            if (!data?.definition_id) return;
+            const table = this.querySelector('#lablet-definitions-table');
+            if (table) {
+                const updates = {
+                    sync_status: data.sync_status,
+                    last_synced_at: data.synced_at,
+                };
+                if (data.sync_status === 'success') {
+                    updates.status = 'active';
+                }
+                table.updateRow(data.definition_id, updates);
+            }
+        });
+
+        this.subscribe(EventTypes.LABLET_DEFINITION_SYNC_REQUESTED, data => {
+            if (!data?.definition_id) return;
+            const table = this.querySelector('#lablet-definitions-table');
+            if (table) {
+                table.updateRow(data.definition_id, {
+                    sync_status: 'syncing',
+                });
+            }
+        });
     }
 
     // ========== Render ==========

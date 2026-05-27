@@ -266,6 +266,73 @@ export const labRecordsSlice = {
                 },
             };
         },
+
+        /**
+         * Update node-level state for a lab (ADR-041: WebSocket state_change events).
+         * Finds lab by cml_lab_id and merges node/link state data.
+         * @param {object} payload - { lab_id, worker_id, element_type, element_id, event, data }
+         */
+        updateLabNodeState(state, { lab_id, worker_id, element_type, element_id, event, data }) {
+            if (!lab_id) return state;
+
+            // Find lab record by cml_lab_id
+            const labRecordId = state.allIds.find(id => state.byId[id]?.cml_lab_id === lab_id);
+            if (!labRecordId) return state;
+
+            const existing = state.byId[labRecordId];
+            const nodeStates = { ...(existing.node_states || {}) };
+
+            // Key by element_type:element_id (e.g. "node:n0", "link:l0")
+            const key = `${element_type || 'node'}:${element_id || 'unknown'}`;
+            nodeStates[key] = {
+                state: event,
+                ...(data || {}),
+                updated_at: new Date().toISOString(),
+            };
+
+            return {
+                ...state,
+                byId: {
+                    ...state.byId,
+                    [labRecordId]: {
+                        ...existing,
+                        node_states: nodeStates,
+                        last_ws_update_at: new Date().toISOString(),
+                    },
+                },
+            };
+        },
+
+        /**
+         * Update per-lab resource statistics (ADR-041: WebSocket lab_stats events).
+         * Finds lab by cml_lab_id and merges node/link metrics.
+         * @param {object} payload - { lab_id, worker_id, nodes, links, ... }
+         */
+        updateLabStats(state, { lab_id, worker_id, nodes, links, ...rest }) {
+            if (!lab_id) return state;
+
+            // Find lab record by cml_lab_id
+            const labRecordId = state.allIds.find(id => state.byId[id]?.cml_lab_id === lab_id);
+            if (!labRecordId) return state;
+
+            const existing = state.byId[labRecordId];
+
+            return {
+                ...state,
+                byId: {
+                    ...state.byId,
+                    [labRecordId]: {
+                        ...existing,
+                        lab_stats: {
+                            nodes: nodes ?? existing.lab_stats?.nodes,
+                            links: links ?? existing.lab_stats?.links,
+                            ...rest,
+                        },
+                        last_ws_update_at: new Date().toISOString(),
+                    },
+                },
+            };
+        },
     },
 };
 

@@ -30,3 +30,7 @@ logs
 
 # Static (we build this inside Docker or copy explicitly)
 static
+
+src/graphify-out
+graphify-out/
+.antigravitycli/

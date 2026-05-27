@@ -16,7 +16,6 @@ Covers:
 from __future__ import annotations
 
 import pytest
-
 from application.services.pipeline_template_resolver import (
     PipelineTemplateError,
     PipelineTemplateResolver,
@@ -62,9 +61,10 @@ class TestExtends:
 
         # Should have all standard steps
         step_names = [s["name"] for s in result["steps"]]
-        assert "content_sync" in step_names
         assert "lab_resolve" in step_names
         assert "mark_ready" in step_names
+        assert "content_sync" not in step_names
+        assert "variables" not in step_names
 
     def test_extends_standard_teardown(self, resolver: PipelineTemplateResolver) -> None:
         """Extending the teardown template should include teardown steps."""
@@ -362,7 +362,6 @@ class TestCombinedOperators:
         step_names = [s["name"] for s in result["steps"]]
 
         # Standard steps still present
-        assert "content_sync" in step_names
         assert "lab_resolve" in step_names
         assert "lab_start" in step_names
         assert "mark_ready" in step_names

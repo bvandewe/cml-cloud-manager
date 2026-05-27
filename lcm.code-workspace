@@ -1,14 +1,5 @@
 {
     "folders": [
-        // {
-        //     "name": "📦 Neuroglia",
-        //     "path": "/Users/bvandewe/Documents/Work/Systems/Mozart/src/building-blocks/Python/pyneuro",
-        // },
-        // {
-        //     "name": "🔒 aix (read-only)",
-        //     "path": "/Users/bvandewe/Documents/Work/Systems/Mozart/src/microservices/aix",
-        //     "readOnly": true,
-        // },
         {
             "name": "📦 lcm-core",
             "path": "src/core",

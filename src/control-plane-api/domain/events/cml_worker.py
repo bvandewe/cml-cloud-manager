@@ -900,3 +900,35 @@ class AllocatedCapacityRecalculatedDomainEvent(DomainEvent):
         self.active_session_ids = active_session_ids
         self.stale_session_ids = stale_session_ids
         self.recalculated_at = recalculated_at
+
+
+@cloudevent("cml_worker.lab_discovery.triggered.v1")
+@dataclass
+class CMLWorkerLabDiscoveryTriggeredDomainEvent(DomainEvent):
+    """Event raised when lab discovery is triggered for a worker (ADR-041 Phase 2).
+
+    Emitted when worker-controller detects new lab_ids in WebSocket lab_stats
+    that are not yet known to CPA. Projected to etcd for lablet-controller to
+    execute targeted REST-based discovery.
+    """
+
+    aggregate_id: str
+    worker_id: str
+    lab_ids: list[str]
+    source: str
+    triggered_at: str
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        worker_id: str,
+        lab_ids: list[str],
+        source: str,
+        triggered_at: str,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.worker_id = worker_id
+        self.lab_ids = lab_ids
+        self.source = source
+        self.triggered_at = triggered_at

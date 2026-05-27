@@ -25,6 +25,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from infrastructure.observability import (
+    record_scale_down_evaluation,
+    record_scaling_event,
+)
+from integration.services.aws_cloudwatch_spi import AwsCloudWatchSpiClient
+from integration.services.aws_ec2_spi import AwsCredentials, AwsEc2SpiClient
+from integration.services.cml_system_spi import CmlSystemSpiClient, CmlSystemStats
+from integration.services.cml_websocket_monitor import ConnectionStatus
+from integration.services.cml_websocket_registry import CmlWebSocketMonitorRegistry
 from lcm_core.domain.entities import CMLWorkerReadModel
 from lcm_core.domain.enums import CMLWorkerStatus
 from lcm_core.infrastructure.hosted_services import (
@@ -38,13 +47,6 @@ from lcm_core.integration.clients import ControlPlaneApiClient, EtcdClient
 from lcm_core.integration.clients.etcd_client import EtcdEvent
 
 from application.settings import Settings
-from infrastructure.observability import (
-    record_scale_down_evaluation,
-    record_scaling_event,
-)
-from integration.services.aws_cloudwatch_spi import AwsCloudWatchSpiClient
-from integration.services.aws_ec2_spi import AwsCredentials, AwsEc2SpiClient
-from integration.services.cml_system_spi import CmlSystemSpiClient
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -103,6 +105,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         cloudwatch_client: AwsCloudWatchSpiClient,
         cml_client: CmlSystemSpiClient,
         settings: Settings,
+        ws_registry: CmlWebSocketMonitorRegistry | None = None,
     ) -> None:
         """Initialize the worker reconciler.
 
@@ -113,6 +116,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             cloudwatch_client: AWS CloudWatch SPI client.
             cml_client: CML System SPI client.
             settings: Application settings.
+            ws_registry: CML WebSocket monitor registry (ADR-041). None if WS disabled.
         """
         # Configure reconciliation (polling fallback)
         # ADR-015: polling_enabled can be set to False for watch-only mode
@@ -150,6 +154,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         self._cloudwatch = cloudwatch_client
         self._cml = cml_client
         self._settings = settings
+        self._ws_registry = ws_registry
 
         # Extended metrics
         self._provisioned_count = 0
@@ -181,6 +186,11 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         self._total_orphans_terminated = 0
         self._last_discovery_at: datetime | None = None
         self._last_discovery_error: str | None = None
+
+        # Known lab IDs per worker (populated from WebSocket lab_stats events).
+        # When a lab_stats event arrives for an unknown lab_id, we signal CPA
+        # to trigger targeted discovery on the lablet-controller (ADR-041 Phase 2).
+        self._known_lab_ids: dict[str, set[str]] = {}  # worker_id → {lab_id, ...}
 
     # =========================================================================
     # Leader Lifecycle (start/stop metrics + discovery)
@@ -240,6 +250,11 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
                 pass
             self._discovery_task = None
             logger.info(f"{self._config.service_name}: Stopped discovery loop")
+
+        # Stop all WebSocket monitors on leader loss (ADR-041)
+        if self._ws_registry:
+            await self._ws_registry.stop_all()
+            logger.info(f"{self._config.service_name}: Stopped all WebSocket monitors")
 
         await super()._step_down()
 
@@ -530,16 +545,15 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             return ReconciliationResult.failed(f"EC2 instance {worker.ec2_instance_id} not found")
 
         if state.state == "running":
-            # Instance is ready - update to RUNNING and record IP
+            # Instance is ready - update to RUNNING
             await self._api.update_worker_status(
                 worker_id=worker.id,
                 status=CMLWorkerStatus.RUNNING,
-                ip_address=state.public_ip or state.private_ip,
             )
             logger.info(f"Worker {worker.id} provisioned and running at {state.public_ip or state.private_ip}")
             self._provisioned_count += 1
 
-            # Report EC2 instance details (AMI info) to CPA
+            # Report EC2 instance details (IPs + AMI info) to CPA
             await self._report_ec2_details(worker.id, state)
 
             return ReconciliationResult.success()
@@ -570,7 +584,6 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             await self._api.update_worker_status(
                 worker_id=worker.id,
                 status=CMLWorkerStatus.RUNNING,
-                ip_address=state.public_ip or state.private_ip,
             )
             logger.info(f"Worker {worker.id} is now running")
             self._started_count += 1
@@ -615,16 +628,34 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             )
             return ReconciliationResult.requeue("Transitioning to TERMINATING")
 
-        # Verify EC2 is still running
+        # Verify EC2 is still running and detect IP changes
         if worker.ec2_instance_id:
             state = await self._ec2.get_instance_state(worker.ec2_instance_id)
-            if state and state.state != "running":
+
+            if state is None:
+                # EC2 instance not found — could be terminated externally or wrong region
+                logger.warning(f"Worker {worker.id}: EC2 instance {worker.ec2_instance_id} not found (stored IP={worker.ip_address}). Instance may have been terminated externally.")
+            elif state.state != "running":
                 # EC2 state mismatch - update status
                 await self._api.update_worker_status(
                     worker_id=worker.id,
                     status=self._map_ec2_state_to_worker_status(state.state),
                 )
                 return ReconciliationResult.requeue("EC2 state changed")
+            else:
+                # EC2 is authoritative for IPs — detect changes (e.g., after stop/start)
+                ec2_ip = state.public_ip or state.private_ip
+                logger.debug(f"Worker {worker.id}: EC2 state=running, ec2_ip={ec2_ip}, stored_ip={worker.ip_address}")
+                if ec2_ip and ec2_ip != worker.ip_address:
+                    logger.info(f"Worker {worker.id} IP changed (EC2 authoritative): {worker.ip_address} → {ec2_ip}")
+                    await self._report_ec2_details(worker.id, state)
+                    # Update local read model so the rest of this tick uses the new IP
+                    # (WS monitor, REST calls, fallback logic all depend on worker.ip_address)
+                    worker.ip_address = ec2_ip
+                    worker.public_ip = state.public_ip
+                    worker.private_ip = state.private_ip
+        else:
+            logger.debug(f"Worker {worker.id}: No ec2_instance_id — skipping EC2 IP verification (stored_ip={worker.ip_address})")
 
         # Note: Metrics collection runs independently via _run_metrics_collection_loop.
         # Reconciliation only handles state alignment and on-demand requests.
@@ -633,6 +664,34 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         if worker.refresh_requested_at:
             logger.info(f"Worker {worker.id} has pending refresh request (at {worker.refresh_requested_at})")
             await self._handle_on_demand_refresh(worker)
+
+        # CML readiness gate — skip WS/REST if CML is not ready (e.g., still booting)
+        cml_ready = True
+        if worker.ip_address:
+            is_healthy, health_msg = await self._cml.check_health(worker.ip_address)
+            if not is_healthy:
+                cml_ready = False
+                logger.debug(f"Worker {worker.id} CML not ready, skipping WS/REST: {health_msg}")
+
+        # Ensure CML WebSocket monitor is connected (ADR-041)
+        if cml_ready and self._ws_registry and self._settings.cml_websocket_enabled and worker.ip_address:
+            # Fallback: only from private→public (external clients can't reach private IPs)
+            fallback = worker.public_ip if worker.ip_address == worker.private_ip else None
+            try:
+                await self._ws_registry.ensure_monitoring(
+                    worker_id=worker.id,
+                    host=worker.ip_address,
+                    fallback_host=fallback,
+                    username=worker.cml_username,
+                    password=worker.cml_password,
+                    on_system_stats=self._on_ws_system_stats,
+                    on_activity_event=self._on_ws_activity_event,
+                    on_lab_stats=self._on_ws_lab_stats,
+                    on_lab_state_change=self._on_ws_lab_state_change,
+                    on_connection_change=self._on_ws_connection_change,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to ensure WS monitoring for worker {worker.id}: {e}")
 
         # Reconcile license operations (ADR-016)
         await self._reconcile_license(worker)
@@ -656,6 +715,10 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
 
         Cloud Provider SPI: EC2 StopInstances
         """
+        # Disconnect WebSocket monitor when worker leaves RUNNING (ADR-041)
+        if self._ws_registry and self._settings.cml_websocket_enabled:
+            await self._ws_registry.stop_monitoring(worker.id)
+
         if not worker.ec2_instance_id:
             # No EC2 instance - just update status
             await self._api.update_worker_status(
@@ -701,6 +764,10 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         - desired=terminated → transition to TERMINATING (EC2 TerminateInstances via _handle_terminating)
         - otherwise        → no-op (worker is at desired state)
         """
+        # Ensure WebSocket monitor is stopped (idempotent) (ADR-041)
+        if self._ws_registry and self._settings.cml_websocket_enabled:
+            await self._ws_registry.stop_monitoring(worker.id)
+
         if worker.desired_status == CMLWorkerStatus.RUNNING:
             logger.info(f"Starting stopped worker {worker.id} (desired=running)")
             await self._api.update_worker_status(
@@ -864,25 +931,52 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             except Exception as e:
                 logger.warning(f"Failed to collect CloudWatch metrics for {worker.id}: {e}")
 
-        # Collect CML system stats
+        # Collect CML system stats (skip if WebSocket is connected — ADR-041)
         if worker.ip_address:
-            try:
-                cml_stats = await self._cml.get_system_stats(
-                    host=worker.ip_address,
-                    username=worker.cml_username,
-                    password=worker.cml_password,
-                )
-                metrics["cml"] = {
-                    "cpu_percent": cml_stats.cpu.percent,
-                    "memory_total": cml_stats.memory.total,
-                    "memory_used": cml_stats.memory.used,
-                    "memory_free": cml_stats.memory.free,
-                    "disk_total": cml_stats.disk.total,
-                    "disk_used": cml_stats.disk.used,
-                    "disk_free": cml_stats.disk.free,
-                }
-            except Exception as e:
-                logger.warning(f"Failed to collect CML stats for {worker.id}: {type(e).__name__}: {e}")
+            # Ensure WebSocket monitor is running with current IP (recovers FAILED monitors
+            # and handles IP changes, e.g. private→public after instance start)
+            if self._ws_registry and self._settings.cml_websocket_enabled:
+                # Fallback: only from private→public (external clients can't reach private IPs)
+                fallback = worker.public_ip if worker.ip_address == worker.private_ip else None
+                try:
+                    await self._ws_registry.ensure_monitoring(
+                        worker_id=worker.id,
+                        host=worker.ip_address,
+                        fallback_host=fallback,
+                        username=worker.cml_username,
+                        password=worker.cml_password,
+                        on_system_stats=self._on_ws_system_stats,
+                        on_activity_event=self._on_ws_activity_event,
+                        on_lab_stats=self._on_ws_lab_stats,
+                        on_lab_state_change=self._on_ws_lab_state_change,
+                        on_connection_change=self._on_ws_connection_change,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to ensure WS monitoring for worker {worker.id} in metrics loop: {e}")
+
+            ws_monitor = self._ws_registry.get_monitor(worker.id) if self._ws_registry else None
+            if ws_monitor and ws_monitor.is_connected and ws_monitor.latest_system_stats:
+                # WebSocket is already pushing system_stats via callback — skip redundant REST poll
+                logger.debug(f"Skipping CML system_stats poll for {worker.id} (WS connected)")
+            else:
+                # Fallback: poll via REST API (WS not connected or no data yet)
+                try:
+                    cml_stats = await self._cml.get_system_stats(
+                        host=worker.ip_address,
+                        username=worker.cml_username,
+                        password=worker.cml_password,
+                    )
+                    metrics["cml"] = {
+                        "cpu_percent": cml_stats.cpu.percent,
+                        "memory_total": cml_stats.memory.total,
+                        "memory_used": cml_stats.memory.used,
+                        "memory_free": cml_stats.memory.free,
+                        "disk_total": cml_stats.disk.total,
+                        "disk_used": cml_stats.disk.used,
+                        "disk_free": cml_stats.disk.free,
+                    }
+                except Exception as e:
+                    logger.warning(f"Failed to collect CML stats for {worker.id}: {type(e).__name__}: {e}")
 
         # Report utilization metrics to Control Plane API
         try:
@@ -1488,6 +1582,125 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         logger.info(f"On-demand refresh completed for worker {worker.id}")
 
     # =========================================================================
+    # WEBSOCKET CALLBACKS (ADR-041)
+    # =========================================================================
+
+    async def _on_ws_system_stats(self, worker_id: str, stats: CmlSystemStats) -> None:
+        """Handle system_stats from WebSocket. Report to CPA.
+
+        Called by CmlWebSocketMonitor at most every metrics_report_interval seconds.
+        Reports real-time CML resource utilization to the Control Plane API.
+        """
+        metrics: dict[str, Any] = {
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+            "source": "websocket",
+            "cml": {
+                "cpu_percent": stats.cpu.percent,
+                "cpu_count": stats.cpu.count,
+                "memory_total": stats.memory.total,
+                "memory_used": stats.memory.used,
+                "memory_free": stats.memory.free,
+                "disk_total": stats.disk.total,
+                "disk_used": stats.disk.used,
+                "disk_free": stats.disk.free,
+            },
+        }
+
+        # Include per-compute dominfo for capacity tracking
+        if stats.computes:
+            metrics["cml"]["computes"] = [
+                {
+                    "compute_id": c.compute_id,
+                    "hostname": c.hostname,
+                    "allocated_cpus": c.stats.dominfo.allocated_cpus,
+                    "allocated_memory": c.stats.dominfo.allocated_memory,
+                    "running_nodes": c.stats.dominfo.running_nodes,
+                    "total_nodes": c.stats.dominfo.total_nodes,
+                }
+                for c in stats.computes
+            ]
+
+        try:
+            await self._api.report_worker_metrics(worker_id=worker_id, metrics=metrics)
+        except Exception as e:
+            logger.warning(f"Failed to report WS system_stats for {worker_id}: {e}")
+
+    async def _on_ws_activity_event(self, worker_id: str, event: dict[str, Any]) -> None:
+        """Handle activity event from WebSocket. Report to CPA for idle detection.
+
+        Activity events represent user-initiated actions (lab starts/stops,
+        node state changes) that reset the idle timer.
+        """
+        try:
+            await self._api.report_worker_activity_events(
+                worker_id=worker_id,
+                activity_events=[event],
+                source="websocket",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to report WS activity event for {worker_id}: {e}")
+
+    async def _on_ws_lab_stats(self, worker_id: str, lab_id: str, data: dict[str, Any]) -> None:
+        """Handle lab_stats from WebSocket. Report per-lab metrics to CPA.
+
+        Also detects new lab_ids not yet known to the system and triggers
+        targeted lab discovery via CPA → etcd → lablet-controller (ADR-041 Phase 2).
+        """
+        # Detect new lab_id → trigger discovery
+        known = self._known_lab_ids.setdefault(worker_id, set())
+        if lab_id not in known:
+            known.add(lab_id)
+            # Signal CPA to trigger targeted discovery for this worker
+            try:
+                await self._api.trigger_lab_discovery(
+                    worker_id=worker_id,
+                    lab_ids=[lab_id],
+                    source="websocket-lab-stats",
+                )
+                logger.info(f"Triggered lab discovery for new lab_id={lab_id} on worker {worker_id}")
+            except Exception as e:
+                logger.debug(f"Failed to trigger lab discovery for {worker_id}/{lab_id}: {e}")
+
+        # Report per-lab metrics
+        try:
+            await self._api.report_worker_lab_stats(
+                worker_id=worker_id,
+                lab_id=lab_id,
+                data=data,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to report WS lab_stats for {worker_id}/{lab_id}: {e}")
+
+    async def _on_ws_lab_state_change(self, worker_id: str, event: dict[str, Any]) -> None:
+        """Handle state_change from WebSocket. Report to CPA."""
+        try:
+            await self._api.report_worker_lab_state_change(
+                worker_id=worker_id,
+                event=event,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to report WS state_change for {worker_id}: {e}")
+
+    async def _on_ws_connection_change(self, worker_id: str, status: ConnectionStatus, reason: str | None) -> None:
+        """Handle WebSocket connection state change. Report to CPA."""
+        connected = status == ConnectionStatus.CONNECTED
+        try:
+            await self._api.report_worker_ws_status(
+                worker_id=worker_id,
+                connected=connected,
+                reason=reason,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to report WS connection change for {worker_id}: {e}")
+
+        if connected:
+            logger.info(f"WebSocket connected for worker {worker_id}")
+        else:
+            # Clear known lab_ids for this worker so next connection re-discovers
+            self._known_lab_ids.pop(worker_id, None)
+            logger.info(f"WebSocket disconnected for worker {worker_id}: status={status.value}, reason={reason}")
+
+    # =========================================================================
     # ACTIVITY DETECTION
     # =========================================================================
 
@@ -1497,8 +1710,11 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         Per ADR-015, worker-controller fetches telemetry from CML API
         and passes raw events to CPA for processing and idle evaluation.
 
+        ADR-041 enhancement: When WebSocket is connected, drain accumulated
+        activity events from the monitor instead of polling the REST API.
+
         Flow:
-        1. Fetch raw telemetry events from CML via CmlSystemSpiClient
+        1. Fetch raw telemetry events (prefer WS drain, fallback to REST poll)
         2. Pass events to CPA via detect_worker_idle (internal API)
         3. CPA filters events, updates activity, checks idle status, auto-pauses
 
@@ -1511,8 +1727,14 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         """
         raw_telemetry_events: list[dict[str, Any]] = []
 
-        # Step 1: Fetch raw telemetry events from CML API (ADR-015 delegation)
-        if worker.ip_address:
+        # Step 1: Prefer WebSocket-collected activity events (ADR-041)
+        ws_monitor = self._ws_registry.get_monitor(worker.id) if self._ws_registry else None
+        if ws_monitor and ws_monitor.is_connected:
+            # Drain accumulated activity events from WebSocket monitor
+            raw_telemetry_events = ws_monitor.drain_activity_events()
+            logger.debug(f"Drained {len(raw_telemetry_events)} WS activity events for worker {worker.id}")
+        elif worker.ip_address:
+            # Fallback: Fetch raw telemetry events from CML REST API (ADR-015 delegation)
             try:
                 raw_telemetry_events = await self._cml.get_telemetry_events(
                     host=worker.ip_address,
@@ -1839,7 +2061,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
 
     def get_extra_info(self) -> dict[str, Any]:
         """Get extra info for /info endpoint."""
-        return {
+        info: dict[str, Any] = {
             "is_leader": self.is_leader,
             "current_leader_id": self.current_leader_id,
             "instance_id": self.instance_id,
@@ -1856,6 +2078,14 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
                 "settings_source": "api" if self._cached_discovery_settings and self._cached_discovery_settings.regions else "env",
             },
         }
+
+        # WebSocket monitoring status (ADR-041)
+        if self._ws_registry:
+            info["websocket_monitoring"] = self._ws_registry.get_status_summary()
+        else:
+            info["websocket_monitoring"] = {"enabled": False}
+
+        return info
 
     @classmethod
     def configure(
@@ -1881,6 +2111,14 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         from neuroglia.hosting.abstractions import HostedService
 
         def factory(sp) -> WorkerReconciler:
+            # ADR-041: Inject WebSocket registry if enabled
+            ws_registry = None
+            if settings.cml_websocket_enabled:
+                try:
+                    ws_registry = sp.get_required_service(CmlWebSocketMonitorRegistry)
+                except Exception:
+                    logger.warning("CmlWebSocketMonitorRegistry not registered, WS monitoring disabled")
+
             return cls(
                 api_client=sp.get_required_service(ControlPlaneApiClient),
                 etcd_client=sp.get_required_service(EtcdClient),
@@ -1888,6 +2126,7 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
                 cloudwatch_client=sp.get_required_service(AwsCloudWatchSpiClient),
                 cml_client=sp.get_required_service(CmlSystemSpiClient),
                 settings=settings,
+                ws_registry=ws_registry,
             )
 
         def hosted_service_factory(sp) -> WorkerReconciler:

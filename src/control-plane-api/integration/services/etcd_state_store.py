@@ -93,6 +93,7 @@ class EtcdStateStore:
     LAB_RECORD_PENDING_ACTION_KEY = "/lab_records/{id}/pending_action"  # AD-023: Lab action reactive reconciliation
     DEFINITION_CONTENT_SYNC_KEY = "/definitions/{id}/content_sync"  # AD-CS-001: Content sync reactive reconciliation
     SESSION_OBSERVE_RESOURCES_KEY = "/sessions/{id}/observe_resources"  # ADR-030: Manual observation trigger
+    WORKER_DISCOVER_LABS_KEY = "/workers/{id}/discover_labs"  # ADR-041 Phase 2: Targeted lab discovery trigger
     LEADER_KEY = "/{service}/leader"
 
     def __init__(self, etcd_client: EtcdClient):
@@ -825,6 +826,55 @@ class EtcdStateStore:
         deleted = await self._etcd.delete(key)
         if deleted:
             log.info(f"Deleted session {session_id} observe_resources key")
+        return deleted
+
+    # -------------------------------------------------------------------------
+    # Worker Lab Discovery (ADR-041 Phase 2)
+    # -------------------------------------------------------------------------
+
+    async def set_worker_discover_labs(
+        self,
+        worker_id: str,
+        lab_ids: list[str],
+        source: str,
+        triggered_at: str | None = None,
+    ) -> None:
+        """Set a lab discovery trigger for a worker.
+
+        ADR-041 Phase 2: This triggers watch-based targeted discovery in
+        lablet-controller. LabDiscoveryService watches /workers/ prefix for
+        discover_labs keys and reacts immediately.
+
+        Args:
+            worker_id: The CML worker ID where new labs were detected
+            lab_ids: CML lab IDs detected (informational for targeted scan)
+            source: Source of the trigger (e.g., "websocket-lab-stats")
+            triggered_at: ISO timestamp (defaults to now)
+        """
+        key = self.WORKER_DISCOVER_LABS_KEY.format(id=worker_id)
+        data = {
+            "lab_ids": lab_ids,
+            "source": source,
+            "triggered_at": triggered_at or datetime.now(timezone.utc).isoformat(),
+        }
+        await self._etcd.put(key, json.dumps(data))
+        log.info(f"Set worker {worker_id} discover_labs: lab_ids={lab_ids}, source={source}")
+
+    async def delete_worker_discover_labs(self, worker_id: str) -> bool:
+        """Delete the pending lab discovery trigger for a worker.
+
+        Called after lablet-controller completes targeted discovery.
+
+        Args:
+            worker_id: The CML worker ID
+
+        Returns:
+            True if deleted, False if not found
+        """
+        key = self.WORKER_DISCOVER_LABS_KEY.format(id=worker_id)
+        deleted = await self._etcd.delete(key)
+        if deleted:
+            log.info(f"Deleted worker {worker_id} discover_labs key")
         return deleted
 
     # -------------------------------------------------------------------------

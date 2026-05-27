@@ -1083,15 +1083,17 @@ export class WorkerDetailsModal extends BaseComponent {
             const statusClass = isActive ? 'bg-success' : 'bg-secondary';
             const statusLabel = isActive ? 'Active' : 'Released';
             const roleClass = binding.role === 'primary' ? 'bg-primary-subtle text-primary-emphasis' : 'bg-secondary-subtle text-secondary-emphasis';
+            const sessionId = binding.lablet_instance_id || binding.lablet_session_id || '';
+            const displayLabel = binding.definition_name ? `${escapeHtml(binding.definition_name)}` : escapeHtml(sessionId);
 
             return `
                 <div class="d-flex align-items-center justify-content-between py-1 ${isActive ? '' : 'opacity-50'}">
                     <div class="d-flex align-items-center gap-2">
                         <span class="badge ${statusClass} badge-sm">${statusLabel}</span>
                         <span class="badge ${roleClass}">${escapeHtml(binding.role || 'primary')}</span>
-                        <span class="font-monospace small text-truncate" style="max-width: 200px;" title="${escapeHtml(binding.lablet_instance_id)}">
-                            <i class="bi bi-grid-3x3-gap me-1"></i>${escapeHtml(binding.lablet_instance_id)}
-                        </span>
+                        <a href="#" class="text-decoration-none xref-session" data-session-id="${escapeHtml(sessionId)}" title="${escapeHtml(sessionId)}">
+                            <i class="bi bi-grid-3x3-gap me-1"></i>${displayLabel} <i class="bi bi-box-arrow-up-right small"></i>
+                        </a>
                     </div>
                     <small class="text-muted">
                         ${binding.bound_at ? formatDateWithRelative(binding.bound_at) : ''}
@@ -1188,6 +1190,19 @@ export class WorkerDetailsModal extends BaseComponent {
                         console.warn('[WorkerDetailsModal] lab-detail-modal element not found in DOM');
                         showToast('Lab detail modal not available on this page', 'warning');
                     }
+                }, 300);
+            });
+        });
+
+        // Cross-link: open SessionDetailsModal when clicking a session link
+        this.$$('.xref-session').forEach(link => {
+            link.addEventListener('click', e => {
+                e.preventDefault();
+                const sessionId = link.dataset.sessionId;
+                if (!sessionId) return;
+                this.closeModal();
+                setTimeout(() => {
+                    eventBus.emit('UI_OPEN_SESSION_DETAILS', { sessionId });
                 }, 300);
             });
         });
