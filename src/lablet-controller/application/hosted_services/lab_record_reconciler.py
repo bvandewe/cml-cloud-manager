@@ -29,11 +29,11 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState
 from lcm_core.integration.clients import ControlPlaneApiClient
 from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
 
 from application.settings import Settings
-from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -345,7 +345,27 @@ class LabRecordReconciler:
         elif action == "stop":
             await self._cml_labs.stop_lab(host=host, lab_id=lab_id)
         elif action == "wipe":
+            await self._stop_before_wipe(host=host, lab_id=lab_id, lab_record_id=lab_record_id)
             await self._cml_labs.wipe_lab(host=host, lab_id=lab_id)
+
+    async def _stop_before_wipe(self, host: str, lab_id: str, lab_record_id: str) -> None:
+        """Stop the lab if it is running before wiping (CML rejects wipe on booted labs)."""
+        state = await self._cml_labs.get_lab_state(host=host, lab_id=lab_id)
+        if state in DELETE_STOP_STATES:
+            logger.info("LabRecordReconciler: Lab %s is %s; stopping before wipe", lab_id, state.value)
+            await self._cml_labs.stop_lab(host=host, lab_id=lab_id)
+            await self._wait_for_lab_state(
+                host=host,
+                lab_id=lab_id,
+                desired_states=DELETE_STOPPED_STATES,
+                timeout_seconds=self._settings.lab_action_timeout_seconds,
+                poll_interval_seconds=self._settings.lab_action_poll_interval_seconds,
+            )
+            await self._report_intermediate_status(
+                lab_record_id=lab_record_id,
+                new_status="stopped",
+                cml_state=state.value,
+            )
 
     async def _execute_delete_flow(
         self,

@@ -6,6 +6,11 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ## [Unreleased]
 
+### Fixed — LabRecordReconciler Wipe Action on Booted Labs
+
+- **Stop-before-wipe guard** (lablet-controller): Wipe action now stops the lab first if it is in a running state (STARTED, BOOTED, QUEUED) before issuing the CML wipe API call. CML rejects wipe on booted labs with 400 Bad Request.
+- **UnboundLocalError fix** (lablet-controller): Fixed `except Exception:` not binding the exception variable, causing `UnboundLocalError` when the retry-with-refreshed-host path was not taken.
+
 ### Fixed — LabRecord↔LabletSession Link Not Shown in Real-Time
 
 - **SSE `lab.bound`/`lab.unbound` id normalization** (control-plane-api/UI): Fixed `sseAdapter.js` to normalize `lab_record_id → id` before dispatching to the labRecords store — previously `upsertLabRecord` silently ignored payloads lacking an `id` field.
