@@ -1,13 +1,6 @@
 import logging
 from typing import Annotated, Any
 
-from classy_fastapi.decorators import delete, get, post
-from fastapi import Depends, HTTPException, Path
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.mvc.controller_base import ControllerBase
-
 from api.dependencies import get_current_user, require_roles
 from api.models import CreateCMLWorkerRequest, DeleteCMLWorkerRequest, ImportCMLWorkerRequest, RegisterLicenseRequest, UpdateCMLWorkerTagsRequest
 from application.commands import (
@@ -21,6 +14,7 @@ from application.commands import (
     RequestWorkerRefreshCommand,
     StartCMLWorkerCommand,
     StopCMLWorkerCommand,
+    TriggerLabDiscoveryCommand,
     UpdateCMLWorkerStatusCommand,
     UpdateCMLWorkerTagsCommand,
 )
@@ -28,8 +22,14 @@ from application.queries import GetCMLWorkerByIdQuery, GetCMLWorkerResourcesQuer
 from application.queries.get_cml_worker_resources_query import CachedResourcesUtilization
 from application.queries.get_worker_activity_query import GetWorkerActivityQuery
 from application.queries.get_worker_idle_status_query import GetWorkerIdleStatusQuery
+from classy_fastapi.decorators import delete, get, post
 from domain.enums import CMLWorkerStatus
+from fastapi import Depends, HTTPException, Path
 from integration.enums import AwsRegion
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.mvc.controller_base import ControllerBase
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,31 @@ class WorkersController(ControllerBase):
         command = RequestWorkerRefreshCommand(
             worker_id=worker_id,
             requested_by="user",
+        )
+        return self.process(await self.mediator.execute_async(command))
+
+    @post(
+        "/region/{aws_region}/workers/{worker_id}/discover-labs",
+        status_code=202,
+        responses=ControllerBase.error_responses,
+    )
+    async def trigger_lab_discovery(
+        self,
+        aws_region: aws_region_annotation,
+        worker_id: worker_id_annotation,
+        token: str = Depends(get_current_user),
+    ) -> Any:
+        """Trigger targeted lab discovery for a worker (ADR-041 Phase 2).
+
+        Signals lablet-controller to execute an immediate REST-based scan
+        of the worker's labs, creating or updating LabRecords as needed.
+        Discovery is idempotent — safe to call multiple times.
+
+        (**Requires valid token.**)"""
+        command = TriggerLabDiscoveryCommand(
+            worker_id=worker_id,
+            lab_ids=[],
+            source="manual",
         )
         return self.process(await self.mediator.execute_async(command))
 

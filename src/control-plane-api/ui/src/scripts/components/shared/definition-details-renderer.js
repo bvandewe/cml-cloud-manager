@@ -12,6 +12,7 @@ import '../core/LcmCodeViewer.js';
 
 /**
  * Render the full definition details HTML for the modal body.
+ * Uses a tabbed layout: Overview | Content Sync | Definition Content
  * @param {Object} def - The full LabletDefinitionDto
  * @param {Function} formatDateTime - Datetime formatting function
  * @returns {string} HTML string
@@ -19,58 +20,94 @@ import '../core/LcmCodeViewer.js';
 export function renderDefinitionDetailsHtml(def, formatDateTime) {
     const uss = def.upstream_sync_status || {};
     const bucketUrl = buildObjectStorageUrl(def);
+    const hasContent = def.cml_yaml_content || def.devices_json || def.content_xml_content || def.user_visible_devices?.length;
 
     return `
-        <!-- Row 1: Basic Information + Resource Requirements -->
-        <div class="row g-3">
-            <div class="col-md-6">
-                <h6 class="text-muted mb-2"><i class="bi bi-info-circle me-1"></i>Basic Information</h6>
-                <dl class="row mb-0">
-                    <dt class="col-sm-4">Name</dt><dd class="col-sm-8">${def.name || '—'}</dd>
-                    <dt class="col-sm-4">Version</dt><dd class="col-sm-8">${def.version || '—'}</dd>
-                    <dt class="col-sm-4">Status</dt><dd class="col-sm-8"><lcm-status-badge status="${def.status || 'unknown'}"></lcm-status-badge></dd>
-                    <dt class="col-sm-4">Form QN</dt><dd class="col-sm-8">${def.form_qualified_name || '—'}</dd>
-                    <dt class="col-sm-4">Bucket Name</dt>
-                    <dd class="col-sm-8">${bucketUrl ? `<a href="${bucketUrl}" target="_blank" rel="noopener" class="text-decoration-none font-monospace" title="Browse in RustFS Console"><code>${_escapeAttr(def.bucket_name)}</code> <i class="bi bi-box-arrow-up-right small"></i></a>` : `<code>${_escapeAttr(def.bucket_name || '—')}</code>`}</dd>
-                </dl>
-            </div>
-            <div class="col-md-6">
-                <h6 class="text-muted mb-2"><i class="bi bi-cpu me-1"></i>Resource Requirements ${_renderResourceSourceBadge(def)}</h6>
-                <dl class="row mb-0">
-                    <dt class="col-sm-4">CPU Cores</dt><dd class="col-sm-8">${def.resource_requirements?.cpu_cores ?? '—'}</dd>
-                    <dt class="col-sm-4">Memory</dt><dd class="col-sm-8">${def.resource_requirements?.memory_gb ?? '—'} GB</dd>
-                    <dt class="col-sm-4">Storage</dt><dd class="col-sm-8">${def.resource_requirements?.storage_gb ?? '—'} GB</dd>
-                    <dt class="col-sm-4">Nodes</dt><dd class="col-sm-8">${def.node_count ?? '—'}</dd>
-                    <dt class="col-sm-4">Links</dt><dd class="col-sm-8">${def.port_template?.port_count ?? '—'}</dd>
-                    <dt class="col-sm-4">Nested Virt</dt><dd class="col-sm-8">${def.resource_requirements?.nested_virt ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No'}</dd>
-                </dl>
-                ${_renderResourceDefaultsNote(def)}
-            </div>
-        </div>
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs mb-3" id="defDetailTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="defTab-overview-btn" data-bs-toggle="tab"
+                    data-bs-target="#defTab-overview" type="button" role="tab"
+                    aria-controls="defTab-overview" aria-selected="true">
+                    <i class="bi bi-info-circle me-1"></i>Overview
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="defTab-sync-btn" data-bs-toggle="tab"
+                    data-bs-target="#defTab-sync" type="button" role="tab"
+                    aria-controls="defTab-sync" aria-selected="false">
+                    <i class="bi bi-cloud-download me-1"></i>Content Sync
+                    <lcm-status-badge status="${def.sync_status || 'none'}" class="ms-1"></lcm-status-badge>
+                </button>
+            </li>
+            ${
+                hasContent
+                    ? `
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="defTab-content-btn" data-bs-toggle="tab"
+                    data-bs-target="#defTab-content" type="button" role="tab"
+                    aria-controls="defTab-content" aria-selected="false">
+                    <i class="bi bi-file-earmark-code me-1"></i>Definition Content
+                </button>
+            </li>
+            `
+                    : ''
+            }
+        </ul>
 
-        <!-- Row 2: Lifecycle + Port Definitions -->
-        <div class="row g-3 mt-1">
-            <div class="col-md-6">
-                <h6 class="text-muted mb-2"><i class="bi bi-clock me-1"></i>Lifecycle</h6>
-                <dl class="row mb-0">
-                    <dt class="col-sm-5">Max Duration</dt><dd class="col-sm-7">${def.max_duration_minutes ?? '—'} min</dd>
-                    <dt class="col-sm-5">Warm Pool</dt><dd class="col-sm-7">${def.warm_pool_depth ?? 0}</dd>
-                    <dt class="col-sm-5">Boot Lead Time</dt><dd class="col-sm-7">${def.boot_lead_time_minutes != null ? def.boot_lead_time_minutes + ' min' : '<span class="text-muted">Global default</span>'}</dd>
-                    <dt class="col-sm-5">License</dt><dd class="col-sm-7">${(def.license_affinity || []).join(', ') || '—'}</dd>
-                </dl>
-            </div>
-            <div class="col-md-6">
-                ${_renderPortDefinitionsTable(def)}
-            </div>
-        </div>
+        <!-- Tab Content -->
+        <div class="tab-content" id="defDetailTabContent">
+            <!-- ═══ OVERVIEW TAB ═══ -->
+            <div class="tab-pane fade show active" id="defTab-overview" role="tabpanel" aria-labelledby="defTab-overview-btn">
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <div class="section-title"><i class="bi bi-info-circle me-1"></i>Basic Information</div>
+                        <dl class="row mb-0 dl-compact">
+                            <dt class="col-sm-4">Name</dt><dd class="col-sm-8">${def.name || '—'}</dd>
+                            <dt class="col-sm-4">Version</dt><dd class="col-sm-8">${def.version || '—'}</dd>
+                            <dt class="col-sm-4">Status</dt><dd class="col-sm-8"><lcm-status-badge status="${def.status || 'unknown'}"></lcm-status-badge></dd>
+                            <dt class="col-sm-4">Form QN</dt><dd class="col-sm-8">${def.form_qualified_name || '—'}</dd>
+                            <dt class="col-sm-4">Bucket Name</dt>
+                            <dd class="col-sm-8">${bucketUrl ? `<a href="${bucketUrl}" target="_blank" rel="noopener" class="text-decoration-none font-monospace" title="Browse in RustFS Console"><code>${_escapeAttr(def.bucket_name)}</code> <i class="bi bi-box-arrow-up-right small"></i></a>` : `<code>${_escapeAttr(def.bucket_name || '—')}</code>`}</dd>
+                        </dl>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="section-title"><i class="bi bi-cpu me-1"></i>Resource Requirements ${_renderResourceSourceBadge(def)}</div>
+                        <dl class="row mb-0 dl-compact">
+                            <dt class="col-sm-4">CPU Cores</dt><dd class="col-sm-8">${def.resource_requirements?.cpu_cores ?? '—'}</dd>
+                            <dt class="col-sm-4">Memory</dt><dd class="col-sm-8">${def.resource_requirements?.memory_gb ?? '—'} GB</dd>
+                            <dt class="col-sm-4">Storage</dt><dd class="col-sm-8">${def.resource_requirements?.storage_gb ?? '—'} GB</dd>
+                            <dt class="col-sm-4">Nodes</dt><dd class="col-sm-8">${def.node_count ?? '—'}</dd>
+                            <dt class="col-sm-4">Links</dt><dd class="col-sm-8">${def.port_template?.port_count ?? '—'}</dd>
+                            <dt class="col-sm-4">Nested Virt</dt><dd class="col-sm-8">${def.resource_requirements?.nested_virt ? '<i class="bi bi-check-circle text-success"></i> Yes' : '<i class="bi bi-x-circle text-muted"></i> No'}</dd>
+                        </dl>
+                        ${_renderResourceDefaultsNote(def)}
+                    </div>
+                </div>
 
-        <hr class="my-3">
+                <div class="row g-2 mt-1">
+                    <div class="col-md-6">
+                        <div class="section-title"><i class="bi bi-clock me-1"></i>Lifecycle</div>
+                        <dl class="row mb-0 dl-compact">
+                            <dt class="col-sm-5">Max Duration</dt><dd class="col-sm-7">${def.max_duration_minutes ?? '—'} min</dd>
+                            <dt class="col-sm-5">Warm Pool</dt><dd class="col-sm-7">${def.warm_pool_depth ?? 0}</dd>
+                            <dt class="col-sm-5">Boot Lead Time</dt><dd class="col-sm-7">${def.boot_lead_time_minutes != null ? def.boot_lead_time_minutes + ' min' : '<span class="text-muted">Global default</span>'}</dd>
+                            <dt class="col-sm-5">License</dt><dd class="col-sm-7">${(def.license_affinity || []).join(', ') || '—'}</dd>
+                        </dl>
+                    </div>
+                    <div class="col-md-6">
+                        ${_renderPortDefinitionsTable(def)}
+                    </div>
+                </div>
 
-        <!-- Content Synchronization Section -->
-        <div class="row g-3">
-            <div class="col-12">
+                <!-- Devices from content.xml -->
+                ${_renderDevicesTable(def)}
+            </div>
+
+            <!-- ═══ CONTENT SYNC TAB ═══ -->
+            <div class="tab-pane fade" id="defTab-sync" role="tabpanel" aria-labelledby="defTab-sync-btn">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="text-muted mb-0"><i class="bi bi-cloud-download me-1"></i>Content Synchronization</h6>
+                    <div class="section-title mb-0"><i class="bi bi-cloud-download me-1"></i>Content Synchronization</div>
                     <div>
                         <lcm-status-badge status="${def.sync_status || 'none'}" title="Overall Sync Status"></lcm-status-badge>
                         ${def.last_synced_at ? `<small class="text-muted ms-2">Last synced: ${formatDateTime(def.last_synced_at)}</small>` : ''}
@@ -80,7 +117,7 @@ export function renderDefinitionDetailsHtml(def, formatDateTime) {
                 <!-- Upstream metadata summary -->
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <dl class="row mb-0 small">
+                        <dl class="row mb-0 dl-compact">
                             <dt class="col-sm-5">Content Hash</dt>
                             <dd class="col-sm-7">
                                 ${def.content_package_hash ? `<code class="small user-select-all" title="${def.content_package_hash}">${def.content_package_hash}</code>` : '—'}
@@ -92,7 +129,7 @@ export function renderDefinitionDetailsHtml(def, formatDateTime) {
                         </dl>
                     </div>
                     <div class="col-md-6">
-                        <dl class="row mb-0 small">
+                        <dl class="row mb-0 dl-compact">
                             <dt class="col-sm-5">Mosaic Instance</dt>
                             <dd class="col-sm-7">${def.upstream_instance_name || '—'}</dd>
                             <dt class="col-sm-5">Session Package</dt>
@@ -115,25 +152,21 @@ export function renderDefinitionDetailsHtml(def, formatDateTime) {
                 <!-- Per-service sync logs accordion -->
                 ${renderSyncLogsAccordion(uss, formatDateTime)}
             </div>
-        </div>
 
-        <!-- Content Viewer Section -->
-        ${
-            def.cml_yaml_content || def.devices_json
-                ? `
-        <hr class="my-3">
-        <div class="row g-3">
-            <div class="col-12">
-                <h6 class="text-muted mb-2"><i class="bi bi-file-earmark-code me-1"></i>Definition Content</h6>
+            <!-- ═══ DEFINITION CONTENT TAB ═══ -->
+            ${
+                hasContent
+                    ? `
+            <div class="tab-pane fade" id="defTab-content" role="tabpanel" aria-labelledby="defTab-content-btn">
                 <div id="definition-content-viewer"></div>
             </div>
+            `
+                    : ''
+            }
         </div>
-        `
-                : ''
-        }
 
         <!-- Footer metadata -->
-        <div class="mt-3 pt-3 border-top">
+        <div class="mt-3 pt-2 border-top">
             <small class="text-muted">
                 ID: <code class="user-select-all">${def.id || '—'}</code>
                 ${def.created_at ? ` | Created: ${formatDateTime(def.created_at)}` : ''}
@@ -149,11 +182,28 @@ export function renderDefinitionDetailsHtml(def, formatDateTime) {
  * @param {Object} def - The full LabletDefinitionDto
  */
 export function mountDefinitionContentViewer(container, def) {
-    if (!def.cml_yaml_content && !def.devices_json) return;
+    if (!def.cml_yaml_content && !def.devices_json && !def.content_xml_content && !def.user_visible_devices?.length) return;
 
     const viewerContainer = container.querySelector('#definition-content-viewer');
     if (!viewerContainer) return;
 
+    // Defer mounting until the content tab is shown (hidden tabs have 0 dimensions)
+    const contentTab = container.querySelector('#defTab-content-btn');
+    if (contentTab) {
+        let mounted = false;
+        contentTab.addEventListener('shown.bs.tab', () => {
+            if (!mounted) {
+                mounted = true;
+                _doMountContentViewer(viewerContainer, def);
+            }
+        });
+    } else {
+        // Fallback: mount immediately if tabs not found
+        _doMountContentViewer(viewerContainer, def);
+    }
+}
+
+function _doMountContentViewer(viewerContainer, def) {
     const viewer = document.createElement('lcm-code-viewer');
     const files = [];
 
@@ -180,6 +230,23 @@ export function mountDefinitionContentViewer(container, def) {
                 language: 'json',
             });
         }
+    }
+
+    // Reconstruct content.xml from raw content or user_visible_devices
+    if (def.content_xml_content) {
+        files.push({
+            name: 'content.xml',
+            content: def.content_xml_content,
+            language: 'xml',
+        });
+    } else if (def.user_visible_devices && def.user_visible_devices.length > 0) {
+        // Fallback: reconstruct from extracted device data
+        const contentXml = _reconstructContentXml(def);
+        files.push({
+            name: 'content.xml',
+            content: contentXml,
+            language: 'xml',
+        });
     }
 
     if (files.length) {
@@ -227,6 +294,7 @@ function _renderResourceSourceBadge(def) {
 
 /**
  * Render port definitions table in definition details (Phase 3 — ADR-030 UX).
+ * Max 8 rows visible, then vertical scrollbar kicks in.
  */
 function _renderPortDefinitionsTable(def) {
     const ports = def.port_template?.ports || def.port_definitions || [];
@@ -239,32 +307,105 @@ function _renderPortDefinitionsTable(def) {
             const protoIcon = appProto.icon;
             return `
         <tr>
-            <td class="font-monospace">${_escapeAttr(p.name || '—')}</td>
-            <td class="text-center" title="${_escapeAttr(p.protocol || 'tcp').toUpperCase()}"><i class="bi ${protoIcon} me-1 small"></i>${protoLabel}</td>
-            <td class="text-center">${p.port || '—'}</td>
+            <td class="font-monospace small py-1">${_escapeAttr(p.name || '—')}</td>
+            <td class="text-center py-1" title="${_escapeAttr(p.protocol || 'tcp').toUpperCase()}"><i class="bi ${protoIcon} me-1 small"></i>${protoLabel}</td>
+            <td class="text-center py-1">${p.port || '—'}</td>
         </tr>
     `;
         })
         .join('');
 
     return `
-        <h6 class="text-muted mb-2">
+        <div class="section-title">
             <i class="bi bi-plug me-1"></i>Port Definitions
             <span class="badge bg-secondary ms-1">${ports.length}</span>
-        </h6>
-        <div class="table-responsive" style="max-height: 220px; overflow-y: auto;">
-            <table class="table table-sm table-bordered mb-0">
-                <thead class="table-light">
+        </div>
+        <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+            <table class="table table-sm table-bordered mb-0" style="font-size: 0.8rem;">
+                <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
                     <tr>
-                        <th>Name</th>
-                        <th class="text-center">Service</th>
-                        <th class="text-center">Port</th>
+                        <th class="py-1">Name</th>
+                        <th class="text-center py-1">Service</th>
+                        <th class="text-center py-1">Port</th>
                     </tr>
                 </thead>
                 <tbody>${portRows}</tbody>
             </table>
         </div>
     `;
+}
+
+/**
+ * Render devices table from user_visible_devices (extracted from content.xml).
+ * Shows device labels, access modes, and categories.
+ */
+function _renderDevicesTable(def) {
+    const devices = def.user_visible_devices;
+    if (!devices || devices.length === 0) return '';
+
+    const accessModeIcons = {
+        web: { icon: 'bi-globe', label: 'Web' },
+        terminal: { icon: 'bi-terminal', label: 'Terminal' },
+        vnc: { icon: 'bi-display', label: 'VNC' },
+        ssh: { icon: 'bi-key', label: 'SSH' },
+    };
+
+    const deviceRows = devices
+        .map(d => {
+            const mode = accessModeIcons[d.user_access_mode] || { icon: 'bi-box', label: d.user_access_mode || '—' };
+            return `
+            <tr>
+                <td class="font-monospace small py-1">${_escapeAttr(d.device_label || '—')}</td>
+                <td class="py-1">${_escapeAttr(d.category || '—')}</td>
+                <td class="text-center py-1"><i class="bi ${mode.icon} me-1 small"></i>${mode.label}</td>
+            </tr>`;
+        })
+        .join('');
+
+    return `
+        <div class="row g-3 mt-2">
+            <div class="col-md-6">
+                <div class="section-title"><i class="bi bi-pc-display me-1"></i>Devices <span class="badge bg-secondary ms-1">${devices.length}</span></div>
+                <div class="table-responsive" style="max-height: 200px; overflow-y: auto;">
+                    <table class="table table-sm table-bordered mb-0" style="font-size: 0.8rem;">
+                        <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                            <tr>
+                                <th class="py-1">Device Label</th>
+                                <th class="py-1">Category</th>
+                                <th class="text-center py-1">Access Mode</th>
+                            </tr>
+                        </thead>
+                        <tbody>${deviceRows}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Reconstruct a representative content.xml from user_visible_devices data.
+ * This is an approximation since we only store the extracted device elements.
+ */
+function _reconstructContentXml(def) {
+    const devices = def.user_visible_devices || [];
+    const deviceElements = devices
+        .map(d => {
+            const attrs = [];
+            if (d.category) attrs.push(`category="${_escapeAttr(d.category)}"`);
+            if (d.device_label) attrs.push(`device_label="${_escapeAttr(d.device_label)}"`);
+            if (d.user_access_mode) attrs.push(`user_access_mode="${_escapeAttr(d.user_access_mode)}"`);
+            return `        <device ${attrs.join(' ')}/>`;
+        })
+        .join('\n');
+
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab_content version="3">
+    <title>${_escapeAttr(def.name || 'Lablet')}</title>
+    <device>
+${deviceElements}
+    </device>
+</lab_content>`;
 }
 
 /**

@@ -9,8 +9,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from neuroglia.mediation import DomainEventHandler
-
 from application.services.sse_event_relay import SSEEventRelay
 from domain.events.lablet_definition_events import (
     LabletDefinitionActivatedDomainEvent,
@@ -21,7 +19,10 @@ from domain.events.lablet_definition_events import (
     LabletDefinitionDeprecatedDomainEvent,
     LabletDefinitionSyncRequestedDomainEvent,
     LabletDefinitionUpdatedDomainEvent,
+    LabletDefinitionVersionCreatedDomainEvent,
+    LabletDefinitionWarmPoolUpdatedDomainEvent,
 )
+from neuroglia.mediation import DomainEventHandler
 
 log = logging.getLogger(__name__)
 
@@ -218,4 +219,58 @@ class LabletDefinitionSyncRequestedDomainEventHandler(DomainEventHandler[LabletD
             source="domain.lablet_definition",
         )
         log.info("Broadcasted lablet.definition.sync_requested for %s", notification.aggregate_id)
+        return None
+
+
+class LabletDefinitionVersionCreatedDomainEventHandler(DomainEventHandler[LabletDefinitionVersionCreatedDomainEvent]):
+    """SSE handler for lablet definition version created events.
+
+    Broadcasts when a new version of a definition is created (version bump).
+    Used by the frontend to update definition cards with new version info.
+    """
+
+    def __init__(self, sse_relay: SSEEventRelay):
+        self._sse_relay = sse_relay
+
+    async def handle_async(self, notification: LabletDefinitionVersionCreatedDomainEvent) -> None:  # type: ignore[override]
+        await self._sse_relay.broadcast_event(
+            event_type="lablet.definition.version_created",
+            data={
+                "definition_id": notification.aggregate_id,
+                "name": notification.name,
+                "version": notification.version,
+                "previous_version": notification.previous_version,
+                "node_count": notification.node_count,
+                "created_by": notification.created_by,
+                "created_at": _utc_iso(notification.created_at),
+            },
+            source="domain.lablet_definition",
+        )
+        log.info("Broadcasted lablet.definition.version_created for %s (v%s)", notification.aggregate_id, notification.version)
+        return None
+
+
+class LabletDefinitionWarmPoolUpdatedDomainEventHandler(DomainEventHandler[LabletDefinitionWarmPoolUpdatedDomainEvent]):
+    """SSE handler for lablet definition warm pool updated events.
+
+    Broadcasts when a definition's warm pool depth is changed.
+    Used by the frontend to reflect warm pool configuration changes.
+    """
+
+    def __init__(self, sse_relay: SSEEventRelay):
+        self._sse_relay = sse_relay
+
+    async def handle_async(self, notification: LabletDefinitionWarmPoolUpdatedDomainEvent) -> None:  # type: ignore[override]
+        await self._sse_relay.broadcast_event(
+            event_type="lablet.definition.warm_pool_updated",
+            data={
+                "definition_id": notification.aggregate_id,
+                "old_warm_pool_depth": notification.old_warm_pool_depth,
+                "new_warm_pool_depth": notification.new_warm_pool_depth,
+                "updated_by": notification.updated_by,
+                "updated_at": _utc_iso(notification.updated_at),
+            },
+            source="domain.lablet_definition",
+        )
+        log.info("Broadcasted lablet.definition.warm_pool_updated for %s", notification.aggregate_id)
         return None

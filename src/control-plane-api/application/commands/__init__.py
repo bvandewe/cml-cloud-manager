@@ -7,6 +7,14 @@ External calls (EC2, CloudWatch, CML API) are handled by controllers.
 # Base class - stays at root level
 from .command_handler_base import CommandHandlerBase
 
+# GradingSession commands (Phase 7D — ADR-021 child entity)
+from .grading_session import (
+    CreateGradingSessionCommand,
+    CreateGradingSessionCommandHandler,
+    UpdateGradingSessionStatusCommand,
+    UpdateGradingSessionStatusCommandHandler,
+)
+
 # Lab commands
 from .lab import (
     ControlLabCommand,
@@ -26,8 +34,8 @@ from .lablet_definition import (
     CreateLabletDefinitionCommandHandler,
     SyncLabletDefinitionCommand,
     SyncLabletDefinitionCommandHandler,
-    UpdateLabletDefinitionCommand,
-    UpdateLabletDefinitionCommandHandler,
+    UpdateLabletDefinitionCommand,  # noqa: F401
+    UpdateLabletDefinitionCommandHandler,  # noqa: F401
 )
 
 # LabletSession commands (Phase 7D — replaces LabletInstance commands)
@@ -40,8 +48,22 @@ from .lablet_session import (
     TerminateLabletSessionCommandHandler,
 )
 
+# ScoreReport commands (Phase 7D — ADR-021 child entity)
+from .score_report import (
+    CreateScoreReportCommand,
+    CreateScoreReportCommandHandler,
+)
+
 # Settings commands
 from .settings import UpdateSystemSettingsCommand, UpdateSystemSettingsCommandHandler
+
+# UserSession commands (Phase 7D — ADR-021 child entity)
+from .user_session import (
+    CreateUserSessionCommand,
+    CreateUserSessionCommandHandler,
+    UpdateUserSessionStatusCommand,
+    UpdateUserSessionStatusCommandHandler,
+)
 
 # Worker commands (DB-only per ADR-015)
 from .worker import (
@@ -78,6 +100,8 @@ from .worker import (
     StopCMLWorkerCommandHandler,
     TerminateCMLWorkerCommand,
     TerminateCMLWorkerCommandHandler,
+    TriggerLabDiscoveryCommand,
+    TriggerLabDiscoveryCommandHandler,
     UpdateCMLWorkerMetricsCommand,
     UpdateCMLWorkerMetricsCommandHandler,
     UpdateCMLWorkerStatusCommand,
@@ -104,28 +128,6 @@ from .worker_template import (
     EnableWorkerTemplateCommandHandler,
     UpdateWorkerTemplateCommand,
     UpdateWorkerTemplateCommandHandler,
-)
-
-# UserSession commands (Phase 7D — ADR-021 child entity)
-from .user_session import (
-    CreateUserSessionCommand,
-    CreateUserSessionCommandHandler,
-    UpdateUserSessionStatusCommand,
-    UpdateUserSessionStatusCommandHandler,
-)
-
-# GradingSession commands (Phase 7D — ADR-021 child entity)
-from .grading_session import (
-    CreateGradingSessionCommand,
-    CreateGradingSessionCommandHandler,
-    UpdateGradingSessionStatusCommand,
-    UpdateGradingSessionStatusCommandHandler,
-)
-
-# ScoreReport commands (Phase 7D — ADR-021 child entity)
-from .score_report import (
-    CreateScoreReportCommand,
-    CreateScoreReportCommandHandler,
 )
 
 __all__ = [
@@ -201,6 +203,8 @@ __all__ = [
     "StopCMLWorkerCommandHandler",
     "TerminateCMLWorkerCommand",
     "TerminateCMLWorkerCommandHandler",
+    "TriggerLabDiscoveryCommand",
+    "TriggerLabDiscoveryCommandHandler",
     "UpdateCMLWorkerMetricsCommand",
     "UpdateCMLWorkerMetricsCommandHandler",
     "UpdateCMLWorkerStatusCommand",

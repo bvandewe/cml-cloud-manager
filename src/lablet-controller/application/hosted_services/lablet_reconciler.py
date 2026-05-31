@@ -35,6 +35,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState, NodeInfo
+from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
 from lcm_core.domain.entities import LabletSessionReadModel
 from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
 from lcm_core.domain.enums import LabletSessionStatus
@@ -51,8 +53,6 @@ from lcm_core.integration.clients.etcd_client import EtcdEvent
 
 from application.services.resource_observer import ResourceObserver
 from application.settings import Settings
-from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState, NodeInfo
-from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -1253,7 +1253,7 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
     # LAB RESOLUTION (P9-4/5/8)
     # =========================================================================
 
-    async def _resolve_lab_for_instance(self, instance: LabletSessionReadModel, topology_yaml: str | None = None) -> str | None:
+    async def _resolve_lab_for_instance(self, instance: LabletSessionReadModel, topology_yaml: str | None = None) -> _lab_res.LabResolutionResult | None:
         """Resolve a lab for an instance: reuse existing or import fresh."""
         return await _lab_res.resolve_lab_for_instance(instance, self._api, self._cml_labs, self._definition_cache, topology_yaml)
 

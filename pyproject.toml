@@ -8,7 +8,7 @@ packages = [{include = "src"}]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
-neuroglia-python = ">=0.9.1,<0.10.0"
+neuroglia-python = ">=0.9.3,<0.10.0"
 python-keycloak = ">=5.8.1,<6.0.0"
 itsdangerous = ">=2.2.0,<3.0.0"
 redis = ">=7.0.1,<8.0.0"

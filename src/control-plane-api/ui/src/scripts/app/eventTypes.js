@@ -124,6 +124,8 @@ export const LcmEventTypes = {
     LABLET_DEFINITION_CONTENT_SYNCED: 'lablet.definition.content_synced',
     LABLET_DEFINITION_DEPRECATED: 'lablet.definition.deprecated',
     LABLET_DEFINITION_SYNC_REQUESTED: 'lablet.definition.sync_requested',
+    LABLET_DEFINITION_VERSION_CREATED: 'lablet.definition.version_created',
+    LABLET_DEFINITION_WARM_POOL_UPDATED: 'lablet.definition.warm_pool_updated',
     LABLET_DEFINITIONS_REFRESH_COMPLETED: 'lablet.definitions.refresh.completed',
 
     // Worker Template events

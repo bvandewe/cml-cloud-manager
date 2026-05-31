@@ -44,6 +44,26 @@ export class LabletDefinitionList extends BaseComponent {
             this.addDefinition(data);
         });
 
+        this.subscribe(EventTypes.LABLET_DEFINITION_UPDATED, data => {
+            this.updateDefinition(data);
+        });
+
+        this.subscribe(EventTypes.LABLET_DEFINITION_ACTIVATED, data => {
+            this.updateDefinition({ ...data, status: 'active' });
+        });
+
+        this.subscribe(EventTypes.LABLET_DEFINITION_DEACTIVATED, data => {
+            this.updateDefinition({ ...data, status: 'inactive' });
+        });
+
+        this.subscribe(EventTypes.LABLET_DEFINITION_DEPRECATED, data => {
+            this.updateDefinition({ ...data, status: 'deprecated' });
+        });
+
+        this.subscribe(EventTypes.LABLET_DEFINITION_CONTENT_SYNCED, data => {
+            this.updateDefinition(data);
+        });
+
         this.subscribe(EventTypes.LABLET_DEFINITION_DELETED, data => {
             this.removeDefinition(data.definition_id);
         });
@@ -98,6 +118,14 @@ export class LabletDefinitionList extends BaseComponent {
     addDefinition(definition) {
         this.setState(prevState => ({
             definitions: [definition, ...prevState.definitions],
+        }));
+    }
+
+    updateDefinition(data) {
+        const defId = data.definition_id || data.id;
+        if (!defId) return;
+        this.setState(prevState => ({
+            definitions: prevState.definitions.map(d => (d.id === defId ? { ...d, ...data, id: defId } : d)),
         }));
     }
 

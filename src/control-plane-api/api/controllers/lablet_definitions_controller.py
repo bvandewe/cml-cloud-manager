@@ -6,13 +6,16 @@ from application.commands import (
     SyncLabletDefinitionCommand,
     UpdateLabletDefinitionCommand,
 )
+from application.commands.lablet_definition.activate_lablet_definition_command import ActivateLabletDefinitionCommand
+from application.commands.lablet_definition.deactivate_lablet_definition_command import DeactivateLabletDefinitionCommand
+from application.commands.lablet_definition.delete_lablet_definition_command import DeleteLabletDefinitionCommand
 from application.queries import (
     GetDefinitionResourceObservationsQuery,
     GetLabletDefinitionQuery,
     ListLabletDefinitionsQuery,
     SearchLabletDefinitionsQuery,
 )
-from classy_fastapi.decorators import get, post, put
+from classy_fastapi.decorators import delete, get, patch, post, put
 from classy_fastapi.routable import Routable
 from fastapi import Depends
 from neuroglia.dependency_injection import ServiceProviderBase
@@ -351,6 +354,77 @@ class LabletDefinitionsController(ControllerBase):
             max_duration_minutes=request.max_duration_minutes,
             warm_pool_depth=request.warm_pool_depth,
             grading_rules_uri=request.grading_rules_uri,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @patch("/{definition_id}/activate", summary="Activate Lablet Definition", tags=["Lablet Definitions"])
+    async def activate_definition(
+        self,
+        definition_id: str,
+        user: dict = Depends(require_roles("admin", "lab-author")),
+    ):
+        """Activate a lablet definition (transition from INACTIVE/ARCHIVED to ACTIVE).
+
+        **RBAC Protected**: Requires 'admin' or 'lab-author' role.
+
+        Makes the definition available for scheduling new lablet sessions.
+        Only INACTIVE or ARCHIVED definitions can be activated.
+        """
+        activated_by = user.get("sub", user.get("preferred_username", "unknown"))
+
+        command = ActivateLabletDefinitionCommand(
+            definition_id=definition_id,
+            activated_by=activated_by,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @patch("/{definition_id}/deactivate", summary="Deactivate Lablet Definition", tags=["Lablet Definitions"])
+    async def deactivate_definition(
+        self,
+        definition_id: str,
+        reason: str | None = None,
+        user: dict = Depends(require_roles("admin", "lab-author")),
+    ):
+        """Deactivate a lablet definition (transition from ACTIVE to INACTIVE).
+
+        **RBAC Protected**: Requires 'admin' or 'lab-author' role.
+
+        Temporarily removes the definition from scheduling availability.
+        It can be reactivated later via the activate endpoint.
+
+        Parameters:
+        - **reason**: Optional reason for deactivation
+        """
+        deactivated_by = user.get("sub", user.get("preferred_username", "unknown"))
+
+        command = DeactivateLabletDefinitionCommand(
+            definition_id=definition_id,
+            deactivated_by=deactivated_by,
+            reason=reason,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @delete("/{definition_id}", summary="Delete Lablet Definition", tags=["Lablet Definitions"], status_code=204)
+    async def delete_definition(
+        self,
+        definition_id: str,
+        user: dict = Depends(require_roles("admin")),
+    ):
+        """Soft-delete a lablet definition.
+
+        **RBAC Protected**: Requires 'admin' role.
+
+        Marks the definition as DELETED. It will be excluded from all listings
+        but remains in the database for audit purposes.
+        """
+        deleted_by = user.get("sub", user.get("preferred_username", "unknown"))
+
+        command = DeleteLabletDefinitionCommand(
+            definition_id=definition_id,
+            deleted_by=deleted_by,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)

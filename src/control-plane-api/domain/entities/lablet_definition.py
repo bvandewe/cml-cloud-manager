@@ -14,9 +14,12 @@ from uuid import uuid4
 
 from domain.enums import LabletDefinitionStatus, LicenseType
 from domain.events.lablet_definition_events import (
+    LabletDefinitionActivatedDomainEvent,
     LabletDefinitionArtifactSyncedDomainEvent,
     LabletDefinitionContentSyncedDomainEvent,
     LabletDefinitionCreatedDomainEvent,
+    LabletDefinitionDeactivatedDomainEvent,
+    LabletDefinitionDeletedDomainEvent,
     LabletDefinitionDeprecatedDomainEvent,
     LabletDefinitionSyncRequestedDomainEvent,
     LabletDefinitionUpdatedDomainEvent,
@@ -241,6 +244,8 @@ class LabletDefinitionState(TimedResourceState):
         self.cml_yaml_path: str | None = None
         self.cml_yaml_content: str | None = None
         self.devices_json: str | None = None
+        self.content_xml_content: str | None = None  # Raw content.xml from session package
+        self.user_visible_devices: list[dict[str, str]] | None = None  # From content.xml (AD-LDS-001)
         self.upstream_sync_status: dict | None = None
 
         # Pipeline definitions (ADR-034)
@@ -435,6 +440,10 @@ class LabletDefinitionState(TimedResourceState):
             self.cml_yaml_content = event.cml_yaml_content
         if event.devices_json is not None:
             self.devices_json = event.devices_json
+        if event.content_xml_content is not None:
+            self.content_xml_content = event.content_xml_content
+        if event.user_visible_devices is not None:
+            self.user_visible_devices = event.user_visible_devices
         if event.upstream_sync_status is not None:
             self.upstream_sync_status = event.upstream_sync_status
         if event.port_template is not None:
@@ -505,6 +514,45 @@ class LabletDefinitionState(TimedResourceState):
         if "lab_reuse_enabled" in changes:
             self.lab_reuse_enabled = changes["lab_reuse_enabled"]
         self.updated_at = event.updated_at
+
+    @dispatch(LabletDefinitionActivatedDomainEvent)
+    def on(self, event: LabletDefinitionActivatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the activated event to the state."""
+        previous_status = self.status.value if self.status else None
+        self.status = LabletDefinitionStatus.ACTIVE
+        self.updated_at = event.activated_at
+        self._record_transition(
+            from_state=previous_status,
+            to_state=LabletDefinitionStatus.ACTIVE.value,
+            triggered_by=event.activated_by,
+            reason="Definition activated",
+        )
+
+    @dispatch(LabletDefinitionDeactivatedDomainEvent)
+    def on(self, event: LabletDefinitionDeactivatedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the deactivated event to the state."""
+        previous_status = self.status.value if self.status else None
+        self.status = LabletDefinitionStatus.INACTIVE
+        self.updated_at = event.deactivated_at
+        self._record_transition(
+            from_state=previous_status,
+            to_state=LabletDefinitionStatus.INACTIVE.value,
+            triggered_by=event.deactivated_by,
+            reason=event.reason,
+        )
+
+    @dispatch(LabletDefinitionDeletedDomainEvent)
+    def on(self, event: LabletDefinitionDeletedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the deleted event to the state (soft-delete)."""
+        previous_status = self.status.value if self.status else None
+        self.status = LabletDefinitionStatus.DELETED
+        self.updated_at = event.deleted_at
+        self._record_transition(
+            from_state=previous_status,
+            to_state=LabletDefinitionStatus.DELETED.value,
+            triggered_by=event.deleted_by,
+            reason="Definition soft-deleted",
+        )
 
 
 class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
@@ -761,6 +809,8 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
         cml_yaml_path: str | None = None,
         cml_yaml_content: str | None = None,
         devices_json: str | None = None,
+        content_xml_content: str | None = None,
+        user_visible_devices: list[dict[str, str]] | None = None,
         upstream_sync_status: dict | None = None,
         error_message: str | None = None,
         port_template: PortTemplate | None = None,
@@ -783,6 +833,7 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
             cml_yaml_path: Relative path to cml.yml/cml.yaml in the package.
             cml_yaml_content: Cached CML YAML content for lab import.
             devices_json: Cached devices.json content (serialized JSON string).
+            content_xml_content: Raw content.xml from session package.
             upstream_sync_status: Per-service sync status dict.
             error_message: Error details if sync failed.
             port_template: PortTemplate extracted from CML YAML node tags.
@@ -807,6 +858,8 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
                     cml_yaml_path=cml_yaml_path,
                     cml_yaml_content=cml_yaml_content,
                     devices_json=devices_json,
+                    content_xml_content=content_xml_content,
+                    user_visible_devices=user_visible_devices,
                     upstream_sync_status=upstream_sync_status,
                     port_template=port_template.to_dict() if port_template else None,
                     node_count=node_count,
@@ -868,6 +921,91 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
                     changes=changes,
                     updated_by=updated_by,
                     updated_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+
+    def activate(self, activated_by: str) -> None:
+        """Activate this definition, making it available for scheduling.
+
+        Can transition from INACTIVE or ARCHIVED status to ACTIVE.
+
+        Args:
+            activated_by: User ID or system identifier
+
+        Raises:
+            ValueError: If definition is already active, deprecated, or deleted
+        """
+        if self.state.status == LabletDefinitionStatus.ACTIVE:
+            return  # Already active, no-op
+
+        if self.state.status in (LabletDefinitionStatus.DEPRECATED, LabletDefinitionStatus.DELETED):
+            raise ValueError(f"Cannot activate a {self.state.status.value} definition")
+
+        if self.state.status == LabletDefinitionStatus.PENDING_SYNC:
+            raise ValueError("Cannot activate a definition that is pending sync")
+
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionActivatedDomainEvent(
+                    aggregate_id=self.id(),
+                    activated_by=activated_by,
+                    activated_at=datetime.now(timezone.utc),
+                )
+            )
+        )
+
+    def deactivate(self, deactivated_by: str, reason: str | None = None) -> None:
+        """Deactivate this definition, temporarily removing it from scheduling.
+
+        Active definitions can be deactivated without losing their configuration.
+        They can be reactivated later via activate().
+
+        Args:
+            deactivated_by: User ID or system identifier
+            reason: Optional reason for deactivation
+
+        Raises:
+            ValueError: If definition is not active
+        """
+        if self.state.status == LabletDefinitionStatus.INACTIVE:
+            return  # Already inactive, no-op
+
+        if self.state.status != LabletDefinitionStatus.ACTIVE:
+            raise ValueError(f"Cannot deactivate a {self.state.status.value} definition")
+
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionDeactivatedDomainEvent(
+                    aggregate_id=self.id(),
+                    deactivated_by=deactivated_by,
+                    deactivated_at=datetime.now(timezone.utc),
+                    reason=reason,
+                )
+            )
+        )
+
+    def soft_delete(self, deleted_by: str) -> None:
+        """Soft-delete this definition.
+
+        Marks the definition as deleted. It will be excluded from all listings
+        but remains in the database for audit purposes.
+
+        Args:
+            deleted_by: User ID or system identifier
+
+        Raises:
+            ValueError: If definition is already deleted
+        """
+        if self.state.status == LabletDefinitionStatus.DELETED:
+            return  # Already deleted, no-op
+
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionDeletedDomainEvent(
+                    aggregate_id=self.id(),
+                    deleted_by=deleted_by,
+                    deleted_at=datetime.now(timezone.utc),
                 )
             )
         )

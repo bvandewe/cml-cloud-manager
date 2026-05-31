@@ -29,19 +29,20 @@ import io
 import json
 import logging
 import re
+import xml.etree.ElementTree as ET  # nosec B405 # noqa: S405 — trusted content from our own object storage
 import zipfile
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from lcm_core.integration.clients import ControlPlaneApiClient
-from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
-
-from application.settings import Settings
 from integration.services.environment_resolver_client import EnvironmentResolverClient
 from integration.services.lds_spi import LdsSpiClient
 from integration.services.mosaic_client import MosaicClient
 from integration.services.s3_client import S3Client
+from lcm_core.integration.clients import ControlPlaneApiClient
+from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
+
+from application.settings import Settings
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -438,6 +439,8 @@ class ContentSyncService:
                 "cml_yaml_path": metadata.get("cml_yaml_path"),
                 "cml_yaml_content": metadata.get("cml_yaml_content"),
                 "devices_json": metadata.get("devices_json"),
+                "content_xml_content": metadata.get("content_xml_content"),
+                "user_visible_devices": metadata.get("user_visible_devices"),
                 "port_template": metadata.get("port_template"),
                 "node_count": metadata.get("node_count"),
                 "node_definitions_required": metadata.get("node_definitions_required"),
@@ -633,6 +636,13 @@ class ContentSyncService:
                 devices_content = zf.read(devices_files[0]).decode("utf-8")
                 metadata["devices_json"] = devices_content
 
+            # Find content.xml (anywhere in the archive) — AD-LDS-001
+            content_xml_files = [n for n in names if n.endswith("content.xml")]
+            if content_xml_files:
+                content_xml_raw = zf.read(content_xml_files[0]).decode("utf-8")
+                metadata["content_xml_content"] = content_xml_raw
+                metadata["user_visible_devices"] = self._extract_user_visible_devices(content_xml_raw)
+
         logger.info(
             f"Extracted metadata: version={metadata.get('upstream_version')}, "
             f"cml={metadata.get('cml_yaml_path')}, grade={metadata.get('grade_xml_path')}, "
@@ -641,6 +651,40 @@ class ContentSyncService:
             f"node_definitions={metadata.get('node_definitions_required')}"
         )
         return metadata
+
+    @staticmethod
+    def _extract_user_visible_devices(content_xml: str) -> list[dict[str, str]]:
+        """Extract user-visible device definitions from content.xml.
+
+        Parses <device> elements and returns a list of device labels
+        with their access mode. These are the devices that should be
+        exposed to end-users via LDS.
+
+        Args:
+            content_xml: Raw content.xml string.
+
+        Returns:
+            List of dicts with keys: device_label, user_access_mode, category.
+            Example: [{"device_label": "R1", "user_access_mode": "ssh"}]
+        """
+        devices: list[dict[str, str]] = []
+        try:
+            root = ET.fromstring(content_xml)  # nosec B314 # noqa: S314
+            # content.xml structure: <lab_content><device><device .../></device></lab_content>
+            for device_elem in root.iter("device"):
+                label = device_elem.get("device_label")
+                if label:
+                    devices.append(
+                        {
+                            "device_label": label,
+                            "user_access_mode": device_elem.get("user_access_mode", ""),
+                            "category": device_elem.get("category", ""),
+                        }
+                    )
+        except ET.ParseError as e:
+            logger.warning(f"Failed to parse content.xml for device extraction: {e}")
+
+        return devices
 
     @staticmethod
     def _extract_port_template(cml_yaml_content: str) -> dict[str, Any] | None:

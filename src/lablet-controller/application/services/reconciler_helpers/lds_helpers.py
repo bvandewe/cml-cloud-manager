@@ -11,15 +11,67 @@ not from pipeline step handlers.
 
 import logging
 
-from lcm_core.domain.entities import LabletSessionReadModel
-
 from integration.services.cml_labs_spi import NodeInfo
 from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
+from lcm_core.domain.entities import LabletSessionReadModel
 
 logger = logging.getLogger(__name__)
 
 
-def build_device_access_list(nodes: list[NodeInfo], worker_ip: str) -> list[DeviceAccessInfo]:
+def build_device_access_from_allocated_ports(
+    allocated_ports: dict[str, int],
+    worker_ip: str,
+    user_visible_labels: set[str] | None = None,
+) -> list[DeviceAccessInfo]:
+    """Build LDS device access info from allocated ports, filtered by visibility.
+
+    Port name convention (from PortTemplate): "{node_label}_{protocol}"
+    e.g., "Router1_serial" → label="Router1", protocol="serial"
+
+    Args:
+        allocated_ports: Dict of port_name → port_number from ports_alloc step.
+        worker_ip: Worker IP address for device host.
+        user_visible_labels: Set of device labels from content.xml.
+            If provided, only devices whose label appears in this set are included.
+            If None, all devices from allocated_ports are included.
+
+    Returns:
+        List of DeviceAccessInfo for LDS device provisioning.
+    """
+    devices: list[DeviceAccessInfo] = []
+
+    for port_name, port_number in allocated_ports.items():
+        # Parse convention: "{label}_{protocol}"
+        # Handle labels with underscores by splitting on last underscore
+        parts = port_name.rsplit("_", 1)
+        if len(parts) != 2:
+            logger.warning(f"Cannot parse port name '{port_name}' — skipping")
+            continue
+
+        node_label, protocol = parts
+
+        # Filter by user-visible labels
+        if user_visible_labels is not None and node_label not in user_visible_labels:
+            logger.debug(f"Skipping device '{node_label}' — not in user_visible_devices")
+            continue
+
+        devices.append(
+            DeviceAccessInfo(
+                device_label=node_label,
+                protocol=protocol,
+                host=worker_ip,
+                port=port_number,
+            )
+        )
+
+    return devices
+
+
+def build_device_access_list(
+    nodes: list[NodeInfo],
+    worker_ip: str,
+    user_visible_labels: set[str] | None = None,
+) -> list[DeviceAccessInfo]:
     """Build LDS device access info from CML node topology.
 
     AD-P4-03: CML node label = device_label, tags encode protocol:port.
@@ -34,6 +86,8 @@ def build_device_access_list(nodes: list[NodeInfo], worker_ip: str) -> list[Devi
     Args:
         nodes: CML lab nodes with labels and tags.
         worker_ip: Worker IP address for device host.
+        user_visible_labels: If provided, only include nodes whose label
+            is in this set. None means include all nodes with valid tags.
 
     Returns:
         List of DeviceAccessInfo for LDS device provisioning.
@@ -42,6 +96,10 @@ def build_device_access_list(nodes: list[NodeInfo], worker_ip: str) -> list[Devi
 
     for node in nodes:
         if not node.tags:
+            continue
+
+        # Filter by visibility if specified
+        if user_visible_labels is not None and node.label not in user_visible_labels:
             continue
 
         # First pass: collect valid (protocol, port) pairs for this node

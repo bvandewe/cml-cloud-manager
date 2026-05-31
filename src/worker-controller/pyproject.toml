@@ -8,7 +8,7 @@ packages = [{include = "application"}, {include = "domain"}, {include = "integra
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
-neuroglia-python = ">=0.9.1,<0.10.0"
+neuroglia-python = ">=0.9.3,<0.10.0"
 httpx = ">=0.24.0,<0.28.0"
 etcd3-py = "^0.1.6"  # etcd client for leader election
 boto3 = "^1.40.74"   # AWS SDK for CloudWatch

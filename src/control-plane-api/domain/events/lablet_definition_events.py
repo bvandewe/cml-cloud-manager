@@ -404,6 +404,8 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
     cml_yaml_path: str | None
     cml_yaml_content: str | None
     devices_json: str | None
+    content_xml_content: str | None  # Raw content.xml from session package
+    user_visible_devices: list[dict[str, str]] | None  # From content.xml (AD-LDS-001)
     upstream_sync_status: dict | None  # Per-service sync results
     port_template: dict[str, Any] | None  # Serialized PortTemplate extracted from CML YAML
     node_count: int | None  # Number of nodes in the CML topology (AD-SEED-001)
@@ -426,6 +428,8 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
         cml_yaml_path: str | None = None,
         cml_yaml_content: str | None = None,
         devices_json: str | None = None,
+        content_xml_content: str | None = None,
+        user_visible_devices: list[dict[str, str]] | None = None,
         upstream_sync_status: dict | None = None,
         port_template: dict[str, Any] | None = None,
         node_count: int | None = None,
@@ -447,6 +451,8 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
         self.cml_yaml_path = cml_yaml_path
         self.cml_yaml_content = cml_yaml_content
         self.devices_json = devices_json
+        self.content_xml_content = content_xml_content
+        self.user_visible_devices = user_visible_devices
         self.upstream_sync_status = upstream_sync_status
         self.port_template = port_template
         self.node_count = node_count

@@ -5,7 +5,9 @@ _try_reuse_existing_lab(), and _import_fresh_lab().
 """
 
 import logging
+from dataclasses import dataclass
 
+from integration.services.cml_labs_spi import CmlLabsSpiClient
 from lcm_core.domain.entities import LabletSessionReadModel
 from lcm_core.domain.entities.read_models.lab_record_read_model import LabRecordReadModel
 from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
@@ -14,9 +16,22 @@ from lcm_core.integration.clients import ControlPlaneApiClient
 
 from application.services.reconciler_helpers.definition_cache import get_definition
 from application.services.reconciler_helpers.lab_record_helpers import update_lab_record_status
-from integration.services.cml_labs_spi import CmlLabsSpiClient
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class LabResolutionResult:
+    """Structured result from lab resolution indicating origin.
+
+    Attributes:
+        lab_id: CML lab ID (from reuse or import).
+        freshly_imported: True if the lab was freshly imported from topology YAML;
+                          False if an existing lab on the worker was reused.
+    """
+
+    lab_id: str
+    freshly_imported: bool
 
 
 async def resolve_lab_for_instance(
@@ -25,15 +40,16 @@ async def resolve_lab_for_instance(
     cml_labs: CmlLabsSpiClient,
     definition_cache: dict[str, LabletDefinitionReadModel],
     topology_yaml: str | None = None,
-) -> str | None:
+) -> LabResolutionResult | None:
     """Resolve a lab for an instance: reuse existing or import fresh.
 
     Lab Resolution Strategy (Architecture §5.4):
     1. Fetch LabletDefinition to check lab_reuse_enabled flag (P9-8)
     2. If reuse enabled, query CPA for existing LabRecords on this worker
        matching the definition's topology:
-       a. WIPED lab → bind and start (fastest ~20s)
-       b. STOPPED lab → wipe first, then start (~30s)
+       a. DEFINED lab → bind and start (fastest ~15s, already on runtime)
+       b. WIPED lab → bind and start (~20s)
+       c. STOPPED lab → wipe first, then start (~30s)
     3. If no reusable lab found or reuse disabled → fresh import (~90s)
 
     Args:
@@ -44,7 +60,7 @@ async def resolve_lab_for_instance(
         topology_yaml: Resolved topology YAML (from definition or session).
 
     Returns:
-        CML lab ID (from reuse or import), or None on failure.
+        LabResolutionResult with lab_id and freshly_imported flag, or None on failure.
     """
     definition = await get_definition(instance.definition_id, api, definition_cache)
 
@@ -52,10 +68,13 @@ async def resolve_lab_for_instance(
     if definition and definition.lab_reuse_enabled:
         reused_lab_id = await try_reuse_existing_lab(instance, definition, api, cml_labs)
         if reused_lab_id:
-            return reused_lab_id
+            return LabResolutionResult(lab_id=reused_lab_id, freshly_imported=False)
 
     # Fallback: fresh import
-    return await import_fresh_lab(instance, cml_labs, topology_yaml=topology_yaml)
+    imported_lab_id = await import_fresh_lab(instance, cml_labs, topology_yaml=topology_yaml)
+    if imported_lab_id:
+        return LabResolutionResult(lab_id=imported_lab_id, freshly_imported=True)
+    return None
 
 
 async def try_reuse_existing_lab(
@@ -72,10 +91,11 @@ async def try_reuse_existing_lab(
     to prevent ghost-lab reuse.
 
     Candidate states in preference order (fastest-to-ready first):
-      1. WIPED  — just start (~20 s)
-      2. STOPPED — wipe first, then start (~30 s)
-      3. WIPING — wait for wipe to finish, then start
-      4. STOPPING — wait for stop, then wipe, then start
+      1. DEFINED — already on runtime, just start (~15 s)
+      2. WIPED  — just start (~20 s)
+      3. STOPPED — wipe first, then start (~30 s)
+      4. WIPING — wait for wipe to finish, then start
+      5. STOPPING — wait for stop, then wipe, then start
 
     Ghost handling: If ``get_lab()`` returns ``None`` (HTTP 404), the
     candidate is skipped and its LabRecord is marked ORPHANED via CPA.
@@ -106,6 +126,7 @@ async def try_reuse_existing_lab(
 
         # Filter to candidates matching the definition (by definition_id)
         # and bucket by reusable state.
+        defined_candidates: list[LabRecordReadModel] = []
         wiped_candidates: list[LabRecordReadModel] = []
         stopped_candidates: list[LabRecordReadModel] = []
         wiping_candidates: list[LabRecordReadModel] = []
@@ -120,7 +141,9 @@ async def try_reuse_existing_lab(
             if lr.has_pending_action:
                 continue
 
-            if lr.status == LabRecordStatus.WIPED.value:
+            if lr.status == LabRecordStatus.DEFINED.value:
+                defined_candidates.append(lr)
+            elif lr.status == LabRecordStatus.WIPED.value:
                 wiped_candidates.append(lr)
             elif lr.status == LabRecordStatus.STOPPED.value:
                 stopped_candidates.append(lr)
@@ -129,8 +152,8 @@ async def try_reuse_existing_lab(
             elif lr.status == LabRecordStatus.STOPPING.value:
                 stopping_candidates.append(lr)
 
-        # Walk candidates in preference order: wiped → stopped → wiping → stopping
-        ordered_candidates = wiped_candidates + stopped_candidates + wiping_candidates + stopping_candidates
+        # Walk candidates in preference order: defined → wiped → stopped → wiping → stopping
+        ordered_candidates = defined_candidates + wiped_candidates + stopped_candidates + wiping_candidates + stopping_candidates
 
         for lab in ordered_candidates:
             # Verify the CML lab actually exists on the worker (prevents ghost binding)
@@ -147,6 +170,10 @@ async def try_reuse_existing_lab(
                 continue
 
             # Candidate verified — handle based on its current state
+            if lab.status == LabRecordStatus.DEFINED.value:
+                logger.info(f"♻️ Found DEFINED lab {lab.lab_id} on worker {instance.worker_id} for reuse (instance={instance.id})")
+                return lab.lab_id
+
             if lab.status == LabRecordStatus.WIPED.value:
                 logger.info(f"♻️ Found WIPED lab {lab.lab_id} on worker {instance.worker_id} for reuse (instance={instance.id})")
                 return lab.lab_id
@@ -201,8 +228,6 @@ async def import_fresh_lab(
             username=instance.worker_cml_username,
             password=instance.worker_cml_password,
         )
-        # Tag as freshly imported (used for metrics, not persisted)
-        instance._freshly_imported_lab_id = lab_id  # type: ignore[attr-defined]
         return lab_id
     except Exception as e:
         logger.error(f"Failed to import lab for instance {instance.id}: {e}")

@@ -50,6 +50,8 @@ class RecordContentSyncResultCommand(Command[OperationResult[LabletDefinitionSyn
     cml_yaml_path: str | None = None
     cml_yaml_content: str | None = None
     devices_json: str | None = None
+    content_xml_content: str | None = None  # Raw content.xml from session package
+    user_visible_devices: list[dict[str, str]] | None = None  # From content.xml (AD-LDS-001)
     upstream_sync_status: dict[str, Any] | None = None
 
     # Port template extracted from CML YAML nodes (ADR-029)
@@ -139,6 +141,8 @@ class RecordContentSyncResultCommandHandler(
                 cml_yaml_path=command.cml_yaml_path,
                 cml_yaml_content=command.cml_yaml_content,
                 devices_json=command.devices_json,
+                content_xml_content=command.content_xml_content,
+                user_visible_devices=command.user_visible_devices,
                 upstream_sync_status=command.upstream_sync_status,
                 port_template=port_template,
                 node_count=command.node_count,
@@ -226,6 +230,8 @@ class RecordContentSyncResultCommandHandler(
             cml_yaml_path=command.cml_yaml_path,
             cml_yaml_content=command.cml_yaml_content,
             devices_json=command.devices_json,
+            content_xml_content=command.content_xml_content,
+            user_visible_devices=command.user_visible_devices,
             upstream_sync_status=command.upstream_sync_status,
             port_template=port_template,
             node_count=command.node_count,

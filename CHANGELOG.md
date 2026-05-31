@@ -6,6 +6,33 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ## [Unreleased]
 
+### Added — Lablet Definition Lifecycle Commands
+
+- **Activate/Deactivate/Delete commands** (control-plane-api): New CQRS commands with full domain event sourcing — `ActivateLabletDefinitionCommand`, `DeactivateLabletDefinitionCommand`, `DeleteLabletDefinitionCommand`. Soft-delete marks definitions as DELETED (excluded from all listings).
+- **INACTIVE/DELETED status enum** (core): Added `INACTIVE` (temporarily deactivated, not schedulable) and `DELETED` (soft-deleted) values to `LabletDefinitionStatus`.
+- **Definitions controller endpoints** (control-plane-api): REST endpoints for activate, deactivate, and delete operations with SSE event broadcasting.
+- **SSE definition events** (control-plane-api/UI): `lablet.definition.activated`, `lablet.definition.deactivated`, `lablet.definition.deleted` wired through eventMap and sseAdapter for real-time UI updates.
+- **Domain event handlers** (control-plane-api): Application-layer handlers for `LabletDefinitionActivatedDomainEvent`, `LabletDefinitionDeactivatedDomainEvent`, `LabletDefinitionDeletedDomainEvent`.
+
+### Added — Lab Discovery via Worker Controller
+
+- **Trigger lab discovery command** (control-plane-api): `TriggerLabDiscoveryCommand` dispatches discovery to lablet-controller for specified workers.
+- **Lab discovery service** (lablet-controller): `LabDiscoveryService` discovers running labs on workers and reconciles with LabRecord read models.
+- **Worker lab discovery endpoint** (control-plane-api): Workers controller exposes lab discovery trigger via REST API.
+
+### Improved — Definition Details Modal & Code Viewer
+
+- **Compact definition-list layout** (control-plane-api/UI): Moved `.dl-compact` styles from inline `<style>` block to `_modals.scss` with proper SCSS specificity; explicitly resets `--bs-gutter-y`, `margin-top`, `padding-top/bottom` on `<dt>`/`<dd>` to achieve ~22px row height.
+- **Code viewer line spacing fix** (control-plane-api/UI): Fixed `LcmCodeViewer` Shadow DOM component — removed `\n` join between `display: block` `.line` spans (rendered as extra whitespace inside `<pre>`), added explicit `line-height: 18px` on `<pre>`/`<code>` to prevent inherited Bootstrap `line-height: 1.5` from inflating spacing.
+- **Definition details renderer** (control-plane-api/UI): Enhanced Overview tab with resource-source badges, clickable bucket names (RustFS Console link), port definitions table, user-visible devices table, reduced section gutters (`g-3` → `g-2`).
+
+### Improved — Content Sync & LDS Device Mapping
+
+- **Content extraction enrichment** (lablet-controller): Content sync now extracts `devices.json` device mapping fields (instance type, disk type/size, public IP, lab type) and populates `resource_requirements` from topology node counts.
+- **LDS device mapping helpers** (lablet-controller): `lds_helpers.py` utility functions for device mapping resolution during provisioning steps.
+- **Test fixtures** (deployment/lds): Updated exam content `mosaic_meta.json` with latest FormName convention and version bump.
+- **Pipeline context** (lablet-controller): Extended `PipelineContext` model for device mapping and resource requirement propagation.
+
 ### Fixed — LabRecordReconciler Wipe Action on Booted Labs
 
 - **Stop-before-wipe guard** (lablet-controller): Wipe action now stops the lab first if it is in a running state (STARTED, BOOTED, QUEUED) before issuing the CML wipe API call. CML rejects wipe on booted labs with 400 Bad Request.

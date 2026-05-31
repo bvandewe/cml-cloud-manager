@@ -36,6 +36,8 @@ class LabletDefinitionReadModel:
     upstream_version: str | None = None
     cml_yaml_content: str | None = None
     devices_json: str | None = None
+    content_xml_content: str | None = None  # Raw content.xml from session package
+    user_visible_devices: list[dict[str, str]] | None = None  # From content.xml <device> elements (AD-LDS-001)
     grade_xml_path: str | None = None
     cml_yaml_path: str | None = None
 
@@ -96,6 +98,8 @@ class LabletDefinitionReadModel:
             upstream_version=data.get("upstream_version"),
             cml_yaml_content=data.get("cml_yaml_content"),
             devices_json=data.get("devices_json"),
+            content_xml_content=data.get("content_xml_content"),
+            user_visible_devices=data.get("user_visible_devices"),
             grade_xml_path=data.get("grade_xml_path"),
             cml_yaml_path=data.get("cml_yaml_path"),
             status=data.get("status", "pending_sync"),

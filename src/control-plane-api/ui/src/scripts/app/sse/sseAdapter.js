@@ -25,6 +25,8 @@ const DEFINITION_EVENT_TYPES = new Set([
     LcmEventTypes.LABLET_DEFINITION_CONTENT_SYNCED,
     LcmEventTypes.LABLET_DEFINITION_DEPRECATED,
     LcmEventTypes.LABLET_DEFINITION_SYNC_REQUESTED,
+    LcmEventTypes.LABLET_DEFINITION_VERSION_CREATED,
+    LcmEventTypes.LABLET_DEFINITION_WARM_POOL_UPDATED,
 ]);
 
 const TEMPLATE_EVENT_TYPES = new Set([LcmEventTypes.WORKER_TEMPLATE_CREATED, LcmEventTypes.WORKER_TEMPLATE_UPDATED, LcmEventTypes.WORKER_TEMPLATE_DELETED, LcmEventTypes.WORKER_TEMPLATE_ENABLED, LcmEventTypes.WORKER_TEMPLATE_DISABLED]);
@@ -502,6 +504,28 @@ export class LcmSSEAdapter {
                 store.dispatch('definitions', 'upsertDefinition', {
                     id: data.definition_id,
                     sync_status: 'sync_requested',
+                });
+            }
+        });
+
+        // Lablet definition version/warm pool events -> update definitions store
+        eventBus.on(LcmEventTypes.LABLET_DEFINITION_VERSION_CREATED, data => {
+            if (data?.definition_id) {
+                store.dispatch('definitions', 'upsertDefinition', {
+                    id: data.definition_id,
+                    name: data.name,
+                    version: data.version,
+                    previous_version: data.previous_version,
+                    node_count: data.node_count,
+                });
+            }
+        });
+
+        eventBus.on(LcmEventTypes.LABLET_DEFINITION_WARM_POOL_UPDATED, data => {
+            if (data?.definition_id) {
+                store.dispatch('definitions', 'upsertDefinition', {
+                    id: data.definition_id,
+                    warm_pool_depth: data.new_warm_pool_depth,
                 });
             }
         });

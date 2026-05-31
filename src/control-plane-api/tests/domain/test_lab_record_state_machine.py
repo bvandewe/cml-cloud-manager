@@ -614,6 +614,10 @@ class TestLabRecordComputedProperties:
         _force_status(discovered_lab_record, LabRecordStatus.BOOTED)
         assert discovered_lab_record.is_running is True
 
+    def test_is_reusable_defined(self, discovered_lab_record: LabRecord):
+        _force_status(discovered_lab_record, LabRecordStatus.DEFINED)
+        assert discovered_lab_record.is_reusable is True
+
     def test_is_reusable_stopped(self, discovered_lab_record: LabRecord):
         _force_status(discovered_lab_record, LabRecordStatus.STOPPED)
         assert discovered_lab_record.is_reusable is True

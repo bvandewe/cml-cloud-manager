@@ -15,12 +15,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from integration.services.cml_labs_spi import CmlLabsSpiClient
+    from integration.services.lds_spi import LdsSpiClient
     from lcm_core.domain.entities import LabletSessionReadModel
     from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
     from lcm_core.integration.clients.control_plane_client import ControlPlaneApiClient
 
-    from integration.services.cml_labs_spi import CmlLabsSpiClient
-    from integration.services.lds_spi import LdsSpiClient
+    from application.services.reconciler_helpers.lab_resolution import LabResolutionResult
 
 
 @dataclass
@@ -59,9 +60,9 @@ class PipelineContext:
     # Each is Optional so PipelineContext remains backward-compatible
     # for tests that don't need the full reconciler wiring.
 
-    resolve_lab_for_instance: Callable[[LabletSessionReadModel, str | None], Coroutine[Any, Any, str | None]] | None = None
+    resolve_lab_for_instance: Callable[[LabletSessionReadModel, str | None], Coroutine[Any, Any, LabResolutionResult | None]] | None = None
     """Resolve a lab for a session: reuse existing or import fresh.
-    Signature: async (instance, topology_yaml) -> cml_lab_id | None"""
+    Signature: async (instance, topology_yaml) -> LabResolutionResult | None"""
 
     find_lab_record_id: Callable[[str, str], Coroutine[Any, Any, str | None]] | None = None
     """Find LabRecord aggregate ID by CML lab ID + worker ID.

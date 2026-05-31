@@ -17,8 +17,11 @@ import pytest
 from domain.entities.lablet_definition import LabletDefinition, LabletDefinitionState, NotificationConfig
 from domain.enums import LabletDefinitionStatus, LicenseType
 from domain.events.lablet_definition_events import (
+    LabletDefinitionActivatedDomainEvent,
     LabletDefinitionContentSyncedDomainEvent,
     LabletDefinitionCreatedDomainEvent,
+    LabletDefinitionDeactivatedDomainEvent,
+    LabletDefinitionDeletedDomainEvent,
     LabletDefinitionDeprecatedDomainEvent,
     LabletDefinitionSyncRequestedDomainEvent,
     LabletDefinitionVersionCreatedDomainEvent,
@@ -1023,6 +1026,219 @@ class TestLabletDefinition:
         )
 
         assert definition.state.grading_rules_uri == "s3://labs/test-lab/grading.json"
+
+    # --- Lifecycle Transitions: activate / deactivate / soft_delete (Phase 3) ---
+
+    def _create_active_definition(self, resource_requirements, port_template, **overrides):
+        """Helper: create a definition and sync it to ACTIVE."""
+        defn = self._create_definition(resource_requirements, port_template, **overrides)
+        defn.record_content_sync(lab_yaml_hash="sha256:test", sync_status="success")
+        assert defn.state.status == LabletDefinitionStatus.ACTIVE
+        return defn
+
+    def test_activate_from_inactive(self, resource_requirements, port_template):
+        """Test INACTIVE → ACTIVE transition via activate()."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.deactivate(deactivated_by="admin")
+        assert defn.state.status == LabletDefinitionStatus.INACTIVE
+
+        defn.activate(activated_by="admin")
+
+        assert defn.state.status == LabletDefinitionStatus.ACTIVE
+        events = defn.domain_events
+        assert isinstance(events[-1], LabletDefinitionActivatedDomainEvent)
+        assert events[-1].activated_by == "admin"
+        assert events[-1].activated_at is not None
+
+    def test_activate_idempotent_when_already_active(self, resource_requirements, port_template):
+        """Test activate() is a no-op when already ACTIVE."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        event_count = len(defn.domain_events)
+
+        defn.activate(activated_by="admin")
+
+        assert defn.state.status == LabletDefinitionStatus.ACTIVE
+        assert len(defn.domain_events) == event_count  # No new event
+
+    def test_activate_rejects_deprecated(self, resource_requirements, port_template):
+        """Test activate() raises ValueError for DEPRECATED definitions."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.deprecate(deprecated_by="admin")
+
+        with pytest.raises(ValueError, match="Cannot activate a deprecated definition"):
+            defn.activate(activated_by="admin")
+
+    def test_activate_rejects_deleted(self, resource_requirements, port_template):
+        """Test activate() raises ValueError for DELETED definitions."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.soft_delete(deleted_by="admin")
+
+        with pytest.raises(ValueError, match="Cannot activate a deleted definition"):
+            defn.activate(activated_by="admin")
+
+    def test_activate_rejects_pending_sync(self, resource_requirements, port_template):
+        """Test activate() raises ValueError for PENDING_SYNC definitions."""
+        defn = self._create_definition(resource_requirements, port_template)
+        assert defn.state.status == LabletDefinitionStatus.PENDING_SYNC
+
+        with pytest.raises(ValueError, match="Cannot activate a definition that is pending sync"):
+            defn.activate(activated_by="admin")
+
+    def test_activate_records_state_transition(self, resource_requirements, port_template):
+        """Test activate() records audit trail via state_history."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.deactivate(deactivated_by="admin")
+        defn.activate(activated_by="admin")
+
+        history = defn.state.state_history
+        last_transition = history[-1]
+        assert last_transition["to_state"] == "active"
+        assert last_transition["from_state"] == "inactive"
+        assert last_transition["triggered_by"] == "admin"
+
+    def test_deactivate_from_active(self, resource_requirements, port_template):
+        """Test ACTIVE → INACTIVE transition via deactivate()."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+
+        defn.deactivate(deactivated_by="admin", reason="Maintenance window")
+
+        assert defn.state.status == LabletDefinitionStatus.INACTIVE
+        events = defn.domain_events
+        assert isinstance(events[-1], LabletDefinitionDeactivatedDomainEvent)
+        assert events[-1].deactivated_by == "admin"
+        assert events[-1].reason == "Maintenance window"
+        assert events[-1].deactivated_at is not None
+
+    def test_deactivate_idempotent_when_already_inactive(self, resource_requirements, port_template):
+        """Test deactivate() is a no-op when already INACTIVE."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.deactivate(deactivated_by="admin")
+        event_count = len(defn.domain_events)
+
+        defn.deactivate(deactivated_by="admin")
+
+        assert defn.state.status == LabletDefinitionStatus.INACTIVE
+        assert len(defn.domain_events) == event_count  # No new event
+
+    def test_deactivate_rejects_non_active(self, resource_requirements, port_template):
+        """Test deactivate() raises ValueError for non-ACTIVE definitions."""
+        defn = self._create_definition(resource_requirements, port_template)
+        assert defn.state.status == LabletDefinitionStatus.PENDING_SYNC
+
+        with pytest.raises(ValueError, match="Cannot deactivate a pending_sync definition"):
+            defn.deactivate(deactivated_by="admin")
+
+    def test_deactivate_rejects_deprecated(self, resource_requirements, port_template):
+        """Test deactivate() raises ValueError for DEPRECATED definitions."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.deprecate(deprecated_by="admin")
+
+        with pytest.raises(ValueError, match="Cannot deactivate a deprecated definition"):
+            defn.deactivate(deactivated_by="admin")
+
+    def test_deactivate_records_state_transition(self, resource_requirements, port_template):
+        """Test deactivate() records audit trail via state_history."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.deactivate(deactivated_by="admin", reason="Quarterly maintenance")
+
+        history = defn.state.state_history
+        last_transition = history[-1]
+        assert last_transition["to_state"] == "inactive"
+        assert last_transition["from_state"] == "active"
+        assert last_transition["triggered_by"] == "admin"
+        assert last_transition["reason"] == "Quarterly maintenance"
+
+    def test_soft_delete_from_active(self, resource_requirements, port_template):
+        """Test soft_delete() from ACTIVE status."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+
+        defn.soft_delete(deleted_by="admin")
+
+        assert defn.state.status == LabletDefinitionStatus.DELETED
+        events = defn.domain_events
+        assert isinstance(events[-1], LabletDefinitionDeletedDomainEvent)
+        assert events[-1].deleted_by == "admin"
+        assert events[-1].deleted_at is not None
+
+    def test_soft_delete_from_inactive(self, resource_requirements, port_template):
+        """Test soft_delete() from INACTIVE status."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.deactivate(deactivated_by="admin")
+
+        defn.soft_delete(deleted_by="admin")
+
+        assert defn.state.status == LabletDefinitionStatus.DELETED
+
+    def test_soft_delete_from_pending_sync(self, resource_requirements, port_template):
+        """Test soft_delete() from PENDING_SYNC status."""
+        defn = self._create_definition(resource_requirements, port_template)
+
+        defn.soft_delete(deleted_by="admin")
+
+        assert defn.state.status == LabletDefinitionStatus.DELETED
+
+    def test_soft_delete_from_deprecated(self, resource_requirements, port_template):
+        """Test soft_delete() from DEPRECATED status."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.deprecate(deprecated_by="admin")
+
+        defn.soft_delete(deleted_by="admin")
+
+        assert defn.state.status == LabletDefinitionStatus.DELETED
+
+    def test_soft_delete_idempotent_when_already_deleted(self, resource_requirements, port_template):
+        """Test soft_delete() is a no-op when already DELETED."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.soft_delete(deleted_by="admin")
+        event_count = len(defn.domain_events)
+
+        defn.soft_delete(deleted_by="admin")
+
+        assert defn.state.status == LabletDefinitionStatus.DELETED
+        assert len(defn.domain_events) == event_count  # No new event
+
+    def test_soft_delete_records_state_transition(self, resource_requirements, port_template):
+        """Test soft_delete() records audit trail via state_history."""
+        defn = self._create_active_definition(resource_requirements, port_template)
+        defn.soft_delete(deleted_by="admin")
+
+        history = defn.state.state_history
+        last_transition = history[-1]
+        assert last_transition["to_state"] == "deleted"
+        assert last_transition["from_state"] == "active"
+        assert last_transition["triggered_by"] == "admin"
+
+    def test_full_lifecycle_activate_deactivate_activate_delete(self, resource_requirements, port_template):
+        """Integration test: create → sync → activate → deactivate → activate → soft_delete."""
+        defn = self._create_definition(resource_requirements, port_template)
+        assert defn.state.status == LabletDefinitionStatus.PENDING_SYNC
+
+        # Sync → ACTIVE
+        defn.record_content_sync(lab_yaml_hash="sha256:test", sync_status="success")
+        assert defn.state.status == LabletDefinitionStatus.ACTIVE
+
+        # Deactivate
+        defn.deactivate(deactivated_by="admin", reason="Planned maintenance")
+        assert defn.state.status == LabletDefinitionStatus.INACTIVE
+
+        # Re-activate
+        defn.activate(activated_by="admin")
+        assert defn.state.status == LabletDefinitionStatus.ACTIVE
+
+        # Soft-delete
+        defn.soft_delete(deleted_by="admin")
+        assert defn.state.status == LabletDefinitionStatus.DELETED
+
+        # Verify full event chain
+        event_types = [type(e).__name__ for e in defn.domain_events]
+        assert "LabletDefinitionCreatedDomainEvent" in event_types
+        assert "LabletDefinitionContentSyncedDomainEvent" in event_types
+        assert "LabletDefinitionDeactivatedDomainEvent" in event_types
+        assert "LabletDefinitionActivatedDomainEvent" in event_types
+        assert "LabletDefinitionDeletedDomainEvent" in event_types
+
+        # Verify state history has all transitions
+        assert len(defn.state.state_history) >= 4  # sync→active, active→inactive, inactive→active, active→deleted
 
 
 class TestLabletDefinitionEvents:

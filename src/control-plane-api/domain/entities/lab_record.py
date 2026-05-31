@@ -1207,8 +1207,8 @@ class LabRecord(AggregateRoot[LabRecordState, str]):
 
     @property
     def is_reusable(self) -> bool:
-        """Check if this lab can be reused (WIPED or STOPPED)."""
-        return self.state.status in (LabRecordStatus.WIPED, LabRecordStatus.STOPPED)
+        """Check if this lab can be reused (DEFINED, WIPED, or STOPPED)."""
+        return self.state.status in (LabRecordStatus.DEFINED, LabRecordStatus.WIPED, LabRecordStatus.STOPPED)
 
     @property
     def is_error(self) -> bool:

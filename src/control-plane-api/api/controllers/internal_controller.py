@@ -429,6 +429,8 @@ class RecordContentSyncResultRequest(BaseModel):
     cml_yaml_path: str | None = Field(default=None, description="Relative path to cml.yml/cml.yaml in the package")
     cml_yaml_content: str | None = Field(default=None, description="Cached CML YAML content for lab import")
     devices_json: str | None = Field(default=None, description="Cached devices.json (serialized JSON string)")
+    content_xml_content: str | None = Field(default=None, description="Raw content.xml from session package")
+    user_visible_devices: list[dict[str, str]] | None = Field(default=None, description="Extracted device elements from content.xml (AD-LDS-001)")
     upstream_sync_status: dict[str, Any] | None = Field(default=None, description="Per-service sync status dict")
 
     # Port template extracted from CML YAML nodes (ADR-029)
@@ -1944,6 +1946,8 @@ class InternalController(ControllerBase):
             cml_yaml_path=request.cml_yaml_path,
             cml_yaml_content=request.cml_yaml_content,
             devices_json=request.devices_json,
+            content_xml_content=request.content_xml_content,
+            user_visible_devices=request.user_visible_devices,
             upstream_sync_status=request.upstream_sync_status,
             port_template=request.port_template,
             node_count=request.node_count,

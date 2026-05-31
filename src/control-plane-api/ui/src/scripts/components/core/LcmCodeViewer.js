@@ -144,14 +144,16 @@ const STYLES = `
         margin: 0;
         padding: 0;
         background: transparent;
+        line-height: 18px;
     }
 
     .code-container code {
         display: block;
-        padding: 12px 12px 12px 0;
+        padding: 8px 12px 8px 0;
         counter-reset: line;
         background: transparent;
         tab-size: 2;
+        line-height: 18px;
     }
 
     /* Line numbers via CSS counters */
@@ -159,8 +161,8 @@ const STYLES = `
         display: block;
         padding-left: 56px;
         position: relative;
-        min-height: 20px;
-        line-height: 20px;
+        min-height: 18px;
+        line-height: 18px;
     }
 
     .code-container code .line::before {
@@ -171,7 +173,8 @@ const STYLES = `
         width: 44px;
         text-align: right;
         color: #555;
-        font-size: 12px;
+        font-size: 11px;
+        line-height: 18px;
         padding-right: 12px;
         border-right: 1px solid #333;
         user-select: none;
@@ -336,7 +339,7 @@ export class LcmCodeViewer extends HTMLElement {
         return highlighted
             .split('\n')
             .map(line => `<span class="line">${line || ' '}</span>`)
-            .join('\n');
+            .join('');
     }
 
     _setupHandlers() {

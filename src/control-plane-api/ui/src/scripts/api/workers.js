@@ -206,6 +206,21 @@ export async function requestWorkerRefresh(region, workerId) {
 }
 
 /**
+ * Trigger targeted lab discovery for a worker (ADR-041 Phase 2).
+ * Signals lablet-controller to immediately scan this worker's labs.
+ * Discovery is idempotent — safe to call multiple times.
+ * @param {string} region - AWS region
+ * @param {string} workerId - Worker UUID
+ * @returns {Promise<Object>} { worker_id, lab_ids, source, triggered_at }
+ */
+export async function triggerLabDiscovery(region, workerId) {
+    const response = await apiRequest(`/api/workers/region/${region}/workers/${workerId}/discover-labs`, {
+        method: 'POST',
+    });
+    return await response.json();
+}
+
+/**
  * Legacy refresh alias used by pre-refactor UI code (calls requestWorkerRefresh).
  * Some older bundles called refreshWorker(workerId, region) with reversed argument order.
  * This function normalizes argument order and provides backward compatibility.

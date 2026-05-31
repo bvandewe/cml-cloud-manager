@@ -17,10 +17,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from lcm_core.domain.entities import LabletSessionReadModel
-from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
-from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
-
 from application.hosted_services.lab_discovery_service import (
     DiscoveryRunStats,
     DiscoveryWorkerResult,
@@ -30,6 +26,9 @@ from application.hosted_services.lab_discovery_service import (
 from application.hosted_services.lablet_reconciler import LabletReconciler
 from application.services.pipeline_executor import PipelineExecutor
 from integration.services.cml_labs_spi import LabInfo, LabState, NodeInfo
+from lcm_core.domain.entities import LabletSessionReadModel
+from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
+from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
 
 # =============================================================================
 # Fixtures
@@ -475,9 +474,11 @@ class TestResolveLabForInstance:
         r._definition_cache["def-001"] = make_definition(lab_reuse_enabled=False)
         r._cml_labs.import_lab.return_value = "lab-new-123"
 
-        lab_id = await r._resolve_lab_for_instance(instance)
+        result = await r._resolve_lab_for_instance(instance)
 
-        assert lab_id == "lab-new-123"
+        assert result is not None
+        assert result.lab_id == "lab-new-123"
+        assert result.freshly_imported is True
         r._cml_labs.import_lab.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -490,9 +491,11 @@ class TestResolveLabForInstance:
         r._api.get_lab_records_for_worker.return_value = []
         r._cml_labs.import_lab.return_value = "lab-fresh-456"
 
-        lab_id = await r._resolve_lab_for_instance(instance)
+        result = await r._resolve_lab_for_instance(instance)
 
-        assert lab_id == "lab-fresh-456"
+        assert result is not None
+        assert result.lab_id == "lab-fresh-456"
+        assert result.freshly_imported is True
 
     @pytest.mark.asyncio
     async def test_no_definition_found_imports_fresh(self):
@@ -502,9 +505,11 @@ class TestResolveLabForInstance:
         r._api.get_lablet_definition.return_value = None  # Definition not found
         r._cml_labs.import_lab.return_value = "lab-new-789"
 
-        lab_id = await r._resolve_lab_for_instance(instance)
+        result = await r._resolve_lab_for_instance(instance)
 
-        assert lab_id == "lab-new-789"
+        assert result is not None
+        assert result.lab_id == "lab-new-789"
+        assert result.freshly_imported is True
 
     @pytest.mark.asyncio
     async def test_import_failure_returns_none(self):
@@ -514,9 +519,27 @@ class TestResolveLabForInstance:
         r._api.get_lablet_definition.return_value = None
         r._cml_labs.import_lab.side_effect = RuntimeError("CML down")
 
-        lab_id = await r._resolve_lab_for_instance(instance)
+        result = await r._resolve_lab_for_instance(instance)
 
-        assert lab_id is None
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_reuse_returns_freshly_imported_false(self):
+        """When a lab is reused, freshly_imported should be False."""
+        r = make_reconciler()
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        r._definition_cache["def-001"] = make_definition(lab_reuse_enabled=True)
+        # CPA returns a reusable defined lab
+        r._api.get_lab_records_for_worker.return_value = [
+            {"id": "rec-001", "lab_id": "lab-reuse-1", "worker_id": "worker-001", "status": "defined", "based_on_definition_id": "def-001"},
+        ]
+        r._cml_labs.get_lab.return_value = make_lab_info(lab_id="lab-reuse-1", state=LabState.DEFINED_ON_CORE)
+
+        result = await r._resolve_lab_for_instance(instance)
+
+        assert result is not None
+        assert result.lab_id == "lab-reuse-1"
+        assert result.freshly_imported is False
 
 
 class TestTryReuseExistingLab:
@@ -526,8 +549,45 @@ class TestTryReuseExistingLab:
     - Matches candidates on ``based_on_definition_id == instance.definition_id`` (not node_count)
     - Verifies each candidate exists on CML via ``get_lab()`` (ghost detection)
     - Marks ORPHANED via CPA if ``get_lab()`` returns None (HTTP 404)
-    - Checks 4 candidate states in preference order: WIPED → STOPPED → WIPING → STOPPING
+    - Checks 5 candidate states in preference order: DEFINED → WIPED → STOPPED → WIPING → STOPPING
     """
+
+    @pytest.mark.asyncio
+    async def test_reuses_defined_lab_directly(self):
+        """DEFINED lab matching definition_id should be reused directly (highest priority, no wipe needed)."""
+        r = make_reconciler()
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # CPA returns a defined lab matching based_on_definition_id
+        r._api.get_lab_records_for_worker.return_value = [
+            {"id": "rec-def-1", "lab_id": "lab-defined-1", "worker_id": "worker-001", "status": "defined", "based_on_definition_id": "def-001"},
+        ]
+        # CML verifies lab exists
+        r._cml_labs.get_lab.return_value = make_lab_info(lab_id="lab-defined-1", state=LabState.DEFINED_ON_CORE)
+
+        lab_id = await r._try_reuse_existing_lab(instance, definition)
+
+        assert lab_id == "lab-defined-1"
+        r._cml_labs.wipe_lab.assert_not_awaited()  # No wipe needed for DEFINED
+        r._cml_labs.get_lab.assert_awaited_once()  # Verified existence
+
+    @pytest.mark.asyncio
+    async def test_prefers_defined_over_wiped(self):
+        """DEFINED candidates should be preferred over WIPED (already on runtime)."""
+        r = make_reconciler()
+        instance = make_instance(cml_lab_id=None, definition_id="def-001")
+        definition = make_definition(lab_reuse_enabled=True)
+        # Both defined and wiped candidates with same definition_id
+        r._api.get_lab_records_for_worker.return_value = [
+            {"id": "rec-wiped", "lab_id": "lab-wiped", "worker_id": "worker-001", "status": "wiped", "based_on_definition_id": "def-001"},
+            {"id": "rec-defined", "lab_id": "lab-defined", "worker_id": "worker-001", "status": "defined", "based_on_definition_id": "def-001"},
+        ]
+        # CML verifies first checked lab exists (defined comes first in preference order)
+        r._cml_labs.get_lab.return_value = make_lab_info(lab_id="lab-defined", state=LabState.DEFINED_ON_CORE)
+
+        lab_id = await r._try_reuse_existing_lab(instance, definition)
+
+        assert lab_id == "lab-defined"
 
     @pytest.mark.asyncio
     async def test_reuses_wiped_lab_directly(self):
@@ -734,15 +794,17 @@ class TestImportFreshLab:
         assert lab_id is None
 
     @pytest.mark.asyncio
-    async def test_import_tags_freshly_imported_lab_id(self):
-        """Import should set _freshly_imported_lab_id on instance for metrics."""
+    async def test_import_returns_lab_id_without_side_effects(self):
+        """Import should return the lab ID without modifying the instance."""
         r = make_reconciler()
         instance = make_instance(cml_lab_id=None)
         r._cml_labs.import_lab.return_value = "lab-tagged-001"
 
-        await r._import_fresh_lab(instance)
+        lab_id = await r._import_fresh_lab(instance)
 
-        assert instance._freshly_imported_lab_id == "lab-tagged-001"  # type: ignore[attr-defined]
+        assert lab_id == "lab-tagged-001"
+        # freshly_imported tracking is now via LabResolutionResult, not instance monkey-patch
+        assert not hasattr(instance, "_freshly_imported_lab_id")
 
 
 # =============================================================================

@@ -274,6 +274,10 @@ export class WorkerDetailsModal extends BaseComponent {
                             <button type="button" class="btn btn-primary" id="refresh-worker-details">
                                 <i class="bi bi-arrow-clockwise"></i> Refresh
                             </button>
+                            <button type="button" class="btn btn-outline-info" id="discover-labs-btn"
+                                style="display: none;" title="Trigger targeted lab discovery for this worker">
+                                <i class="bi bi-search"></i> Discover Labs
+                            </button>
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                         </div>
                     </div>
@@ -304,6 +308,12 @@ export class WorkerDetailsModal extends BaseComponent {
         const refreshBtn = this.$('#refresh-worker-details');
         if (refreshBtn) {
             refreshBtn.addEventListener('click', () => this.refreshWorkerData());
+        }
+
+        // Discover Labs button
+        const discoverLabsBtn = this.$('#discover-labs-btn');
+        if (discoverLabsBtn) {
+            discoverLabsBtn.addEventListener('click', () => this.handleDiscoverLabs());
         }
 
         // Delete button
@@ -443,6 +453,28 @@ export class WorkerDetailsModal extends BaseComponent {
         showToast('Worker data refreshed', 'success');
     }
 
+    async handleDiscoverLabs() {
+        const btn = this.$('#discover-labs-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Discovering...';
+        }
+        try {
+            const { triggerLabDiscovery } = await import('../api/workers.js');
+            await triggerLabDiscovery(this.currentRegion, this.currentWorkerId);
+            showToast('Lab discovery triggered — labs will appear shortly', 'success');
+            // Refresh labs tab after a brief delay to allow discovery to complete
+            setTimeout(() => this.loadLabsTab(), 3000);
+        } catch (error) {
+            showToast(`Failed to trigger discovery: ${error.message}`, 'error');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-search"></i> Discover Labs';
+            }
+        }
+    }
+
     refreshCurrentTab() {
         this.updateModalHeader();
         this.updateFooterButtons();
@@ -462,6 +494,7 @@ export class WorkerDetailsModal extends BaseComponent {
         const stopBtn = this.$('#stop-worker-btn');
         const deleteBtn = this.$('#delete-worker-from-details-btn');
         const importLabBtn = this.$('#upload-lab-btn');
+        const discoverLabsBtn = this.$('#discover-labs-btn');
 
         if (startBtn) startBtn.style.display = isAdminUser && w.status === 'stopped' ? '' : 'none';
         if (stopBtn) stopBtn.style.display = isAdminUser && w.status === 'running' ? '' : 'none';
@@ -469,6 +502,9 @@ export class WorkerDetailsModal extends BaseComponent {
 
         // Show import button only on Labs tab
         if (importLabBtn) importLabBtn.style.display = activeTab === 'labs' ? '' : 'none';
+
+        // Show discover labs button only when worker is running
+        if (discoverLabsBtn) discoverLabsBtn.style.display = w.status === 'running' ? '' : 'none';
     }
 
     updateModalHeader() {

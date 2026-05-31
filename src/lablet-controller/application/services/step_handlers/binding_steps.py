@@ -18,11 +18,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from integration.services.lds_spi import DeviceAccessInfo, LdsSpiError
 from lcm_core.domain.entities import LabletSessionReadModel
 
 from application.models.pipeline_context import PipelineContext
+from application.services.reconciler_helpers.lds_helpers import build_device_access_from_allocated_ports
 from application.services.step_registry import StepResult, step_handler
-from integration.services.lds_spi import DeviceAccessInfo, LdsSpiError
 
 logger = logging.getLogger(__name__)
 
@@ -146,15 +147,12 @@ async def step_lds_provision(
 ) -> StepResult:
     """Provision LDS session with device mapping (§2.2).
 
-    1. Create LDS session with form_qualified_name
-    2. Map CML nodes to LDS devices
-    3. Get lablet launch URL
-    4. Create UserSession child entity via CPA
-
-    ADR-038 Task 1 parity: Uses ``context.build_device_access_list`` for
-    multi-tag label suffixing (nodes with multiple protocol tags get
-    ``{label}_{protocol}`` suffixes to ensure DB uniqueness).
-    Falls back to simple implementation if callable not available.
+    Revised approach (FR-2.2.5d / AD-LDS-001):
+    1. Read user_visible_devices from definition (extracted from content.xml)
+    2. Read allocated_ports from ports_alloc step result
+    3. Build device list by joining: only devices in BOTH sources
+    4. Fallback: legacy tag-based path when no allocated_ports
+    5. Create LDS session and set filtered devices
     """
     resolve_data = _get_step_result_data(progress, "lab_resolve")
     cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
@@ -169,15 +167,48 @@ async def step_lds_provision(
         return StepResult.skipped("LDS client not configured")
 
     try:
-        # Get lab topology — nodes with tags for device mapping
-        nodes = await context.cml.get_lab_nodes(
-            host=context.worker_ip,
-            lab_id=cml_lab_id,
-            username=context.worker_cml_username,
-            password=context.worker_cml_password,
-        )
+        # ── Get user-visible devices from definition (content.xml source) ──
+        # None = field not populated (backward compat, include all devices)
+        # [] = content.xml parsed but has no <device> elements (nothing visible)
+        raw_visible = definition.user_visible_devices
+        if raw_visible is None:
+            visible_labels = None  # Backward compat: no filter
+        else:
+            visible_labels = {d["device_label"] for d in raw_visible}
 
-        # Create LDS session
+        # ── Get allocated ports (source of truth for connectivity) ──
+        ports_data = _get_step_result_data(progress, "ports_alloc")
+        allocated_ports: dict[str, int] = {}
+        if ports_data:
+            allocated_ports = ports_data.get("allocated_ports", {})
+
+        # ── Build filtered device list ──
+        if allocated_ports:
+            devices = build_device_access_from_allocated_ports(
+                allocated_ports=allocated_ports,
+                worker_ip=context.worker_ip,
+                user_visible_labels=visible_labels,
+            )
+        else:
+            # Fallback: legacy tag-based path (backward compat for definitions
+            # synced before port_template support or when ports_alloc is skipped)
+            nodes = await context.cml.get_lab_nodes(
+                host=context.worker_ip,
+                lab_id=cml_lab_id,
+                username=context.worker_cml_username,
+                password=context.worker_cml_password,
+            )
+            if context.build_device_access_list:
+                all_devices = context.build_device_access_list(nodes, context.worker_ip)
+            else:
+                all_devices = _build_device_access_list_simple(nodes, context.worker_ip)
+            # Filter by visible labels if available
+            if visible_labels:
+                devices = [d for d in all_devices if d.device_label in visible_labels]
+            else:
+                devices = all_devices
+
+        # ── Create LDS session ──
         region = instance.worker_aws_region
         session_info = await context.lds.create_session(
             username=instance.name,
@@ -190,12 +221,6 @@ async def step_lds_provision(
         lds_session_id = session_info.session_id
         logger.info(f"LDS session {lds_session_id} created for session {instance.id}")
 
-        # Build device access info (use enriched helper if available)
-        if context.build_device_access_list:
-            devices = context.build_device_access_list(nodes, context.worker_ip)
-        else:
-            devices = _build_device_access_list_simple(nodes, context.worker_ip)
-
         if devices:
             await context.lds.set_devices(
                 session_id=lds_session_id,
@@ -204,6 +229,8 @@ async def step_lds_provision(
                 region=region,
             )
             logger.info(f"Set {len(devices)} devices on LDS session {lds_session_id}")
+        else:
+            logger.warning(f"No devices to set on LDS session {lds_session_id} (visible_labels={visible_labels}, allocated_ports keys={list(allocated_ports.keys())})")
 
         # Get lablet launch URL
         launch_url = await context.lds.get_lablet_launch_url(

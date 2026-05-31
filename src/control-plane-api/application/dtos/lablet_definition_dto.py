@@ -112,6 +112,8 @@ class LabletDefinitionDto:
     cml_yaml_path: str | None
     cml_yaml_content: str | None  # Cached CML YAML content (for content viewer)
     devices_json: str | None  # Cached devices.json content (for content viewer)
+    content_xml_content: str | None  # Raw content.xml from session package (for content viewer)
+    user_visible_devices: list[dict[str, str]] | None  # From content.xml (AD-LDS-001)
     upstream_sync_status: dict | None
 
     # Deprecation
@@ -217,6 +219,8 @@ def map_lablet_definition_to_dto(entity) -> LabletDefinitionDto:
         cml_yaml_path=state.cml_yaml_path,
         cml_yaml_content=state.cml_yaml_content,
         devices_json=state.devices_json,
+        content_xml_content=getattr(state, "content_xml_content", None),
+        user_visible_devices=getattr(state, "user_visible_devices", None),
         upstream_sync_status=state.upstream_sync_status,
         deprecated_by=state.deprecated_by,
         deprecated_at=state.deprecated_at.isoformat() if state.deprecated_at else None,

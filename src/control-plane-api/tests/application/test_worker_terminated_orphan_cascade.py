@@ -23,6 +23,7 @@ from domain.entities.lab_record import LabRecord
 from domain.events.cml_worker import CMLWorkerTerminatedDomainEvent
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.repositories.lablet_session_repository import LabletSessionRepository
 from lcm_core.domain.enums import LabRecordStatus
 
 # =============================================================================
@@ -62,11 +63,29 @@ def mock_lab_repository() -> MagicMock:
 
 
 @pytest.fixture
+def mock_lablet_session_repository() -> MagicMock:
+    """Provide a mock LabletSessionRepository."""
+    repo = MagicMock(spec=LabletSessionRepository)
+    repo.list_by_worker_async = AsyncMock(return_value=[])
+    return repo
+
+
+@pytest.fixture
+def mock_mediator() -> MagicMock:
+    """Provide a mock Mediator."""
+    mediator = MagicMock()
+    mediator.execute_async = AsyncMock()
+    return mediator
+
+
+@pytest.fixture
 def handler(
     mock_sse_relay: MagicMock,
     mock_worker_repository: MagicMock,
     mock_serializer: MagicMock,
     mock_lab_repository: MagicMock,
+    mock_lablet_session_repository: MagicMock,
+    mock_mediator: MagicMock,
 ) -> CMLWorkerTerminatedDomainEventHandler:
     """Create the handler under test with all mocked deps."""
     return CMLWorkerTerminatedDomainEventHandler(
@@ -74,6 +93,8 @@ def handler(
         repository=mock_worker_repository,
         serializer=mock_serializer,
         lab_record_repository=mock_lab_repository,
+        lablet_session_repository=mock_lablet_session_repository,
+        mediator=mock_mediator,
     )
 
 
@@ -226,7 +247,6 @@ class TestWorkerTerminatedOrphanCascade:
         lab_ok2 = _make_lab(lab_id="lab-ok2", status=LabRecordStatus.BOOTED)
 
         # Make lab_fail raise on mark_orphaned
-        original_mark = lab_fail.mark_orphaned
         lab_fail.mark_orphaned = MagicMock(side_effect=Exception("DB error"))
 
         mock_lab_repository.get_all_by_worker_async.return_value = [lab_ok, lab_fail, lab_ok2]

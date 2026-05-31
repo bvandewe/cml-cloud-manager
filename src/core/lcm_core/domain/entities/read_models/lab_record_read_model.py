@@ -105,7 +105,7 @@ class LabRecordReadModel:
     @property
     def is_reusable(self) -> bool:
         """Check if lab can be reused."""
-        return self.status in ("wiped", "stopped")
+        return self.status in ("defined", "wiped", "stopped")
 
     @property
     def has_pending_action(self) -> bool:

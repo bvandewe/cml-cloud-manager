@@ -6,7 +6,6 @@ Unit tests for:
 """
 
 import pytest  # noqa: F401
-
 from application.hosted_services.content_sync_service import ContentSyncService
 
 
@@ -216,3 +215,107 @@ nodes:
         result = ContentSyncService._extract_port_template(cml_yaml)
         assert result is not None
         assert len(result["ports"]) == 1  # Deduplicated
+
+
+class TestExtractUserVisibleDevices:
+    """Tests for ContentSyncService._extract_user_visible_devices() — AD-LDS-001."""
+
+    def test_multiple_devices(self):
+        """Standard content.xml with multiple user-visible devices."""
+        content_xml = """\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab_content version="3">
+    <title>Lablet</title>
+    <device>
+        <device category="R2" device_label="R2" coords="128,271,192,307" user_access_mode="web"/>
+        <device category="R1" device_label="R1" coords="128,87,192,123" user_access_mode="web"/>
+    </device>
+</lab_content>
+"""
+        result = ContentSyncService._extract_user_visible_devices(content_xml)
+
+        assert len(result) == 2
+        assert result[0] == {"device_label": "R2", "user_access_mode": "web", "category": "R2"}
+        assert result[1] == {"device_label": "R1", "user_access_mode": "web", "category": "R1"}
+
+    def test_single_device(self):
+        """Single device as in exam-associate-auto-v1.1-lab-lab-2.9.1/content.xml."""
+        content_xml = """\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab_content version="3">
+    <title>Lablet</title>
+    <timing>
+        <min_length_minutes>0</min_length_minutes>
+        <max_length_minutes>0</max_length_minutes>
+    </timing>
+    <device>
+        <device category="NA" device_label="ubuntu-desktop-1" coords="31,41,186,147" user_access_mode="web"/>
+    </device>
+    <feedback enabled="false"/>
+</lab_content>
+"""
+        result = ContentSyncService._extract_user_visible_devices(content_xml)
+
+        assert len(result) == 1
+        assert result[0] == {
+            "device_label": "ubuntu-desktop-1",
+            "user_access_mode": "web",
+            "category": "NA",
+        }
+
+    def test_malformed_xml_returns_empty_list(self):
+        """Malformed XML does not crash — returns empty list."""
+        malformed = "<lab_content><device><device device_label='x' unclosed"
+        result = ContentSyncService._extract_user_visible_devices(malformed)
+
+        assert result == []
+
+    def test_missing_device_label_skipped(self):
+        """Elements without device_label attribute are skipped."""
+        content_xml = """\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab_content version="3">
+    <device>
+        <device category="R1" device_label="R1" user_access_mode="ssh"/>
+        <device category="hidden" coords="0,0,10,10"/>
+        <device device_label="R2" user_access_mode="telnet"/>
+    </device>
+</lab_content>
+"""
+        result = ContentSyncService._extract_user_visible_devices(content_xml)
+
+        assert len(result) == 2
+        assert result[0]["device_label"] == "R1"
+        assert result[1]["device_label"] == "R2"
+
+    def test_empty_content_xml(self):
+        """Empty string returns empty list without crash."""
+        result = ContentSyncService._extract_user_visible_devices("")
+
+        assert result == []
+
+    def test_no_device_elements(self):
+        """Valid XML with no <device> wrapper returns empty list."""
+        content_xml = """\
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab_content version="3">
+    <title>Lablet</title>
+</lab_content>
+"""
+        result = ContentSyncService._extract_user_visible_devices(content_xml)
+
+        assert result == []
+
+    def test_missing_access_mode_defaults_to_empty(self):
+        """Missing user_access_mode attribute defaults to empty string."""
+        content_xml = """\
+<lab_content>
+    <device>
+        <device device_label="SW1" category="switch"/>
+    </device>
+</lab_content>
+"""
+        result = ContentSyncService._extract_user_visible_devices(content_xml)
+
+        assert len(result) == 1
+        assert result[0] == {"device_label": "SW1", "user_access_mode": "", "category": "switch"}

@@ -100,6 +100,8 @@ export const sseEventMap = {
     'lablet.definition.content_synced': LcmEventTypes.LABLET_DEFINITION_CONTENT_SYNCED,
     'lablet.definition.deprecated': LcmEventTypes.LABLET_DEFINITION_DEPRECATED,
     'lablet.definition.sync_requested': LcmEventTypes.LABLET_DEFINITION_SYNC_REQUESTED,
+    'lablet.definition.version_created': LcmEventTypes.LABLET_DEFINITION_VERSION_CREATED,
+    'lablet.definition.warm_pool_updated': LcmEventTypes.LABLET_DEFINITION_WARM_POOL_UPDATED,
     'lablet.definitions.refresh.completed': LcmEventTypes.LABLET_DEFINITIONS_REFRESH_COMPLETED,
 
     // Worker template events
@@ -228,6 +230,26 @@ export const toastEventTypes = {
     [LcmEventTypes.LABLET_DEFINITION_DEPRECATED]: {
         message: data => (data?.name ? `Definition deprecated: ${data.name} v${data.version || '?'}` : null),
         type: 'warning',
+    },
+    [LcmEventTypes.LABLET_DEFINITION_ACTIVATED]: {
+        message: data => (data?.definition_id ? 'Definition activated' : null),
+        type: 'success',
+    },
+    [LcmEventTypes.LABLET_DEFINITION_DEACTIVATED]: {
+        message: data => (data?.definition_id ? 'Definition deactivated' : null),
+        type: 'info',
+    },
+    [LcmEventTypes.LABLET_DEFINITION_DELETED]: {
+        message: data => (data?.definition_id ? 'Definition deleted' : null),
+        type: 'warning',
+    },
+    [LcmEventTypes.LABLET_DEFINITION_VERSION_CREATED]: {
+        message: data => (data?.name ? `New version: ${data.name} v${data.version}` : null),
+        type: 'info',
+    },
+    [LcmEventTypes.LABLET_DEFINITION_WARM_POOL_UPDATED]: {
+        message: data => (data?.definition_id ? `Warm pool updated: ${data.old_warm_pool_depth} → ${data.new_warm_pool_depth}` : null),
+        type: 'info',
     },
 
     // Pipeline CloudEvents (Sprint G — G5)
