@@ -7,11 +7,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.entities.user_session import UserSession
 from domain.repositories.user_session_repository import UserSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class GetUserSessionQuery(Query[OperationResult[dict[str, Any]]]):
     lablet_session_id: str | None = None
 
 
-class GetUserSessionQueryHandler(QueryHandler[GetUserSessionQuery, OperationResult[dict[str, Any]]]):
+class GetUserSessionQueryHandler(QueryHandlerBase, QueryHandler[GetUserSessionQuery, OperationResult[dict[str, Any]]]):
     """Handle UserSession retrieval."""
 
     def __init__(self, user_session_repository: UserSessionRepository):

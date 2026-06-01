@@ -4,14 +4,17 @@ Phase 1 (Instantiation Pipeline): Handles session expiry due to timeslot
 exhaustion. Performs downstream cleanup:
 1. Expire the LabletSession (status → EXPIRED)
 2. Unbind the LabRecord (if bound) — clear active_lablet_session_id
-3. Release worker capacity (via ReleaseCapacityCommand)
+3. Queue lab wipe for the unbound lab (AD-WIPE-001)
+4. Release worker capacity (via ReleaseCapacityCommand)
 
 Per ADR-031 / ADR-032:
 - Ports are NOT released at session expiry — they belong to the LabRecord
   (topology-level) and persist for lab reuse.
 - CML node tags are NOT cleared — topology-level, persist across cycles.
-- Lab stop/wipe is NOT triggered here — the lablet-controller reconciler
-  handles physical teardown on the next cycle.
+
+Per AD-WIPE-001:
+- Lab wipe IS triggered at session expiry to reset node configurations.
+- Wipe is queued via WipeLabRecordCommand (ADR-017 reconciliation pattern).
 
 Per ADR-001: All state mutations go through Control Plane API.
 """
@@ -20,18 +23,18 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
+from application.commands.lab.wipe_lab_record_command import WipeLabRecordCommand
 from application.commands.worker.release_capacity_command import ReleaseCapacityCommand
 from domain.entities.lablet_session import LabletSession
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Command, CommandHandler, Mediator
 
 log = logging.getLogger(__name__)
 
@@ -58,8 +61,9 @@ class ExpireLabletSessionCommandHandler(
     Workflow:
     1. Load LabletSession and expire it (EXPIRED status)
     2. Unbind LabRecord if bound (clear active binding, NOT ports)
-    3. Release worker capacity (via ReleaseCapacityCommand)
-    4. Persist all changes
+    3. Queue lab wipe (AD-WIPE-001: reset node configurations)
+    4. Release worker capacity (via ReleaseCapacityCommand)
+    5. Persist all changes
     """
 
     def __init__(
@@ -104,6 +108,7 @@ class ExpireLabletSessionCommandHandler(
 
         # 3. Unbind LabRecord (if bound) — DO NOT release ports
         lab_record_unbound = False
+        lab_record = None
         if session.state.lab_record_id:
             lab_record = await self._lab_record_repo.get_by_id_async(session.state.lab_record_id)
             if lab_record and lab_record.state.active_lablet_session_id == request.session_id:
@@ -121,6 +126,34 @@ class ExpireLabletSessionCommandHandler(
                     "Unbound lab_record %s from expired session %s",
                     session.state.lab_record_id,
                     request.session_id,
+                )
+
+        # 3b. Queue wipe for the lab (AD-WIPE-001: reset node configurations)
+        lab_wipe_queued = False
+        if session.state.lab_record_id:
+            try:
+                if lab_record is None:
+                    lab_record = await self._lab_record_repo.get_by_id_async(session.state.lab_record_id)
+                if lab_record and not lab_record.is_terminal and not lab_record.state.pending_action:
+                    wipe_result = await self.mediator.execute_async(WipeLabRecordCommand(lab_record_id=session.state.lab_record_id))
+                    lab_wipe_queued = wipe_result.is_success
+                    if not lab_wipe_queued:
+                        log.warning(
+                            "Failed to queue wipe for lab_record %s on expiry: %s",
+                            session.state.lab_record_id,
+                            wipe_result.error_message,
+                        )
+                    else:
+                        log.info(
+                            "Queued wipe for lab_record %s after session %s expiry",
+                            session.state.lab_record_id,
+                            request.session_id,
+                        )
+            except Exception as e:
+                log.warning(
+                    "Error queuing wipe for lab_record %s on session expiry: %s",
+                    session.state.lab_record_id,
+                    e,
                 )
 
         # 4. Release worker capacity (NOT ports)
@@ -167,9 +200,10 @@ class ExpireLabletSessionCommandHandler(
                 log.error("Error releasing capacity for session %s: %s", request.session_id, e)
 
         log.info(
-            "Session %s expired (lab_record_unbound=%s, capacity_released=%s)",
+            "Session %s expired (lab_record_unbound=%s, lab_wipe_queued=%s, capacity_released=%s)",
             request.session_id,
             lab_record_unbound,
+            lab_wipe_queued,
             capacity_released,
         )
 
@@ -179,6 +213,7 @@ class ExpireLabletSessionCommandHandler(
                 "status": "expired",
                 "reason": request.reason,
                 "lab_record_unbound": lab_record_unbound,
+                "lab_wipe_queued": lab_wipe_queued,
                 "capacity_released": capacity_released,
             }
         )

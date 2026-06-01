@@ -3,12 +3,12 @@
 import logging
 from dataclasses import dataclass
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
 from application.dtos.lablet_definition_dto import LabletDefinitionDto, map_lablet_definition_to_dto
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.entities.lablet_definition import LabletDefinition
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class GetLabletDefinitionQuery(Query[OperationResult[LabletDefinitionDto]]):
     version: str | None = None
 
 
-class GetLabletDefinitionQueryHandler(QueryHandler[GetLabletDefinitionQuery, OperationResult[LabletDefinitionDto]]):
+class GetLabletDefinitionQueryHandler(QueryHandlerBase, QueryHandler[GetLabletDefinitionQuery, OperationResult[LabletDefinitionDto]]):
     """Handle retrieving a single LabletDefinition."""
 
     def __init__(self, lablet_definition_repository: LabletDefinitionRepository):

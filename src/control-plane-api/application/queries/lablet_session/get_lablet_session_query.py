@@ -7,16 +7,16 @@ Supports lookup by ID or reservation_id.
 import logging
 from dataclasses import dataclass
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
 from application.dtos.lablet_session_dto import LabletSessionDto, map_lablet_session_to_dto
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.entities.lablet_session import LabletSession
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from domain.repositories.user_session_repository import UserSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class GetLabletSessionQuery(Query[OperationResult[LabletSessionDto]]):
     reservation_id: str | None = None
 
 
-class GetLabletSessionQueryHandler(QueryHandler[GetLabletSessionQuery, OperationResult[LabletSessionDto]]):
+class GetLabletSessionQueryHandler(QueryHandlerBase, QueryHandler[GetLabletSessionQuery, OperationResult[LabletSessionDto]]):
     """Handle LabletSession retrieval with cross-aggregate enrichment."""
 
     def __init__(

@@ -13,10 +13,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-
 from application.commands.lablet_session.create_lablet_session_command import (
     CreateLabletSessionCommand,
     CreateLabletSessionCommandHandler,
@@ -37,8 +33,12 @@ from application.commands.worker.release_capacity_command import ReleaseCapacity
 from domain.entities.lablet_session import LabletSession, LabletSessionState
 from domain.enums import CMLWorkerStatus, LabletDefinitionStatus, LabletSessionStatus
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
 
 # =============================================================================
 # Shared fixtures
@@ -89,6 +89,14 @@ def mock_definition_repository() -> MagicMock:
 def mock_worker_repository() -> MagicMock:
     mock = MagicMock(spec=CMLWorkerRepository)
     mock.get_by_id_async = AsyncMock(return_value=None)
+    return mock
+
+
+@pytest.fixture
+def mock_lab_record_repository() -> MagicMock:
+    mock = MagicMock(spec=LabRecordRepository)
+    mock.get_by_id_async = AsyncMock(return_value=None)
+    mock.update_async = AsyncMock()
     return mock
 
 
@@ -787,6 +795,7 @@ class TestTerminateLabletSessionCommandHandler:
         mock_cloud_event_publishing_options: MagicMock,
         mock_session_repository: MagicMock,
         mock_definition_repository: MagicMock,
+        mock_lab_record_repository: MagicMock | None = None,
     ) -> TerminateLabletSessionCommandHandler:
         return TerminateLabletSessionCommandHandler(
             mediator=mock_mediator,
@@ -795,6 +804,7 @@ class TestTerminateLabletSessionCommandHandler:
             cloud_event_publishing_options=mock_cloud_event_publishing_options,
             lablet_session_repository=mock_session_repository,
             lablet_definition_repository=mock_definition_repository,
+            lab_record_repository=mock_lab_record_repository or MagicMock(spec=LabRecordRepository),
         )
 
     @pytest.mark.asyncio

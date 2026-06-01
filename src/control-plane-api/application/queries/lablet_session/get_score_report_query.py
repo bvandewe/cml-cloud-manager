@@ -7,11 +7,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.entities.score_report import ScoreReport
 from domain.repositories.score_report_repository import ScoreReportRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class GetScoreReportQuery(Query[OperationResult[dict[str, Any]]]):
     lablet_session_id: str | None = None
 
 
-class GetScoreReportQueryHandler(QueryHandler[GetScoreReportQuery, OperationResult[dict[str, Any]]]):
+class GetScoreReportQueryHandler(QueryHandlerBase, QueryHandler[GetScoreReportQuery, OperationResult[dict[str, Any]]]):
     """Handle ScoreReport retrieval."""
 
     def __init__(self, score_report_repository: ScoreReportRepository):

@@ -10,12 +10,12 @@ ADR-017: Lab delete operations use the reconciliation pattern:
 import logging
 from dataclasses import dataclass
 
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from domain.repositories.lab_record_repository import LabRecordRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core.operation_result import OperationResult
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
-
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from domain.repositories.lab_record_repository import LabRecordRepository
 
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -37,6 +37,7 @@ class DeleteLabCommand(Command[OperationResult[dict]]):
     lab_id: str
 
 
+@instrumented
 class DeleteLabCommandHandler(CommandHandler[DeleteLabCommand, OperationResult[dict]]):
     """Handler for DeleteLabCommand - queues lab deletion for reconciliation.
 

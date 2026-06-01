@@ -8,6 +8,7 @@ compatibility with the idle detection system.
 import logging
 from dataclasses import dataclass
 
+from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
@@ -36,6 +37,7 @@ class PauseWorkerCommand(Command[OperationResult[None]]):
     reason: str | None = None
 
 
+@instrumented
 class PauseWorkerCommandHandler(CommandHandler[PauseWorkerCommand, OperationResult[None]]):
     """Handler for PauseWorkerCommand.
 

@@ -4,12 +4,12 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from domain.repositories import CMLWorkerRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-
-from domain.repositories import CMLWorkerRepository
 
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -36,6 +36,7 @@ class UpdateWorkerActivityCommand(Command[OperationResult[None]]):
     target_pause_at: datetime | None = None
 
 
+@instrumented
 class UpdateWorkerActivityCommandHandler(CommandHandler[UpdateWorkerActivityCommand, OperationResult[None]]):
     """Handler for UpdateWorkerActivityCommand.
 

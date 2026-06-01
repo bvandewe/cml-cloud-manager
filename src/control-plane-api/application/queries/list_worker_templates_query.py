@@ -3,11 +3,11 @@
 import logging
 from dataclasses import dataclass
 
+from application.dtos.worker_template_dto import WorkerTemplateSummaryDto, map_worker_template_to_summary_dto
+from application.queries.query_handler_base import QueryHandlerBase
+from domain.repositories.worker_template_repository import WorkerTemplateRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
-
-from application.dtos.worker_template_dto import WorkerTemplateSummaryDto, map_worker_template_to_summary_dto
-from domain.repositories.worker_template_repository import WorkerTemplateRepository
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class ListWorkerTemplatesQuery(Query[OperationResult[list[WorkerTemplateSummaryD
     include_deleted: bool = False
 
 
-class ListWorkerTemplatesQueryHandler(QueryHandler[ListWorkerTemplatesQuery, OperationResult[list[WorkerTemplateSummaryDto]]]):
+class ListWorkerTemplatesQueryHandler(QueryHandlerBase, QueryHandler[ListWorkerTemplatesQuery, OperationResult[list[WorkerTemplateSummaryDto]]]):
     """Handle listing WorkerTemplates."""
 
     def __init__(self, worker_template_repository: WorkerTemplateRepository):

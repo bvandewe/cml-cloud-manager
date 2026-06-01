@@ -5,17 +5,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-from opentelemetry import trace
-
 from application.queries.query_handler_base import QueryHandlerBase
-from opentelemetry.trace import Status, StatusCode
-
 from application.services.system_configuration_service import SystemConfigurationService
 from application.settings import app_settings
 from domain.repositories import CMLWorkerRepository
 from domain.services.idle_detection_service import IdleDetectionService
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)

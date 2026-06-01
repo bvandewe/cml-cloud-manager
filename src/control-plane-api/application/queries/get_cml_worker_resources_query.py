@@ -9,10 +9,10 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 
+from application.queries.query_handler_base import QueryHandlerBase
+from domain.repositories import CMLWorkerRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
-
-from domain.repositories import CMLWorkerRepository
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class GetCMLWorkerResourcesQuery(Query[OperationResult[CachedResourcesUtilizatio
     aws_region: str | None = None
 
 
-class GetCMLWorkerResourcesQueryHandler(QueryHandler[GetCMLWorkerResourcesQuery, OperationResult[CachedResourcesUtilization]]):
+class GetCMLWorkerResourcesQueryHandler(QueryHandlerBase, QueryHandler[GetCMLWorkerResourcesQuery, OperationResult[CachedResourcesUtilization]]):
     """Handle retrieving CML Worker cached metrics.
 
     ADR-015: Returns cached data from database. Does NOT call CloudWatch.

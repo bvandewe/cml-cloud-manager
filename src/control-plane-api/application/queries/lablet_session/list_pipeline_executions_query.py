@@ -9,11 +9,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.entities.pipeline_execution_record import PipelineExecutionRecord
 from domain.repositories.pipeline_execution_repository import PipelineExecutionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class ListPipelineExecutionsQuery(Query[OperationResult[list[dict[str, Any]]]]):
     limit: int = 50
 
 
-class ListPipelineExecutionsQueryHandler(QueryHandler[ListPipelineExecutionsQuery, OperationResult[list[dict[str, Any]]]]):
+class ListPipelineExecutionsQueryHandler(QueryHandlerBase, QueryHandler[ListPipelineExecutionsQuery, OperationResult[list[dict[str, Any]]]]):
     """Handle listing PipelineExecutionRecords with filtering.
 
     Sprint G (G2): Queries the ``pipeline_executions`` MongoDB collection

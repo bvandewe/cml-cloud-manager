@@ -13,10 +13,10 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation.mediator import Command, CommandHandler
-
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class StartLicenseRegistrationCommand(Command[OperationResult[dict]]):
     initiated_by: str | None = None
 
 
+@instrumented
 class StartLicenseRegistrationCommandHandler(CommandHandler[StartLicenseRegistrationCommand, OperationResult[dict]]):
     """Handler for StartLicenseRegistrationCommand."""
 
@@ -78,6 +79,7 @@ class CompleteLicenseRegistrationCommand(Command[OperationResult[dict]]):
     virtual_account: str | None = None
 
 
+@instrumented
 class CompleteLicenseRegistrationCommandHandler(CommandHandler[CompleteLicenseRegistrationCommand, OperationResult[dict]]):
     """Handler for CompleteLicenseRegistrationCommand."""
 
@@ -126,6 +128,7 @@ class FailLicenseRegistrationCommand(Command[OperationResult[dict]]):
     error_code: str | None = None
 
 
+@instrumented
 class FailLicenseRegistrationCommandHandler(CommandHandler[FailLicenseRegistrationCommand, OperationResult[dict]]):
     """Handler for FailLicenseRegistrationCommand."""
 
@@ -171,6 +174,7 @@ class StartLicenseDeregistrationCommand(Command[OperationResult[dict]]):
     initiated_by: str | None = None
 
 
+@instrumented
 class StartLicenseDeregistrationCommandHandler(CommandHandler[StartLicenseDeregistrationCommand, OperationResult[dict]]):
     """Handler for StartLicenseDeregistrationCommand."""
 
@@ -210,6 +214,7 @@ class CompleteLicenseDeregistrationCommand(Command[OperationResult[dict]]):
     message: str = "License deregistered successfully"
 
 
+@instrumented
 class CompleteLicenseDeregistrationCommandHandler(CommandHandler[CompleteLicenseDeregistrationCommand, OperationResult[dict]]):
     """Handler for CompleteLicenseDeregistrationCommand."""
 
@@ -249,6 +254,7 @@ class FailLicenseDeregistrationCommand(Command[OperationResult[dict]]):
     error_message: str
 
 
+@instrumented
 class FailLicenseDeregistrationCommandHandler(CommandHandler[FailLicenseDeregistrationCommand, OperationResult[dict]]):
     """Handler for FailLicenseDeregistrationCommand."""
 

@@ -3,6 +3,7 @@ import logging
 import uuid
 from dataclasses import asdict
 
+from infrastructure.observability.cqrs_instrumentation import wrap_handle_async_with_enrichment
 from neuroglia.eventing.cloud_events.cloud_event import (
     CloudEvent,
     CloudEventSpecVersion,
@@ -19,7 +20,17 @@ log = logging.getLogger(__name__)
 
 
 class CommandHandlerBase(CommandHandler):
-    """Represents the base class for all services used to handle CML Worker Commands."""
+    """Represents the base class for all services used to handle CML Worker Commands.
+
+    Observability:
+        All subclasses automatically get OTEL span enrichment via __init_subclass__.
+        The TracingPipelineBehavior (registered by Observability.configure) creates the
+        parent span; this base class enriches it with request dataclass field values.
+    """
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        wrap_handle_async_with_enrichment(cls)
 
     mediator: Mediator
     """ Gets the service used to mediate calls """

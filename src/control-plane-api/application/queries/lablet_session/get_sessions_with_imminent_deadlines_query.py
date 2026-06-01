@@ -15,11 +15,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.enums import LabletSessionStatus
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class GetSessionsWithImminentDeadlinesQuery(Query[OperationResult[ImminentDeadli
     boot_window_minutes: int = 35
 
 
-class GetSessionsWithImminentDeadlinesQueryHandler(QueryHandler[GetSessionsWithImminentDeadlinesQuery, OperationResult[ImminentDeadlinesResult]]):
+class GetSessionsWithImminentDeadlinesQueryHandler(QueryHandlerBase, QueryHandler[GetSessionsWithImminentDeadlinesQuery, OperationResult[ImminentDeadlinesResult]]):
     """Handle querying for sessions with imminent deadlines.
 
     Executes two targeted MongoDB queries:

@@ -7,11 +7,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.entities.grading_session import GradingSession
 from domain.repositories.grading_session_repository import GradingSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class GetGradingSessionQuery(Query[OperationResult[dict[str, Any]]]):
     lablet_session_id: str | None = None
 
 
-class GetGradingSessionQueryHandler(QueryHandler[GetGradingSessionQuery, OperationResult[dict[str, Any]]]):
+class GetGradingSessionQueryHandler(QueryHandlerBase, QueryHandler[GetGradingSessionQuery, OperationResult[dict[str, Any]]]):
     """Handle GradingSession retrieval."""
 
     def __init__(self, grading_session_repository: GradingSessionRepository):

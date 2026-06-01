@@ -4,12 +4,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
 from application.mappers import map_worker_to_dto, worker_dto_to_dict
+from application.queries.query_handler_base import QueryHandlerBase
 from application.services.port_allocation_service import PortAllocationService
 from domain.repositories import CMLWorkerRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class GetCMLWorkerByIdQuery(Query[OperationResult[dict[str, Any]]]):
     aws_instance_id: str | None = None
 
 
-class GetCMLWorkerByIdQueryHandler(QueryHandler[GetCMLWorkerByIdQuery, OperationResult[dict[str, Any]]]):
+class GetCMLWorkerByIdQueryHandler(QueryHandlerBase, QueryHandler[GetCMLWorkerByIdQuery, OperationResult[dict[str, Any]]]):
     """Handle retrieving a single CML Worker.
 
     ADR-031 Phase 6: Enriches DTO with port usage stats from PortAllocationService.

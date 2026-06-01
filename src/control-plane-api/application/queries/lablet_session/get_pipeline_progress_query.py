@@ -8,11 +8,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.entities.lablet_session import LabletSession
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class GetPipelineProgressQuery(Query[OperationResult[dict[str, Any]]]):
     pipeline_name: str | None = None
 
 
-class GetPipelineProgressQueryHandler(QueryHandler[GetPipelineProgressQuery, OperationResult[dict[str, Any]]]):
+class GetPipelineProgressQueryHandler(QueryHandlerBase, QueryHandler[GetPipelineProgressQuery, OperationResult[dict[str, Any]]]):
     """Handle pipeline progress retrieval from LabletSession aggregate.
 
     Sprint G (G2): Reads the ``pipeline_progress`` dict stored on the

@@ -5,11 +5,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Command, CommandHandler
-
 from application.services.sse_event_relay import SSEEventRelay
 from domain.repositories.lab_record_repository import LabRecordRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ class UpdateWorkerLabStatsCommand(Command[OperationResult[dict[str, Any]]]):
     collected_at: str | None = None
 
 
+@instrumented
 class UpdateWorkerLabStatsCommandHandler(CommandHandler[UpdateWorkerLabStatsCommand, OperationResult[dict[str, Any]]]):
     """Handler for UpdateWorkerLabStatsCommand.
 

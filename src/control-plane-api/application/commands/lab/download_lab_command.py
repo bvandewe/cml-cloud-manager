@@ -13,12 +13,12 @@ import logging
 from dataclasses import dataclass
 
 import httpx
+from application.settings import Settings
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core.operation_result import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 from opentelemetry import trace
-
-from application.settings import Settings
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
 
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -39,6 +39,7 @@ class DownloadLabCommand(Command[OperationResult[str]]):
     lab_id: str
 
 
+@instrumented
 class DownloadLabCommandHandler(CommandHandler[DownloadLabCommand, OperationResult[str]]):
     """Handler for DownloadLabCommand — proxies lab download through lablet-controller.
 

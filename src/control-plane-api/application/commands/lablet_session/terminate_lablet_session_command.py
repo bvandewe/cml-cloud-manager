@@ -2,23 +2,25 @@
 
 Phase 7D: Replaces TerminateLabletInstanceCommand.
 Releases worker capacity on termination via ReleaseCapacityCommand.
+Unbinds and queues wipe for the linked LabRecord (AD-WIPE-001).
 """
 
 import logging
 from dataclasses import dataclass
 
+from application.commands.command_handler_base import CommandHandlerBase
+from application.commands.lab.wipe_lab_record_command import WipeLabRecordCommand
+from application.commands.worker.release_capacity_command import ReleaseCapacityCommand
+from domain.entities.lablet_session import InvalidStateTransitionError, LabletSession
+from domain.enums import LabletSessionStatus
+from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
+from domain.repositories.lablet_session_repository import LabletSessionRepository
 from neuroglia.core import OperationResult
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
-
-from application.commands.command_handler_base import CommandHandlerBase
-from application.commands.worker.release_capacity_command import ReleaseCapacityCommand
-from domain.entities.lablet_session import InvalidStateTransitionError, LabletSession
-from domain.enums import LabletSessionStatus
-from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
-from domain.repositories.lablet_session_repository import LabletSessionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +63,12 @@ class TerminateLabletSessionCommandHandler(
         cloud_event_publishing_options: CloudEventPublishingOptions,
         lablet_session_repository: LabletSessionRepository,
         lablet_definition_repository: LabletDefinitionRepository,
+        lab_record_repository: LabRecordRepository,
     ):
         super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
         self._repository = lablet_session_repository
         self._definition_repository = lablet_definition_repository
+        self._lab_record_repository = lab_record_repository
 
     async def handle_async(self, request: TerminateLabletSessionCommand) -> OperationResult[TerminateLabletSessionDto]:
         """Handle terminate LabletSession command."""
@@ -137,6 +141,47 @@ class TerminateLabletSessionCommandHandler(
                         "Error releasing capacity for session %s on worker %s: %s",
                         session.id(),
                         session.state.worker_id,
+                        e,
+                    )
+
+            # Unbind LabRecord and queue wipe (best-effort, AD-WIPE-001)
+            if session.state.lab_record_id:
+                try:
+                    lab_record = await self._lab_record_repository.get_by_id_async(session.state.lab_record_id)
+                    if lab_record:
+                        # Unbind if this session is the active binding
+                        if lab_record.state.active_lablet_session_id == session.id():
+                            binding_id = lab_record.state.active_binding_id or ""
+                            lab_record.unbind_from_lablet(
+                                lablet_session_id=session.id(),
+                                binding_id=binding_id,
+                            )
+                            await self._lab_record_repository.update_async(lab_record)
+                            logger.info(
+                                "Unbound lab_record %s from terminated session %s",
+                                session.state.lab_record_id,
+                                session.id(),
+                            )
+
+                        # Queue wipe if lab is not terminal and has no pending action
+                        if not lab_record.is_terminal and not lab_record.state.pending_action:
+                            wipe_result = await self.mediator.execute_async(WipeLabRecordCommand(lab_record_id=session.state.lab_record_id))
+                            if wipe_result.is_success:
+                                logger.info(
+                                    "Queued wipe for lab_record %s after session %s termination",
+                                    session.state.lab_record_id,
+                                    session.id(),
+                                )
+                            else:
+                                logger.warning(
+                                    "Failed to queue wipe for lab_record %s: %s",
+                                    session.state.lab_record_id,
+                                    wipe_result.error_message,
+                                )
+                except Exception as e:
+                    logger.warning(
+                        "Error during lab cleanup for terminated session %s: %s",
+                        session.id(),
                         e,
                     )
 

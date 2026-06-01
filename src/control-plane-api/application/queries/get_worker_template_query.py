@@ -3,12 +3,12 @@
 import logging
 from dataclasses import dataclass
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
 from application.dtos.worker_template_dto import WorkerTemplateDto, map_worker_template_to_dto
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.entities.worker_template import WorkerTemplate
 from domain.repositories.worker_template_repository import WorkerTemplateRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class GetWorkerTemplateQuery(Query[OperationResult[WorkerTemplateDto]]):
     name: str | None = None
 
 
-class GetWorkerTemplateQueryHandler(QueryHandler[GetWorkerTemplateQuery, OperationResult[WorkerTemplateDto]]):
+class GetWorkerTemplateQueryHandler(QueryHandlerBase, QueryHandler[GetWorkerTemplateQuery, OperationResult[WorkerTemplateDto]]):
     """Handle retrieving a single WorkerTemplate."""
 
     def __init__(self, worker_template_repository: WorkerTemplateRepository):

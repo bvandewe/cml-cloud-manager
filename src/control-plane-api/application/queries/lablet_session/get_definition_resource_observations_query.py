@@ -12,10 +12,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from application.queries.query_handler_base import QueryHandlerBase
+from domain.repositories.lablet_session_repository import LabletSessionRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
-
-from domain.repositories.lablet_session_repository import LabletSessionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ class GetDefinitionResourceObservationsQuery(Query[OperationResult[dict[str, Any
 
 
 class GetDefinitionResourceObservationsQueryHandler(
+    QueryHandlerBase,
     QueryHandler[GetDefinitionResourceObservationsQuery, OperationResult[dict[str, Any]]],
 ):
     """Handle aggregation of resource observations across sessions for a definition.

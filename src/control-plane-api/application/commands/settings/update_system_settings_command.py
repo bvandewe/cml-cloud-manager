@@ -4,10 +4,10 @@ import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from domain.repositories.system_settings_repository import SystemSettingsRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
-
-from domain.repositories.system_settings_repository import SystemSettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ class UpdateSystemSettingsCommand(Command[OperationResult[dict[str, Any]]]):
     updated_by: str | None = None
 
 
+@instrumented
 class UpdateSystemSettingsCommandHandler(CommandHandler[UpdateSystemSettingsCommand, OperationResult[dict[str, Any]]]):
     """Handle updating system settings."""
 

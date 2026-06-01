@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
-
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ class ReportActivityEventsCommand(Command[OperationResult[dict[str, Any]]]):
     source: str = "websocket"
 
 
+@instrumented
 class ReportActivityEventsCommandHandler(CommandHandler[ReportActivityEventsCommand, OperationResult[dict[str, Any]]]):
     """Handler for ReportActivityEventsCommand.
 

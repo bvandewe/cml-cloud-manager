@@ -8,11 +8,11 @@ and execute the actual CML API call.
 import logging
 from dataclasses import dataclass
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation.mediator import Command, CommandHandler
-
 from domain.enums import CMLWorkerStatus
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
+from neuroglia.core import OperationResult
+from neuroglia.mediation.mediator import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ class RegisterCMLWorkerLicenseCommand(Command[OperationResult[dict]]):
     initiated_by: str | None = None
 
 
+@instrumented
 class RegisterCMLWorkerLicenseCommandHandler(CommandHandler[RegisterCMLWorkerLicenseCommand, OperationResult[dict]]):
     """Handler for RegisterCMLWorkerLicenseCommand.
 

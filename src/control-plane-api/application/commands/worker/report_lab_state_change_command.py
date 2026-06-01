@@ -4,11 +4,11 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Command, CommandHandler
-
 from application.services.sse_event_relay import SSEEventRelay
 from domain.repositories.lab_record_repository import LabRecordRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class ReportLabStateChangeCommand(Command[OperationResult[dict[str, Any]]]):
     data: dict[str, Any] = field(default_factory=dict)
 
 
+@instrumented
 class ReportLabStateChangeCommandHandler(CommandHandler[ReportLabStateChangeCommand, OperationResult[dict[str, Any]]]):
     """Handler for ReportLabStateChangeCommand.
 

@@ -7,11 +7,11 @@ for use in autocomplete/typeahead UI components.
 import logging
 from dataclasses import dataclass
 
+from application.dtos.lablet_definition_dto import LabletDefinitionSummaryDto, map_lablet_definition_to_summary_dto
+from application.queries.query_handler_base import QueryHandlerBase
+from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
-
-from application.dtos.lablet_definition_dto import LabletDefinitionSummaryDto, map_lablet_definition_to_summary_dto
-from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class SearchLabletDefinitionsQuery(Query[OperationResult[list[LabletDefinitionSu
     include_deprecated: bool = False
 
 
-class SearchLabletDefinitionsQueryHandler(QueryHandler[SearchLabletDefinitionsQuery, OperationResult[list[LabletDefinitionSummaryDto]]]):
+class SearchLabletDefinitionsQueryHandler(QueryHandlerBase, QueryHandler[SearchLabletDefinitionsQuery, OperationResult[list[LabletDefinitionSummaryDto]]]):
     """Handle searching LabletDefinitions by name/description text."""
 
     def __init__(self, lablet_definition_repository: LabletDefinitionRepository):

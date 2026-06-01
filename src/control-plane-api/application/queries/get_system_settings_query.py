@@ -4,10 +4,10 @@ import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from application.queries.query_handler_base import QueryHandlerBase
+from domain.repositories.system_settings_repository import SystemSettingsRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
-
-from domain.repositories.system_settings_repository import SystemSettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class GetSystemSettingsQuery(Query[OperationResult[dict[str, Any]]]):
     pass
 
 
-class GetSystemSettingsQueryHandler(QueryHandler[GetSystemSettingsQuery, OperationResult[dict[str, Any]]]):
+class GetSystemSettingsQueryHandler(QueryHandlerBase, QueryHandler[GetSystemSettingsQuery, OperationResult[dict[str, Any]]]):
     """Handle retrieving system settings."""
 
     def __init__(self, settings_repository: SystemSettingsRepository):

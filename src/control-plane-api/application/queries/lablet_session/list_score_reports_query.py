@@ -8,10 +8,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from application.queries.query_handler_base import QueryHandlerBase
+from domain.repositories.score_report_repository import ScoreReportRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
-
-from domain.repositories.score_report_repository import ScoreReportRepository
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class ListScoreReportsQuery(Query[OperationResult[list[dict[str, Any]]]]):
     limit: int = 100
 
 
-class ListScoreReportsQueryHandler(QueryHandler[ListScoreReportsQuery, OperationResult[list[dict[str, Any]]]]):
+class ListScoreReportsQueryHandler(QueryHandlerBase, QueryHandler[ListScoreReportsQuery, OperationResult[list[dict[str, Any]]]]):
     """Handle listing ScoreReports with filtering."""
 
     def __init__(self, score_report_repository: ScoreReportRepository):

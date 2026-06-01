@@ -8,16 +8,14 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-from opentelemetry import trace
-
 from application.queries.query_handler_base import QueryHandlerBase
-from opentelemetry.trace import Status, StatusCode
-
 from domain.entities.lab_record import LabRecord
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)

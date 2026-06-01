@@ -10,13 +10,13 @@ ADR-017: Lab import operations use the reconciliation pattern:
 import logging
 from dataclasses import dataclass
 
-from neuroglia.core.operation_result import OperationResult
-from neuroglia.mediation import Command, CommandHandler, Mediator
-from opentelemetry import trace
-
 from domain.entities.pending_lab_import import PendingLabImport
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.pending_lab_import_repository import PendingLabImportRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
+from neuroglia.core.operation_result import OperationResult
+from neuroglia.mediation import Command, CommandHandler, Mediator
+from opentelemetry import trace
 
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -42,6 +42,7 @@ class ImportLabCommand(Command[OperationResult[dict]]):
     requested_by: str | None = None
 
 
+@instrumented
 class ImportLabCommandHandler(CommandHandler[ImportLabCommand, OperationResult[dict]]):
     """Handler for ImportLabCommand - queues lab import for reconciliation.
 

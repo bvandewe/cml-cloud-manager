@@ -3,12 +3,12 @@
 import logging
 from dataclasses import dataclass
 
+from domain.repositories import CMLWorkerRepository
+from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-
-from domain.repositories import CMLWorkerRepository
 
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -30,6 +30,7 @@ class DisableIdleDetectionCommand(Command[OperationResult[dict]]):
     disabled_by: str | None = None
 
 
+@instrumented
 class DisableIdleDetectionCommandHandler(CommandHandler[DisableIdleDetectionCommand, OperationResult[dict]]):
     """Handler for DisableIdleDetectionCommand.
 

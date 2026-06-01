@@ -3,12 +3,12 @@
 import logging
 from dataclasses import dataclass
 
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
-
 from application.dtos.lablet_definition_dto import LabletDefinitionSummaryDto, map_lablet_definition_to_summary_dto
+from application.queries.query_handler_base import QueryHandlerBase
 from domain.enums import LabletDefinitionStatus
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class ListLabletDefinitionsQuery(Query[OperationResult[list[LabletDefinitionSumm
     limit: int = 100
 
 
-class ListLabletDefinitionsQueryHandler(QueryHandler[ListLabletDefinitionsQuery, OperationResult[list[LabletDefinitionSummaryDto]]]):
+class ListLabletDefinitionsQueryHandler(QueryHandlerBase, QueryHandler[ListLabletDefinitionsQuery, OperationResult[list[LabletDefinitionSummaryDto]]]):
     """Handle listing LabletDefinitions with filtering and pagination."""
 
     def __init__(self, lablet_definition_repository: LabletDefinitionRepository):
