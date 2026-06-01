@@ -6,6 +6,21 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ## [Unreleased]
 
+### Added — Session Termination Lab Wipe (AD-WIPE-001)
+
+- **Terminate/Expire → wipe integration** (control-plane-api): `TerminateLabletSessionCommand` and `ExpireLabletSessionCommand` now unbind the linked LabRecord and dispatch `WipeLabRecordCommand` on session end. Guards skip wipe for terminal labs or those with pending actions. Wipe failure does not block session termination.
+
+### Added — CQRS Observability (OTEL Span Enrichment)
+
+- **QueryHandlerBase** (control-plane-api): New base class auto-enriches OTEL spans with request dataclass fields via `__init_subclass__` hook. All query handlers migrated.
+- **CommandHandlerBase enrichment** (control-plane-api): `cqrs_instrumentation.py` module adds `cqrs.request.*` span attributes to TracingPipelineBehavior spans automatically — no per-handler instrumentation code needed.
+
+### Added — LDS Multi-Port Device Conflict Resolution (AD-LDS-002)
+
+- **Phase 1 — Runtime dedup** (lablet-controller): Global `lds_protocol_priority` setting resolves multi-port CML nodes to a single LDS device entry via two-pass algorithm in `lds_helpers.py`.
+- **Phase 2 — Content sync detection** (lablet-controller → control-plane-api): `_detect_port_conflicts()` cross-references port_template with user_visible_devices at sync time. Conflicts stored on `LabletDefinitionState.port_conflicts`.
+- **Phase 3 — User-configurable port preferences** (control-plane-api): `SetLdsPortPreferencesCommand` stores per-device overrides. UI dropdown selectors per conflicting device in definition details modal.
+
 ### Added — Lablet Definition Lifecycle Commands
 
 - **Activate/Deactivate/Delete commands** (control-plane-api): New CQRS commands with full domain event sourcing — `ActivateLabletDefinitionCommand`, `DeactivateLabletDefinitionCommand`, `DeleteLabletDefinitionCommand`. Soft-delete marks definitions as DELETED (excluded from all listings).
