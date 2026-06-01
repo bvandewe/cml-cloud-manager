@@ -13,6 +13,7 @@ Tests cover:
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
 from domain.entities.lablet_session import LabletSession
 from domain.enums import LabletSessionStatus
 from domain.events.lablet_session_events import (

@@ -1,6 +1,7 @@
 """Tests for CMLWorker Capacity Extensions (Task 1.5)."""
 
 import pytest
+
 from domain.entities.cml_worker import CMLWorker
 from domain.events.cml_worker import (
     CMLWorkerCapacityUpdatedDomainEvent,

@@ -15,6 +15,12 @@ ADR-021: Child Entity Architecture — creates GradingSession/ScoreReport child 
 import logging
 from uuid import uuid4
 
+from multipledispatch import dispatch
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import IntegrationEventHandler, Mediator
+
 from application.events.integration.assessment_events import (
     AssessmentCollectionCompletedIntegrationEventV1,
     AssessmentCollectionFailedIntegrationEventV1,
@@ -29,11 +35,6 @@ from domain.enums import LabletSessionStatus
 from domain.repositories.grading_session_repository import GradingSessionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from domain.repositories.score_report_repository import ScoreReportRepository
-from multipledispatch import dispatch
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import IntegrationEventHandler, Mediator
 
 log = logging.getLogger(__name__)
 

@@ -5,17 +5,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
-from api.dependencies import get_current_user
-from api.services import DualAuthService
-from application.dtos.lablet_definition_dto import map_lablet_definition_to_summary_dto
-from application.dtos.lablet_session_dto import map_lablet_session_to_summary_dto
-from application.events.domain.cml_worker_events import _broadcast_worker_snapshot
-from application.services.sse_event_relay import SSEEventRelay
 from classy_fastapi.decorators import get as get_route
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from domain.repositories.lab_record_repository import LabRecordRepository
-from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
-from domain.repositories.lablet_session_repository import LabletSessionRepository
 from fastapi import Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from neuroglia.dependency_injection import ServiceProviderBase
@@ -23,6 +13,17 @@ from neuroglia.mapping import Mapper
 from neuroglia.mediation import Mediator
 from neuroglia.mvc import ControllerBase
 from neuroglia.serialization.json import JsonSerializer
+
+from api.dependencies import get_current_user
+from api.services import DualAuthService
+from application.dtos.lablet_definition_dto import map_lablet_definition_to_summary_dto
+from application.dtos.lablet_session_dto import map_lablet_session_to_summary_dto
+from application.events.domain.cml_worker_events import _broadcast_worker_snapshot
+from application.services.sse_event_relay import SSEEventRelay
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
+from domain.repositories.lablet_session_repository import LabletSessionRepository
 
 logger = logging.getLogger(__name__)
 

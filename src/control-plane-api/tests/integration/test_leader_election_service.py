@@ -11,6 +11,7 @@ import uuid
 from collections.abc import AsyncGenerator
 
 import pytest
+
 from application.services.leader_election_service import (
     LeaderElectionConfig,
     LeaderElectionService,

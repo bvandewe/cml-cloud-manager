@@ -13,6 +13,7 @@ Tests cover:
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from application.commands.lablet_definition import (
     CreateLabletDefinitionCommand,
     CreateLabletDefinitionCommandHandler,

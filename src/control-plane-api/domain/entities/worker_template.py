@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot, AggregateState
+
 from domain.events.worker_template_events import (
     WorkerTemplateCreatedDomainEvent,
     WorkerTemplateDeletedDomainEvent,
@@ -20,8 +23,6 @@ from domain.events.worker_template_events import (
 )
 from domain.value_objects.worker_capacity import WorkerCapacity
 from integration.enums import Ec2InstanceType
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot, AggregateState
 
 # -------------------------------------------------------------------------
 # Aggregate State

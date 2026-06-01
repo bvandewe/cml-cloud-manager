@@ -15,12 +15,13 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.hosting.abstractions import HostedService
+
 from domain.entities.worker_template import WorkerTemplate
 from domain.repositories.worker_template_repository import WorkerTemplateRepository
 from domain.value_objects.worker_capacity import WorkerCapacity
 from integration.enums import Ec2InstanceType
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.hosting.abstractions import HostedService
 
 log = logging.getLogger(__name__)
 

@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import jwt
-from infrastructure import InMemorySessionStore, RedisSessionStore, SessionStore
 from jwt import algorithms
 from starlette.responses import Response
+
+from infrastructure import InMemorySessionStore, RedisSessionStore, SessionStore
 
 if TYPE_CHECKING:
     from fastapi import FastAPI, Request

@@ -14,6 +14,7 @@ Pattern: object.__new__(ResourceObserver) to bypass DI, matching lablet-controll
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from application.services.resource_observer import ResourceObserver
 from integration.services.cml_labs_spi import (
     CmlLabsSpiClient,

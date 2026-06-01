@@ -11,14 +11,15 @@ Uses LabRecordStatus-aware pending action flow:
 import logging
 from dataclasses import dataclass
 
-from domain.entities.lab_record import LabRecord
-from domain.repositories.lab_record_repository import LabRecordRepository
 from neuroglia.core import OperationResult
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
+
+from domain.entities.lab_record import LabRecord
+from domain.repositories.lab_record_repository import LabRecordRepository
 
 from ..command_handler_base import CommandHandlerBase
 

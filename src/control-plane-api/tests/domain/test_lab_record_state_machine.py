@@ -16,11 +16,12 @@ Tests cover:
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from lcm_core.domain.enums import LabRecordStatus
+
 from domain.entities.lab_record import InvalidLabRecordTransitionError, LabRecord
 from domain.value_objects.external_interface import ExternalInterface
 from domain.value_objects.lab_run_record import LabRunRecord
 from domain.value_objects.lab_topology_spec import LabTopologySpec, TopologyLink, TopologyNode
-from lcm_core.domain.enums import LabRecordStatus
 
 # =============================================================================
 # Fixtures

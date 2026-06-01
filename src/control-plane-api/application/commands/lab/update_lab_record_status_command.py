@@ -11,8 +11,6 @@ Architecture ref: §8.2 (internal endpoints).
 import logging
 from dataclasses import dataclass
 
-from domain.entities.lab_record import InvalidLabRecordTransitionError, LabRecord
-from domain.repositories.lab_record_repository import LabRecordRepository
 from lcm_core.domain.enums import CML_STATE_TO_LAB_RECORD_STATUS, LabRecordStatus
 from neuroglia.core import OperationResult
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
@@ -20,6 +18,9 @@ from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
+
+from domain.entities.lab_record import InvalidLabRecordTransitionError, LabRecord
+from domain.repositories.lab_record_repository import LabRecordRepository
 
 from ..command_handler_base import CommandHandlerBase
 

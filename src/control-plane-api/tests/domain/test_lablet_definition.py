@@ -14,6 +14,7 @@ Covers:
 from datetime import datetime, timezone
 
 import pytest
+
 from domain.entities.lablet_definition import LabletDefinition, LabletDefinitionState, NotificationConfig
 from domain.enums import LabletDefinitionStatus, LicenseType
 from domain.events.lablet_definition_events import (

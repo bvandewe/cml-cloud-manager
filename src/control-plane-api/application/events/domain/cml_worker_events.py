@@ -9,6 +9,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from neuroglia.mediation import DomainEventHandler
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.serialization.json import JsonSerializer
+
 from application.commands.lablet_session import TerminateLabletSessionCommand
 from application.mappers import map_worker_to_dto, worker_dto_to_dict
 from application.services.sse_event_relay import SSEEventRelay
@@ -28,9 +32,6 @@ from domain.events.worker_metrics_events import (
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
-from neuroglia.mediation import DomainEventHandler
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.serialization.json import JsonSerializer
 
 log = logging.getLogger(__name__)
 

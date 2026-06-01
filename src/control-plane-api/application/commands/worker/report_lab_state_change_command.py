@@ -4,10 +4,11 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from application.services.sse_event_relay import SSEEventRelay
-from domain.repositories.lab_record_repository import LabRecordRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
+
+from application.services.sse_event_relay import SSEEventRelay
+from domain.repositories.lab_record_repository import LabRecordRepository
 
 log = logging.getLogger(__name__)
 

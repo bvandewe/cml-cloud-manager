@@ -5,6 +5,7 @@ and serialization for ScoreReport (ADR-021 §3).
 """
 
 import pytest
+
 from domain.entities.score_report import ScoreReport, ScoreSection
 
 # =============================================================================

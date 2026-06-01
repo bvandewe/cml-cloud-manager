@@ -10,6 +10,7 @@ Tests cover:
 """
 
 import pytest
+
 from application.services.port_mapping_resolution_service import PortMappingResolutionService
 
 

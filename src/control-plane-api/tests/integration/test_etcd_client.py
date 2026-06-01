@@ -10,6 +10,7 @@ import uuid
 from collections.abc import AsyncGenerator
 
 import pytest
+
 from integration.exceptions import EtcdConnectionException
 from integration.services.etcd_client import EtcdClient, EtcdConfig
 from integration.services.etcd_state_store import EtcdStateStore

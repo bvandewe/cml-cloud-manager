@@ -27,6 +27,16 @@ Endpoints:
 import logging
 from typing import Annotated, Any
 
+from classy_fastapi.decorators import get, post
+from classy_fastapi.routable import Routable
+from fastapi import Depends, File, HTTPException, Path, Query, UploadFile
+from fastapi.responses import PlainTextResponse
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
+from pydantic import BaseModel, Field
+
 from api.dependencies import get_current_user
 from application.commands.lab import (
     ArchiveLabRecordCommand,
@@ -48,15 +58,6 @@ from application.queries import (
     GetLabRecordsQuery,
     GetLabRecordTopologyQuery,
 )
-from classy_fastapi.decorators import get, post
-from classy_fastapi.routable import Routable
-from fastapi import Depends, File, HTTPException, Path, Query, UploadFile
-from fastapi.responses import PlainTextResponse
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
-from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 

@@ -1,11 +1,12 @@
-from application.services.worker_template_service import WorkerTemplateService
-from application.settings import Settings
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from main import create_app
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Mediator
+
+from application.services.worker_template_service import WorkerTemplateService
+from application.settings import Settings
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from main import create_app
 
 app = create_app()
 provider = app.state.services

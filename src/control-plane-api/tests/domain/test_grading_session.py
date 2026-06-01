@@ -5,8 +5,9 @@ and factory for the GradingSession child entity (ADR-021 §2).
 """
 
 import pytest
-from domain.entities.grading_session import GradingSession
 from lcm_core.domain.enums import GradingSessionStatus
+
+from domain.entities.grading_session import GradingSession
 
 # =============================================================================
 # Helpers

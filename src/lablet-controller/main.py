@@ -29,22 +29,23 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
+from fastapi import FastAPI
+from lcm_core.infrastructure import configure_logging
+from lcm_core.infrastructure.mixins import ServiceInfo, StandardEndpointsMixin
+from lcm_core.integration.clients import ControlPlaneApiClient, EtcdClient
+from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
+from neuroglia.serialization.json import JsonSerializer
+
 from api.controllers import AdminController
 from api.services import DualAuthService
 from application.hosted_services import LabletReconciler
 from application.settings import Settings, app_settings
-from fastapi import FastAPI
 from integration.services.cml_labs_spi import CmlLabsSpiClient
 from integration.services.environment_resolver_client import EnvironmentResolverClient
 from integration.services.lds_spi import LdsSpiClient
 from integration.services.mosaic_client import MosaicClient
 from integration.services.oauth2_token_manager import TokenConfig
 from integration.services.s3_client import S3Client
-from lcm_core.infrastructure import configure_logging
-from lcm_core.infrastructure.mixins import ServiceInfo, StandardEndpointsMixin
-from lcm_core.integration.clients import ControlPlaneApiClient, EtcdClient
-from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
-from neuroglia.serialization.json import JsonSerializer
 
 # Configure logging
 configure_logging(log_level=app_settings.log_level)

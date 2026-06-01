@@ -12,10 +12,11 @@ covered here.  R5 (TimeoutStalePendingActionsCommand) has its own test file.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from lcm_core.domain.enums import CML_WORKER_VALID_TRANSITIONS, CMLWorkerStatus, LabRecordStatus
+
 from domain.entities.cml_worker import CMLWorker, InvalidCMLWorkerTransitionError
 from domain.entities.lab_record import LabRecord
 from domain.events.lab_record_events import LabActionClearedDomainEvent
-from lcm_core.domain.enums import CML_WORKER_VALID_TRANSITIONS, CMLWorkerStatus, LabRecordStatus
 
 
 # Helper to access the aggregate's internal pending events list.

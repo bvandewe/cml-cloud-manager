@@ -18,6 +18,9 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from lcm_core.domain.enums import LabRecordStatus
+from neuroglia.core import OperationResult
+
 from application.queries.get_lab_record_bindings_query import (
     GetLabRecordBindingsQuery,
     GetLabRecordBindingsQueryHandler,
@@ -40,9 +43,6 @@ from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from domain.value_objects.lab_run_record import LabRunRecord
-from lcm_core.domain.enums import LabRecordStatus
-from neuroglia.core import OperationResult
-
 from tests.fixtures.mixins import BaseTestCase
 
 # =============================================================================

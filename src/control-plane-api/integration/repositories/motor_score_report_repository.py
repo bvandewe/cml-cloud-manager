@@ -11,10 +11,11 @@ import json
 import logging
 from typing import Any
 
-from domain.entities.score_report import ScoreReport
-from domain.repositories.score_report_repository import ScoreReportRepository
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from neuroglia.serialization.json import JsonSerializer
+
+from domain.entities.score_report import ScoreReport
+from domain.repositories.score_report_repository import ScoreReportRepository
 
 log = logging.getLogger(__name__)
 

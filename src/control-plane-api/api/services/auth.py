@@ -14,10 +14,11 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import jwt
-from application.settings import app_settings
-from infrastructure import InMemorySessionStore, RedisSessionStore, SessionStore
 from jwt import PyJWTError, algorithms
 from starlette.responses import Response
+
+from application.settings import app_settings
+from infrastructure import InMemorySessionStore, RedisSessionStore, SessionStore
 
 if TYPE_CHECKING:
     from fastapi import FastAPI, Request

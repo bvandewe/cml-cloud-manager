@@ -15,12 +15,15 @@ Tests cover:
 Pattern: pytest fixtures + MagicMock + AsyncMock, matching test_lablet_session_commands.py style.
 """
 
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
+
 from application.commands.lablet_session.update_pipeline_progress_command import (
     VALID_PIPELINE_NAMES,
-    VALID_STEP_STATUSES,
     UpdatePipelineProgressCommand,
     UpdatePipelineProgressCommandHandler,
 )
@@ -28,10 +31,6 @@ from domain.entities.lablet_session import LabletSession, LabletSessionState
 from domain.enums import LabletSessionStatus
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from domain.repositories.pipeline_execution_repository import PipelineExecutionRepository
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-
 
 # =============================================================================
 # Shared fixtures

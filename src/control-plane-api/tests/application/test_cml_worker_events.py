@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from application.commands.lablet_session import TerminateLabletSessionCommand
 from application.events.domain.cml_worker_events import CMLWorkerTerminatedDomainEventHandler
 from domain.enums import LabletSessionStatus

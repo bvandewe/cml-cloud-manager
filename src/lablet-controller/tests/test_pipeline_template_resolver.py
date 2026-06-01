@@ -16,6 +16,7 @@ Covers:
 from __future__ import annotations
 
 import pytest
+
 from application.services.pipeline_template_resolver import (
     PipelineTemplateError,
     PipelineTemplateResolver,

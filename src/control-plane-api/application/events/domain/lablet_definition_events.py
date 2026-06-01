@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from neuroglia.mediation import DomainEventHandler
+
 from application.services.sse_event_relay import SSEEventRelay
 from domain.events.lablet_definition_events import (
     LabletDefinitionActivatedDomainEvent,
@@ -22,7 +24,6 @@ from domain.events.lablet_definition_events import (
     LabletDefinitionVersionCreatedDomainEvent,
     LabletDefinitionWarmPoolUpdatedDomainEvent,
 )
-from neuroglia.mediation import DomainEventHandler
 
 log = logging.getLogger(__name__)
 

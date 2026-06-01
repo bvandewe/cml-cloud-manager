@@ -11,6 +11,7 @@ Tests cover:
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
 from domain.value_objects.external_interface import ExternalInterface
 from domain.value_objects.lab_revision import LabRevision
 from domain.value_objects.lab_run_record import LabRunRecord

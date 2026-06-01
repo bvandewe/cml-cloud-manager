@@ -11,6 +11,12 @@ from typing import cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from lcm_core.domain.entities.timed_resource import TimedResourceState
+from lcm_core.domain.value_objects.managed_lifecycle import ManagedLifecycle
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot
+
 from domain.enums import CML_WORKER_VALID_TRANSITIONS, CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 from domain.events.cloudwatch_monitoring_updated_domain_event import CloudWatchMonitoringUpdatedDomainEvent
 from domain.events.cml_worker import (
@@ -72,11 +78,6 @@ from domain.value_objects.cml_metrics import (
 )
 from domain.value_objects.port_allocation import PortAllocation
 from domain.value_objects.worker_capacity import WorkerCapacity
-from lcm_core.domain.entities.timed_resource import TimedResourceState
-from lcm_core.domain.value_objects.managed_lifecycle import ManagedLifecycle
-from lcm_core.domain.value_objects.state_transition import StateTransition
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot
 
 
 class CMLWorkerState(TimedResourceState):

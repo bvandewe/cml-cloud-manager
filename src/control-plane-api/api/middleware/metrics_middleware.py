@@ -8,6 +8,10 @@ import logging
 import time
 from collections.abc import Callable
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
 from infrastructure.observability import (
     api_errors,
     api_request_duration,
@@ -17,9 +21,6 @@ from infrastructure.observability.logging import (
     get_correlation_id,
     set_correlation_id,
 )
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
 
 log = logging.getLogger(__name__)
 

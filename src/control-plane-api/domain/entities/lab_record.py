@@ -14,6 +14,16 @@ Refactored for Phase 7 (LabRecord Architecture):
 from datetime import datetime, timezone
 from typing import Any
 
+from lcm_core.domain.entities.resource import ResourceState
+from lcm_core.domain.enums import (
+    CML_STATE_TO_LAB_RECORD_STATUS,
+    LAB_RECORD_VALID_TRANSITIONS,
+    LabRecordStatus,
+)
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot
+
 from domain.events.lab_record_events import (
     LabActionClearedDomainEvent,
     LabActionCompletedDomainEvent,
@@ -44,15 +54,6 @@ from domain.value_objects.lab_run_record import LabRunRecord
 from domain.value_objects.lab_topology_spec import LabTopologySpec
 from domain.value_objects.pipeline_run_record import PipelineRunRecord
 from domain.value_objects.runtime_binding import RuntimeBinding
-from lcm_core.domain.entities.resource import ResourceState
-from lcm_core.domain.enums import (
-    CML_STATE_TO_LAB_RECORD_STATUS,
-    LAB_RECORD_VALID_TRANSITIONS,
-    LabRecordStatus,
-)
-from lcm_core.domain.value_objects.state_transition import StateTransition
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot
 
 
 class InvalidLabRecordTransitionError(Exception):

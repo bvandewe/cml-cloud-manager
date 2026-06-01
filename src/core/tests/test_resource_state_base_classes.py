@@ -6,12 +6,13 @@ VO accessors, and Neuroglia AggregateState compatibility.
 
 from datetime import UTC, datetime, timedelta
 
+from neuroglia.data.abstractions import AggregateState
+
 from lcm_core.domain.entities.resource import ResourceState
 from lcm_core.domain.entities.timed_resource import TimedResourceState
 from lcm_core.domain.value_objects.managed_lifecycle import LifecyclePhase, ManagedLifecycle
 from lcm_core.domain.value_objects.state_transition import StateTransition
 from lcm_core.domain.value_objects.timeslot import Timeslot
-from neuroglia.data.abstractions import AggregateState
 
 # =============================================================================
 # ResourceState

@@ -5,8 +5,9 @@ and factory for the UserSession child entity (ADR-021 §1).
 """
 
 import pytest
-from domain.entities.user_session import UserSession
 from lcm_core.domain.enums import UserSessionStatus
+
+from domain.entities.user_session import UserSession
 
 # =============================================================================
 # Helpers

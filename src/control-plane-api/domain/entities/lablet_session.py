@@ -28,6 +28,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 from uuid import uuid4
 
+from lcm_core.domain.entities.timed_resource import TimedResourceState
+from lcm_core.domain.value_objects.managed_lifecycle import ManagedLifecycle
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from lcm_core.domain.value_objects.timeslot import Timeslot
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot
+
 from domain.enums import LABLET_SESSION_VALID_TRANSITIONS, LabletSessionStatus
 from domain.events.lablet_session_events import (
     LabletSessionArchivedDomainEvent,
@@ -54,12 +61,6 @@ from domain.events.lablet_session_events import (
     LabletSessionTimeslotExtendedDomainEvent,
 )
 from domain.lifecycles import LABLET_SESSION_LIFECYCLE
-from lcm_core.domain.entities.timed_resource import TimedResourceState
-from lcm_core.domain.value_objects.managed_lifecycle import ManagedLifecycle
-from lcm_core.domain.value_objects.state_transition import StateTransition
-from lcm_core.domain.value_objects.timeslot import Timeslot
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot
 
 
 class InvalidStateTransitionError(Exception):

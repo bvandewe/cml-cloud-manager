@@ -7,7 +7,6 @@ lab management, and integration with CML workers.
 
 from pathlib import Path
 
-from application.settings import Settings
 from classy_fastapi.decorators import get
 from classy_fastapi.routable import Routable
 from fastapi import Request
@@ -17,6 +16,8 @@ from neuroglia.mapping import Mapper
 from neuroglia.mediation import Mediator
 from neuroglia.mvc import ControllerBase
 from neuroglia.mvc.controller_base import generate_unique_id_function
+
+from application.settings import Settings
 
 
 class UIController(ControllerBase):

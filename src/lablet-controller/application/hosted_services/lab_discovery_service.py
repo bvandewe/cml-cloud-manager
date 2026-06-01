@@ -22,12 +22,12 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from integration.services.cml_labs_spi import CmlLabsSpiClient, LabInfo, LabState
 from lcm_core.domain.enums import LabRecordStatus
 from lcm_core.integration.clients import ControlPlaneApiClient
 from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
 
 from application.settings import Settings
+from integration.services.cml_labs_spi import CmlLabsSpiClient, LabInfo, LabState
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection

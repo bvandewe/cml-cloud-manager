@@ -1,6 +1,13 @@
 import logging
 from typing import Annotated, Any
 
+from classy_fastapi.decorators import delete, get, post
+from fastapi import Depends, HTTPException, Path
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.mvc.controller_base import ControllerBase
+
 from api.dependencies import get_current_user, require_roles
 from api.models import CreateCMLWorkerRequest, DeleteCMLWorkerRequest, ImportCMLWorkerRequest, RegisterLicenseRequest, UpdateCMLWorkerTagsRequest
 from application.commands import (
@@ -22,14 +29,8 @@ from application.queries import GetCMLWorkerByIdQuery, GetCMLWorkerResourcesQuer
 from application.queries.get_cml_worker_resources_query import CachedResourcesUtilization
 from application.queries.get_worker_activity_query import GetWorkerActivityQuery
 from application.queries.get_worker_idle_status_query import GetWorkerIdleStatusQuery
-from classy_fastapi.decorators import delete, get, post
 from domain.enums import CMLWorkerStatus
-from fastapi import Depends, HTTPException, Path
 from integration.enums import AwsRegion
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.mvc.controller_base import ControllerBase
 
 logger = logging.getLogger(__name__)
 

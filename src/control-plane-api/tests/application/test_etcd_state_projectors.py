@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from application.events.domain.etcd_state_projector import (
     CMLWorkerCreatedEtcdProjector,
     CMLWorkerDesiredStatusUpdatedEtcdProjector,

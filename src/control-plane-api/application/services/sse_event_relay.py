@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import redis.asyncio as redis
-from application.settings import app_settings
 from neuroglia.hosting.abstractions import HostedService
 from neuroglia.serialization.json import JsonSerializer
+
+from application.settings import app_settings
 
 if TYPE_CHECKING:
     from neuroglia.hosting.web import WebApplicationBuilder

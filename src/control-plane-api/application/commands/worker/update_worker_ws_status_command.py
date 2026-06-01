@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from application.services.sse_event_relay import SSEEventRelay
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
+
+from application.services.sse_event_relay import SSEEventRelay
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
 
 log = logging.getLogger(__name__)
 

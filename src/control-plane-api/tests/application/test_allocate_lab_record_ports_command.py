@@ -17,6 +17,10 @@ Pattern: pytest fixtures + MagicMock + AsyncMock, matching test_resource_observa
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
+
 from application.commands.lab.allocate_lab_record_ports_command import (
     AllocateLabRecordPortsCommand,
     AllocateLabRecordPortsCommandHandler,
@@ -27,9 +31,6 @@ from domain.entities.lablet_definition import LabletDefinition, LabletDefinition
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.value_objects.port_template import PortDefinition, PortTemplate
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
 
 # =============================================================================
 # Shared fixtures

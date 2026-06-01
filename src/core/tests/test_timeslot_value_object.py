@@ -7,6 +7,7 @@ validation, immutability, and edge cases for the Timeslot VO in lcm_core.
 from datetime import UTC, datetime, timedelta
 
 import pytest
+
 from lcm_core.domain.value_objects.timeslot import Timeslot
 
 # =============================================================================

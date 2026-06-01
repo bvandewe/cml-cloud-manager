@@ -19,14 +19,15 @@ import logging
 from typing import Any
 
 import httpx
-from api.dependencies import get_current_user, require_roles
-from application.settings import app_settings
 from classy_fastapi.decorators import get, post
 from fastapi import Depends, HTTPException, Request
 from neuroglia.dependency_injection import ServiceProviderBase
 from neuroglia.mapping.mapper import Mapper
 from neuroglia.mediation.mediator import Mediator
 from neuroglia.mvc.controller_base import ControllerBase
+
+from api.dependencies import get_current_user, require_roles
+from application.settings import app_settings
 
 logger = logging.getLogger(__name__)
 

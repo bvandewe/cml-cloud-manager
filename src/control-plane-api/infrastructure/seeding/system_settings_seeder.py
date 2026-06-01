@@ -6,6 +6,9 @@ Seeds SystemSettings aggregate from YAML files in data/seeds/system_settings/.
 import logging
 from typing import Any
 
+from lcm_core.infrastructure.seeding import EntitySeeder
+from neuroglia.data.infrastructure.abstractions import Repository
+
 from domain.entities.system_settings import (
     DiscoverySettings,
     IdleDetectionSettings,
@@ -13,8 +16,6 @@ from domain.entities.system_settings import (
     SystemSettings,
     WorkerProvisioningSettings,
 )
-from lcm_core.infrastructure.seeding import EntitySeeder
-from neuroglia.data.infrastructure.abstractions import Repository
 
 logger = logging.getLogger(__name__)
 

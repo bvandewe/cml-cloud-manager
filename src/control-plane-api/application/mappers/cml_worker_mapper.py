@@ -7,10 +7,11 @@ Neuroglia's Mapper.map() function instead of manual dict crafting.
 import json
 import logging
 
+from neuroglia.serialization.json import JsonSerializer
+
 from application.dtos.cml_worker_dto import CMLWorkerDto
 from domain.entities.cml_worker import CMLWorker
 from domain.value_objects.worker_capacity import WorkerCapacity
-from neuroglia.serialization.json import JsonSerializer
 
 log = logging.getLogger(__name__)
 

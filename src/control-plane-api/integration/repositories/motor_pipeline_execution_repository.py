@@ -10,10 +10,11 @@ Matches MongoScoreReportRepository pattern.
 import logging
 from typing import Any
 
-from domain.entities.pipeline_execution_record import PipelineExecutionRecord
-from domain.repositories.pipeline_execution_repository import PipelineExecutionRepository
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from neuroglia.serialization.json import JsonSerializer
+
+from domain.entities.pipeline_execution_record import PipelineExecutionRecord
+from domain.repositories.pipeline_execution_repository import PipelineExecutionRepository
 
 log = logging.getLogger(__name__)
 

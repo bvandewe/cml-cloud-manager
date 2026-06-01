@@ -17,6 +17,10 @@ Pattern: pytest fixtures + MagicMock + AsyncMock, matching test_resource_observa
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
+
 from application.commands.lablet_session.expire_lablet_session_command import (
     ExpireLabletSessionCommand,
     ExpireLabletSessionCommandHandler,
@@ -29,9 +33,6 @@ from domain.enums import LabletSessionStatus
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
 
 # =============================================================================
 # Shared fixtures

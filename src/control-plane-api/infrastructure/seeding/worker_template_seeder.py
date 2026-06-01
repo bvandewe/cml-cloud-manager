@@ -6,11 +6,12 @@ Seeds WorkerTemplate aggregates from YAML files in data/seeds/worker_templates/.
 import logging
 from typing import Any
 
+from lcm_core.infrastructure.seeding import EntitySeeder
+from neuroglia.data.infrastructure.abstractions import Repository
+
 from domain.entities.worker_template import WorkerTemplate
 from domain.value_objects.worker_capacity import WorkerCapacity
 from integration.enums import Ec2InstanceType
-from lcm_core.infrastructure.seeding import EntitySeeder
-from neuroglia.data.infrastructure.abstractions import Repository
 
 logger = logging.getLogger(__name__)
 

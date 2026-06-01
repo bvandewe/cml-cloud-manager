@@ -1,6 +1,7 @@
 """Tests for domain utility functions (lcm-core)."""
 
 import pytest
+
 from lcm_core.domain.utils import slugify_fqn
 
 

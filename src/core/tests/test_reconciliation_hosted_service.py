@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 
 import pytest
+
 from lcm_core.infrastructure.hosted_services import (
     ReconciliationConfig,
     ReconciliationHostedService,

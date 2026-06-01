@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import httpx
+
 from integration.exceptions import (
     EtcdConnectionException,
     EtcdLeaseExpiredException,

@@ -9,6 +9,7 @@ Tests follow the same structure as the former test_lablet_instance.py.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
 from domain.entities.lablet_session import InvalidStateTransitionError, LabletSession, LabletSessionState
 from domain.enums import LABLET_SESSION_VALID_TRANSITIONS, LabletSessionStatus
 from domain.events.lablet_session_events import (

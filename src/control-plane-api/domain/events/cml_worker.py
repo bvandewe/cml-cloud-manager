@@ -3,9 +3,10 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from domain.enums import CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 from neuroglia.data.abstractions import DomainEvent
 from neuroglia.eventing.cloud_events.decorators import cloudevent
+
+from domain.enums import CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 
 
 @cloudevent("cml_worker.created.v1")

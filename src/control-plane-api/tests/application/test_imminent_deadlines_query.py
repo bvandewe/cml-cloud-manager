@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from application.queries.lablet_session.get_sessions_with_imminent_deadlines_query import (
     GetSessionsWithImminentDeadlinesQuery,
     GetSessionsWithImminentDeadlinesQueryHandler,

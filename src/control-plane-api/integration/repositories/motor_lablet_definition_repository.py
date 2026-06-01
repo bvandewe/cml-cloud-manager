@@ -8,13 +8,14 @@ import logging
 from typing import TYPE_CHECKING, Optional, cast
 
 import pymongo.errors
-from domain.entities.lablet_definition import LabletDefinition
-from domain.enums import LabletDefinitionStatus
-from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from motor.motor_asyncio import AsyncIOMotorClient
 from neuroglia.data.infrastructure.mongo import MotorRepository
 from neuroglia.data.infrastructure.tracing_mixin import TracedRepositoryMixin
 from neuroglia.serialization.json import JsonSerializer
+
+from domain.entities.lablet_definition import LabletDefinition
+from domain.enums import LabletDefinitionStatus
+from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 
 if TYPE_CHECKING:
     from neuroglia.mediation.mediator import Mediator

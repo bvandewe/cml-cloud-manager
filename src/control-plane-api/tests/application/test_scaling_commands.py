@@ -11,6 +11,7 @@ These commands are the control-plane-api entry points for auto-scaling.
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from application.commands.worker import (
     DrainWorkerCommand,
     DrainWorkerCommandHandler,

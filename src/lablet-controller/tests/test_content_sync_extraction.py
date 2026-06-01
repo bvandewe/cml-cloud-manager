@@ -6,6 +6,7 @@ Unit tests for:
 """
 
 import pytest  # noqa: F401
+
 from application.hosted_services.content_sync_service import ContentSyncService
 
 

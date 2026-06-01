@@ -3,6 +3,16 @@
 All operations use CQRS pattern via Mediator (ADR-001, ADR-015).
 """
 
+from classy_fastapi.decorators import delete, get, patch, post, put
+from classy_fastapi.routable import Routable
+from fastapi import Depends
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
+from neuroglia.mvc import ControllerBase
+from neuroglia.mvc.controller_base import generate_unique_id_function
+from pydantic import BaseModel, Field
+
 from api.dependencies import get_current_user, require_roles
 from application.commands import (
     CreateWorkerTemplateCommand,
@@ -15,15 +25,6 @@ from application.queries import (
     GetWorkerTemplateQuery,
     ListWorkerTemplatesQuery,
 )
-from classy_fastapi.decorators import delete, get, patch, post, put
-from classy_fastapi.routable import Routable
-from fastapi import Depends
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-from neuroglia.mvc import ControllerBase
-from neuroglia.mvc.controller_base import generate_unique_id_function
-from pydantic import BaseModel, Field
 
 # -------------------------------------------------------------------------
 # Request Models (Pydantic — for OpenAPI schema / validation)

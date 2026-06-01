@@ -10,10 +10,11 @@ import json
 import logging
 from typing import Any
 
-from domain.entities.grading_session import GradingSession
-from domain.repositories.grading_session_repository import GradingSessionRepository
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from neuroglia.serialization.json import JsonSerializer
+
+from domain.entities.grading_session import GradingSession
+from domain.repositories.grading_session_repository import GradingSessionRepository
 
 log = logging.getLogger(__name__)
 

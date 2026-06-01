@@ -10,12 +10,13 @@ on CML workers. The seeder handles proper construction of value objects
 import logging
 from typing import Any
 
+from lcm_core.infrastructure.seeding import EntitySeeder
+from neuroglia.data.infrastructure.abstractions import Repository
+
 from domain.entities.lablet_definition import LabletDefinition, NotificationConfig
 from domain.enums import LicenseType
 from domain.value_objects.port_template import PortDefinition, PortTemplate
 from domain.value_objects.resource_requirements import AmiRequirement, ResourceRequirements
-from lcm_core.infrastructure.seeding import EntitySeeder
-from neuroglia.data.infrastructure.abstractions import Repository
 
 logger = logging.getLogger(__name__)
 

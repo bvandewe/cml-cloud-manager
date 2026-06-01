@@ -7,13 +7,14 @@ The record is kept in the database for audit purposes.
 import logging
 from dataclasses import dataclass
 
-from application.commands.command_handler_base import CommandHandlerBase
-from domain.repositories.worker_template_repository import WorkerTemplateRepository
 from neuroglia.core import OperationResult
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
+
+from application.commands.command_handler_base import CommandHandlerBase
+from domain.repositories.worker_template_repository import WorkerTemplateRepository
 
 logger = logging.getLogger(__name__)
 

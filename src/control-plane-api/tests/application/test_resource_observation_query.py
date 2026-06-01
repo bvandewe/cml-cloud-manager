@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from application.queries.lablet_session.get_definition_resource_observations_query import (
     GetDefinitionResourceObservationsQuery,
     GetDefinitionResourceObservationsQueryHandler,

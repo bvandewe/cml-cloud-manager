@@ -8,6 +8,7 @@ import asyncio
 import uuid
 
 import pytest
+
 from application.services.port_allocation_service import PortAllocationService
 from domain.value_objects.port_template import PortDefinition, PortTemplate
 from integration.services.etcd_client import EtcdClient, EtcdConfig

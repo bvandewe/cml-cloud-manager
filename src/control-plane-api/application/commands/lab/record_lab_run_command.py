@@ -11,15 +11,16 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from domain.entities.lab_record import LabRecord
-from domain.repositories.lab_record_repository import LabRecordRepository
-from domain.value_objects.lab_run_record import LabRunRecord
 from neuroglia.core import OperationResult
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
 from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
+
+from domain.entities.lab_record import LabRecord
+from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.value_objects.lab_run_record import LabRunRecord
 
 from ..command_handler_base import CommandHandlerBase
 

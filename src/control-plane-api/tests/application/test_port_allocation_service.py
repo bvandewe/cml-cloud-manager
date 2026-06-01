@@ -14,6 +14,7 @@ Uses mocked EtcdStateStore to isolate unit tests from etcd.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from application.services.port_allocation_service import (
     PORT_RANGE_MAX,
     PORT_RANGE_MIN,

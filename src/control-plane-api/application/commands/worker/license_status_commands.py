@@ -13,9 +13,10 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation.mediator import Command, CommandHandler
+
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
 
 log = logging.getLogger(__name__)
 

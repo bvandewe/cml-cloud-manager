@@ -16,6 +16,10 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
+
 from api.controllers.internal_controller import (
     BindLabToLabletRequest,
     CompleteLabActionRequest,
@@ -34,9 +38,6 @@ from api.controllers.lab_records_controller import (
     LabRecordsController,
     UnbindLabRequest,
 )
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
 
 # ============================================================================
 # FIXTURES

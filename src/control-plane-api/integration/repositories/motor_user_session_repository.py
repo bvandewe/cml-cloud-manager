@@ -11,10 +11,11 @@ import json
 import logging
 from typing import Any
 
-from domain.entities.user_session import UserSession
-from domain.repositories.user_session_repository import UserSessionRepository
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from neuroglia.serialization.json import JsonSerializer
+
+from domain.entities.user_session import UserSession
+from domain.repositories.user_session_repository import UserSessionRepository
 
 log = logging.getLogger(__name__)
 

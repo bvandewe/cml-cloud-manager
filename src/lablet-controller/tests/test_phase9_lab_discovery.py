@@ -17,6 +17,10 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from lcm_core.domain.entities import LabletSessionReadModel
+from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
+from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
+
 from application.hosted_services.lab_discovery_service import (
     DiscoveryRunStats,
     DiscoveryWorkerResult,
@@ -26,9 +30,6 @@ from application.hosted_services.lab_discovery_service import (
 from application.hosted_services.lablet_reconciler import LabletReconciler
 from application.services.pipeline_executor import PipelineExecutor
 from integration.services.cml_labs_spi import LabInfo, LabState, NodeInfo
-from lcm_core.domain.entities import LabletSessionReadModel
-from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
-from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
 
 # =============================================================================
 # Fixtures

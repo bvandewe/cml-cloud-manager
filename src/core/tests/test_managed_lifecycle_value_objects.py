@@ -5,6 +5,7 @@ immutability, and edge cases for the managed lifecycle VOs in lcm_core.
 """
 
 import pytest
+
 from lcm_core.domain.value_objects.managed_lifecycle import LifecyclePhase, ManagedLifecycle
 
 # =============================================================================

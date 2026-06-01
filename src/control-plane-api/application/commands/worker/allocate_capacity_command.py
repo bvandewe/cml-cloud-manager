@@ -11,10 +11,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from domain.entities.cml_worker import CMLWorker
-from domain.enums import CMLWorkerStatus
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from domain.value_objects.worker_capacity import WorkerCapacity
 from neuroglia.core import OperationResult
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
 from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
@@ -22,6 +18,11 @@ from neuroglia.mapping import Mapper
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from neuroglia.observability.tracing import add_span_attributes
 from opentelemetry import trace
+
+from domain.entities.cml_worker import CMLWorker
+from domain.enums import CMLWorkerStatus
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from domain.value_objects.worker_capacity import WorkerCapacity
 
 from ..command_handler_base import CommandHandlerBase
 

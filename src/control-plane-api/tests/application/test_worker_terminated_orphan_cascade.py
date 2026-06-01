@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from lcm_core.domain.enums import LabRecordStatus
+
 from application.events.domain.cml_worker_events import CMLWorkerTerminatedDomainEventHandler
 from application.services.sse_event_relay import SSEEventRelay
 from domain.entities.lab_record import LabRecord
@@ -24,7 +26,6 @@ from domain.events.cml_worker import CMLWorkerTerminatedDomainEvent
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
-from lcm_core.domain.enums import LabRecordStatus
 
 # =============================================================================
 # Fixtures

@@ -10,6 +10,7 @@ CPA-specific StateTransition that uses LabletSessionStatus enum.
 from datetime import UTC, datetime
 
 import pytest
+
 from lcm_core.domain.value_objects.state_transition import StateTransition
 
 # =============================================================================
