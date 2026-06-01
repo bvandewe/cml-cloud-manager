@@ -8,6 +8,8 @@ from typing import Any
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
 from opentelemetry import trace
+
+from application.queries.query_handler_base import QueryHandlerBase
 from opentelemetry.trace import Status, StatusCode
 
 from application.services.system_configuration_service import SystemConfigurationService
@@ -30,7 +32,7 @@ class GetWorkerIdleStatusQuery(Query[OperationResult[dict[str, Any]]]):
     worker_id: str
 
 
-class GetWorkerIdleStatusQueryHandler(QueryHandler[GetWorkerIdleStatusQuery, OperationResult[dict[str, Any]]]):
+class GetWorkerIdleStatusQueryHandler(QueryHandlerBase, QueryHandler[GetWorkerIdleStatusQuery, OperationResult[dict[str, Any]]]):
     """Handler for GetWorkerIdleStatusQuery.
 
     Evaluates idle conditions and determines if worker should be auto-paused.

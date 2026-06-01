@@ -9,11 +9,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
+
 from application.mappers import map_worker_to_dto, worker_dto_to_dict
 from domain.enums import CMLWorkerStatus
 from domain.repositories import CMLWorkerRepository
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 

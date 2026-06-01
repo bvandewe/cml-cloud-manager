@@ -12,9 +12,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from domain.repositories.lablet_session_repository import LabletSessionRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
+
+from domain.repositories.lablet_session_repository import LabletSessionRepository
 
 logger = logging.getLogger(__name__)
 

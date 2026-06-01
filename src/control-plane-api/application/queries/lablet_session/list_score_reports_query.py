@@ -8,9 +8,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from domain.repositories.score_report_repository import ScoreReportRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
+
+from domain.repositories.score_report_repository import ScoreReportRepository
 
 logger = logging.getLogger(__name__)
 

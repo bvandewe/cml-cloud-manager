@@ -3,10 +3,11 @@
 import logging
 from dataclasses import dataclass
 
-from application.dtos.worker_template_dto import WorkerTemplateSummaryDto, map_worker_template_to_summary_dto
-from domain.repositories.worker_template_repository import WorkerTemplateRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
+
+from application.dtos.worker_template_dto import WorkerTemplateSummaryDto, map_worker_template_to_summary_dto
+from domain.repositories.worker_template_repository import WorkerTemplateRepository
 
 logger = logging.getLogger(__name__)
 

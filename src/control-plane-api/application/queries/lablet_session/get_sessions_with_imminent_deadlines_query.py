@@ -15,10 +15,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from domain.enums import LabletSessionStatus
-from domain.repositories.lablet_session_repository import LabletSessionRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
+
+from domain.enums import LabletSessionStatus
+from domain.repositories.lablet_session_repository import LabletSessionRepository
 
 logger = logging.getLogger(__name__)
 

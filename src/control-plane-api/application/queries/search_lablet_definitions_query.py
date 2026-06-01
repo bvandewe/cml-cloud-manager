@@ -7,10 +7,11 @@ for use in autocomplete/typeahead UI components.
 import logging
 from dataclasses import dataclass
 
-from application.dtos.lablet_definition_dto import LabletDefinitionSummaryDto, map_lablet_definition_to_summary_dto
-from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
+
+from application.dtos.lablet_definition_dto import LabletDefinitionSummaryDto, map_lablet_definition_to_summary_dto
+from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 
 logger = logging.getLogger(__name__)
 

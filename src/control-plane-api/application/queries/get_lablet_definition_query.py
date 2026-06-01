@@ -3,11 +3,12 @@
 import logging
 from dataclasses import dataclass
 
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Query, QueryHandler
+
 from application.dtos.lablet_definition_dto import LabletDefinitionDto, map_lablet_definition_to_dto
 from domain.entities.lablet_definition import LabletDefinition
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
-from neuroglia.core import OperationResult
-from neuroglia.mediation import Query, QueryHandler
 
 logger = logging.getLogger(__name__)
 

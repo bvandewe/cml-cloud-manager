@@ -8,13 +8,16 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from domain.entities.lab_record import LabRecord
-from domain.repositories.lab_record_repository import LabRecordRepository
-from domain.repositories.lablet_session_repository import LabletSessionRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
 from opentelemetry import trace
+
+from application.queries.query_handler_base import QueryHandlerBase
 from opentelemetry.trace import Status, StatusCode
+
+from domain.entities.lab_record import LabRecord
+from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.repositories.lablet_session_repository import LabletSessionRepository
 
 log = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -51,6 +54,7 @@ class GetLabRecordBindingsQuery(Query[OperationResult[dict[str, Any]]]):
 
 
 class GetLabRecordBindingsQueryHandler(
+    QueryHandlerBase,
     QueryHandler[GetLabRecordBindingsQuery, OperationResult[dict[str, Any]]],
 ):
     """Handler for GetLabRecordBindingsQuery.

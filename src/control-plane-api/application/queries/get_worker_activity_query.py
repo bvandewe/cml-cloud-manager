@@ -7,6 +7,8 @@ from typing import Any
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
 from opentelemetry import trace
+
+from application.queries.query_handler_base import QueryHandlerBase
 from opentelemetry.trace import Status, StatusCode
 
 from domain.repositories import CMLWorkerRepository
@@ -26,7 +28,7 @@ class GetWorkerActivityQuery(Query[OperationResult[dict[str, Any]]]):
     worker_id: str
 
 
-class GetWorkerActivityQueryHandler(QueryHandler[GetWorkerActivityQuery, OperationResult[dict[str, Any]]]):
+class GetWorkerActivityQueryHandler(QueryHandlerBase, QueryHandler[GetWorkerActivityQuery, OperationResult[dict[str, Any]]]):
     """Handler for GetWorkerActivityQuery.
 
     Returns aggregated activity data including recent events and lifecycle timestamps.

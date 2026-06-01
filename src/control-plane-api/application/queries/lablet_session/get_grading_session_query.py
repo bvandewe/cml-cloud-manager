@@ -7,10 +7,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from domain.entities.grading_session import GradingSession
-from domain.repositories.grading_session_repository import GradingSessionRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
+
+from domain.entities.grading_session import GradingSession
+from domain.repositories.grading_session_repository import GradingSessionRepository
 
 logger = logging.getLogger(__name__)
 

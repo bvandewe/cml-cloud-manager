@@ -7,10 +7,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from domain.entities.user_session import UserSession
-from domain.repositories.user_session_repository import UserSessionRepository
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
+
+from domain.entities.user_session import UserSession
+from domain.repositories.user_session_repository import UserSessionRepository
 
 logger = logging.getLogger(__name__)
 

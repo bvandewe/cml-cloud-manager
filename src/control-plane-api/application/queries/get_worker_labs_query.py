@@ -12,6 +12,8 @@ from typing import Any
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Query, QueryHandler
 from opentelemetry import trace
+
+from application.queries.query_handler_base import QueryHandlerBase
 from opentelemetry.trace import Status, StatusCode
 
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
@@ -32,7 +34,7 @@ class GetWorkerLabsQuery(Query[OperationResult[list[dict[str, Any]]]]):
     worker_id: str
 
 
-class GetWorkerLabsQueryHandler(QueryHandler[GetWorkerLabsQuery, OperationResult[list[dict[str, Any]]]]):
+class GetWorkerLabsQueryHandler(QueryHandlerBase, QueryHandler[GetWorkerLabsQuery, OperationResult[list[dict[str, Any]]]]):
     """Handler for GetWorkerLabsQuery.
 
     This handler retrieves lab details from the cached lab_records database collection.
