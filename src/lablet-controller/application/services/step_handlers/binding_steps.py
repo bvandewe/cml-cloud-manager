@@ -18,12 +18,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from integration.services.lds_spi import DeviceAccessInfo, LdsSpiError
 from lcm_core.domain.entities import LabletSessionReadModel
 
 from application.models.pipeline_context import PipelineContext
 from application.services.reconciler_helpers.lds_helpers import build_device_access_from_allocated_ports
 from application.services.step_registry import StepResult, step_handler
+from integration.services.lds_spi import DeviceAccessInfo, LdsSpiError
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +188,8 @@ async def step_lds_provision(
                 allocated_ports=allocated_ports,
                 worker_ip=context.worker_ip,
                 user_visible_labels=visible_labels,
+                protocol_priority=context.lds_protocol_priority,
+                port_preferences=context.lds_port_preferences,
             )
         else:
             # Fallback: legacy tag-based path (backward compat for definitions

@@ -13,17 +13,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from neuroglia.core import OperationResult
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Command, CommandHandler, Mediator
+
 from application.commands.command_handler_base import CommandHandlerBase
 from application.dtos.lablet_definition_dto import LabletDefinitionSyncResultDto
 from domain.entities.lablet_definition import LabletDefinition
 from domain.enums import LabletDefinitionStatus
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.value_objects.port_template import PortTemplate
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,9 @@ class RecordContentSyncResultCommand(Command[OperationResult[LabletDefinitionSyn
     # Topology metadata auto-derived from CML YAML (AD-SEED-001)
     node_count: int | None = None
     node_definitions_required: list[str] | None = None
+
+    # Multi-port device conflicts detected at sync time (AD-LDS-002)
+    port_conflicts: list[dict[str, Any]] | None = None
 
 
 class RecordContentSyncResultCommandHandler(
@@ -147,6 +151,7 @@ class RecordContentSyncResultCommandHandler(
                 port_template=port_template,
                 node_count=command.node_count,
                 node_definitions_required=command.node_definitions_required,
+                port_conflicts=command.port_conflicts,
             )
             await self._repository.update_async(definition)
 

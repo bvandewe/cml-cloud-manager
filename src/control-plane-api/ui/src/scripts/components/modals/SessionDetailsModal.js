@@ -26,7 +26,7 @@ import { showConfirmAsync } from '../modals.js';
 import { previewPlacement } from '../../api/scheduler.js';
 import { showPlacementPreviewModal } from '../PlacementPreviewModal.js';
 import { getRelativeTime, parseUTCDate, formatDuration } from '../../utils/dates.js';
-import { renderDefinitionDetailsHtml, mountDefinitionContentViewer } from '../shared/definition-details-renderer.js';
+import { renderDefinitionDetailsHtml, mountDefinitionContentViewer, mountPortPreferenceHandlers } from '../shared/definition-details-renderer.js';
 
 export class SessionDetailsModal extends BaseComponent {
     constructor() {
@@ -956,6 +956,7 @@ export class SessionDetailsModal extends BaseComponent {
 
             content.innerHTML = renderDefinitionDetailsHtml(def, this._formatDateTime.bind(this));
             mountDefinitionContentViewer(content, def);
+            mountPortPreferenceHandlers(content);
 
             // Wire sync button if present
             const syncBtn = document.getElementById('syncDefinitionFromDetailBtn');

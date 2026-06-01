@@ -28,7 +28,7 @@ import { showToast } from '../../ui/notifications.js';
 import { showConfirmAsync } from '../modals.js';
 import { getRelativeTime, parseUTCDate, formatDuration } from '../../utils/dates.js';
 import { escapeHtml } from '../escape.js';
-import { renderDefinitionDetailsHtml, mountDefinitionContentViewer } from '../shared/definition-details-renderer.js';
+import { renderDefinitionDetailsHtml, mountDefinitionContentViewer, mountPortPreferenceHandlers } from '../shared/definition-details-renderer.js';
 import { populatePortDefinitions } from '../../ui/lablet-modals.js';
 import '../core/LcmTabView.js';
 import '../core/LcmActionBar.js';
@@ -315,6 +315,7 @@ export class SessionsPageV2 extends StoreConnectedPage {
 
             content.innerHTML = renderDefinitionDetailsHtml(def, this._formatDateTime.bind(this));
             mountDefinitionContentViewer(content, def);
+            mountPortPreferenceHandlers(content);
 
             // Show and wire up the sync button in modal footer
             const syncBtn = document.getElementById('syncDefinitionFromDetailBtn');

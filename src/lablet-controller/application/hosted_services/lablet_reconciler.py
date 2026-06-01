@@ -35,8 +35,6 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState, NodeInfo
-from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
 from lcm_core.domain.entities import LabletSessionReadModel
 from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
 from lcm_core.domain.enums import LabletSessionStatus
@@ -53,6 +51,8 @@ from lcm_core.integration.clients.etcd_client import EtcdEvent
 
 from application.services.resource_observer import ResourceObserver
 from application.settings import Settings
+from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState, NodeInfo
+from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -1052,6 +1052,10 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
             # ADR-038 Task 1: Shared mutable tracking state (by reference)
             resolved_lab_ids=self._resolved_lab_ids,
             freshly_imported_sessions=self._freshly_imported_sessions,
+            # AD-LDS-002: Protocol priority for multi-port device resolution
+            lds_protocol_priority=self._settings.lds_protocol_priority,
+            # AD-LDS-002 Phase 3: User-configurable per-device port preferences
+            lds_port_preferences=getattr(definition, "lds_port_preferences", None),
         )
 
     def _build_step_dispatcher(self) -> StepDispatcher:

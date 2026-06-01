@@ -13,6 +13,10 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
+
 from application.commands.lablet_session.create_lablet_session_command import (
     CreateLabletSessionCommand,
     CreateLabletSessionCommandHandler,
@@ -35,9 +39,6 @@ from domain.enums import CMLWorkerStatus, LabletDefinitionStatus, LabletSessionS
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
 
 # =============================================================================
 # Shared fixtures

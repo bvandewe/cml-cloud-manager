@@ -8,6 +8,10 @@ from application.commands.lablet_definition.record_content_sync_result_command i
     RecordContentSyncResultCommand,
     RecordContentSyncResultCommandHandler,
 )
+from application.commands.lablet_definition.set_lds_port_preferences_command import (
+    SetLdsPortPreferencesCommand,
+    SetLdsPortPreferencesCommandHandler,
+)
 from application.commands.lablet_definition.sync_lablet_definition_command import (
     SyncLabletDefinitionCommand,
     SyncLabletDefinitionCommandHandler,
@@ -22,6 +26,8 @@ __all__ = [
     "CreateLabletDefinitionCommandHandler",
     "RecordContentSyncResultCommand",
     "RecordContentSyncResultCommandHandler",
+    "SetLdsPortPreferencesCommand",
+    "SetLdsPortPreferencesCommandHandler",
     "SyncLabletDefinitionCommand",
     "SyncLabletDefinitionCommandHandler",
     "UpdateLabletDefinitionCommand",

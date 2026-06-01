@@ -32,7 +32,7 @@ import '../core/LcmActionBar.js';
 import '../core/LcmStatusBadge.js';
 import '../core/LcmMetricCard.js';
 import '../core/LcmCodeViewer.js';
-import { renderDefinitionDetailsHtml, mountDefinitionContentViewer } from '../shared/definition-details-renderer.js';
+import { renderDefinitionDetailsHtml, mountDefinitionContentViewer, mountPortPreferenceHandlers } from '../shared/definition-details-renderer.js';
 import '../LabletSessionCard.js';
 import '../LabletSessionList.js';
 
@@ -1053,6 +1053,7 @@ export class LabletsPage extends BaseComponent {
 
             content.innerHTML = renderDefinitionDetailsHtml(def, this._formatDateTime.bind(this));
             mountDefinitionContentViewer(content, def);
+            mountPortPreferenceHandlers(content);
 
             // Show and wire up the sync button in modal footer
             const syncBtn = document.getElementById('syncDefinitionFromDetailBtn');

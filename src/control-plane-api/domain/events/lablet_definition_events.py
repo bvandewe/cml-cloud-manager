@@ -410,6 +410,7 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
     port_template: dict[str, Any] | None  # Serialized PortTemplate extracted from CML YAML
     node_count: int | None  # Number of nodes in the CML topology (AD-SEED-001)
     node_definitions_required: list[str] | None  # Unique node definitions from CML YAML
+    port_conflicts: list[dict[str, Any]] | None  # Multi-port device conflicts (AD-LDS-002)
 
     def __init__(
         self,
@@ -434,6 +435,7 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
         port_template: dict[str, Any] | None = None,
         node_count: int | None = None,
         node_definitions_required: list[str] | None = None,
+        port_conflicts: list[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(aggregate_id)
         self.aggregate_id = aggregate_id
@@ -457,3 +459,4 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
         self.port_template = port_template
         self.node_count = node_count
         self.node_definitions_required = node_definitions_required
+        self.port_conflicts = port_conflicts

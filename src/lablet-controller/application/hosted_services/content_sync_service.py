@@ -35,20 +35,48 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from integration.services.environment_resolver_client import EnvironmentResolverClient
-from integration.services.lds_spi import LdsSpiClient
-from integration.services.mosaic_client import MosaicClient
-from integration.services.s3_client import S3Client
 from lcm_core.integration.clients import ControlPlaneApiClient
 from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
 
 from application.settings import Settings
+from integration.services.environment_resolver_client import EnvironmentResolverClient
+from integration.services.lds_spi import LdsSpiClient
+from integration.services.mosaic_client import MosaicClient
+from integration.services.s3_client import S3Client
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
     from neuroglia.dependency_injection.service_provider import ServiceProviderBase
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_port_by_priority(port_names: list[str], prefix: str, protocol_priority: list[str]) -> str:
+    """Select the highest-priority port from a list of port names for one device.
+
+    Args:
+        port_names: List of port names (e.g., ``["ubuntu-desktop_serial", "ubuntu-desktop_vnc"]``).
+        prefix: The ``{safe_label}_`` prefix to strip when extracting protocol.
+        protocol_priority: Ordered list of protocols (highest priority first).
+
+    Returns:
+        The port name with the highest-priority protocol, or the first port if
+        no protocol matches the priority list.
+    """
+    best_port = port_names[0]
+    best_rank = len(protocol_priority)  # Worst possible rank
+
+    for port_name in port_names:
+        protocol = port_name[len(prefix) :]  # e.g., "vnc", "serial"
+        try:
+            rank = protocol_priority.index(protocol)
+        except ValueError:
+            rank = len(protocol_priority)  # Unknown protocol → lowest priority
+        if rank < best_rank:
+            best_rank = rank
+            best_port = port_name
+
+    return best_port
 
 
 class ContentSyncService:
@@ -444,6 +472,7 @@ class ContentSyncService:
                 "port_template": metadata.get("port_template"),
                 "node_count": metadata.get("node_count"),
                 "node_definitions_required": metadata.get("node_definitions_required"),
+                "port_conflicts": metadata.get("port_conflicts"),
                 "upstream_sync_status": upstream_status,
             }
 
@@ -643,12 +672,23 @@ class ContentSyncService:
                 metadata["content_xml_content"] = content_xml_raw
                 metadata["user_visible_devices"] = self._extract_user_visible_devices(content_xml_raw)
 
+        # Detect multi-port device conflicts (AD-LDS-002 Phase 2)
+        port_template = metadata.get("port_template")
+        user_visible_devices = metadata.get("user_visible_devices")
+        if port_template and user_visible_devices:
+            metadata["port_conflicts"] = self._detect_port_conflicts(
+                port_template,
+                user_visible_devices,
+                self._settings.lds_protocol_priority,
+            )
+
         logger.info(
             f"Extracted metadata: version={metadata.get('upstream_version')}, "
             f"cml={metadata.get('cml_yaml_path')}, grade={metadata.get('grade_xml_path')}, "
             f"devices={'yes' if metadata.get('devices_json') else 'no'}, "
             f"node_count={metadata.get('node_count')}, "
-            f"node_definitions={metadata.get('node_definitions_required')}"
+            f"node_definitions={metadata.get('node_definitions_required')}, "
+            f"port_conflicts={len(metadata.get('port_conflicts', []))}"
         )
         return metadata
 
@@ -685,6 +725,62 @@ class ContentSyncService:
             logger.warning(f"Failed to parse content.xml for device extraction: {e}")
 
         return devices
+
+    @staticmethod
+    def _detect_port_conflicts(
+        port_template: dict[str, Any],
+        user_visible_devices: list[dict[str, str]],
+        protocol_priority: list[str],
+    ) -> list[dict[str, Any]]:
+        """Detect multi-port device conflicts by cross-referencing port_template and devices.
+
+        For each device in user_visible_devices, finds all matching ports in port_template
+        (ports named ``{device_label}_{protocol}``). If a device has more than one matching
+        port, it is recorded as a conflict with the resolved port based on protocol priority.
+
+        AD-LDS-002 Phase 2: Detection at content sync time.
+
+        Args:
+            port_template: Dict with ``ports`` list (each entry has ``name``, ``protocol``, ``description``).
+            user_visible_devices: List of dicts with ``device_label``, ``user_access_mode``, ``category``.
+            protocol_priority: Ordered list of protocols (highest priority first).
+
+        Returns:
+            List of conflict dicts, each with ``device_label``, ``available_ports``, ``resolved_port``.
+        """
+        ports = port_template.get("ports", [])
+        if not ports:
+            return []
+
+        conflicts: list[dict[str, Any]] = []
+
+        for device in user_visible_devices:
+            device_label = device.get("device_label", "")
+            if not device_label:
+                continue
+
+            # Sanitise label the same way _extract_port_template does
+            safe_label = re.sub(r"[^a-zA-Z0-9_-]", "_", device_label)
+            prefix = f"{safe_label}_"
+
+            # Find all ports matching this device
+            matching_ports = [p["name"] for p in ports if isinstance(p, dict) and p.get("name", "").startswith(prefix)]
+
+            if len(matching_ports) > 1:
+                # Resolve winner using protocol priority (same logic as Phase 1 runtime)
+                resolved_port = _resolve_port_by_priority(matching_ports, prefix, protocol_priority)
+                conflicts.append(
+                    {
+                        "device_label": device_label,
+                        "available_ports": sorted(matching_ports),
+                        "resolved_port": resolved_port,
+                    }
+                )
+
+        if conflicts:
+            logger.info(f"Detected {len(conflicts)} multi-port device conflict(s): {', '.join(c['device_label'] for c in conflicts)}")
+
+        return conflicts
 
     @staticmethod
     def _extract_port_template(cml_yaml_content: str) -> dict[str, Any] | None:

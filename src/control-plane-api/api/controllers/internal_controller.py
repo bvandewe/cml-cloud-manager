@@ -10,6 +10,17 @@ All other services request mutations via these internal endpoints.
 import logging
 from typing import Annotated, Any
 
+from classy_fastapi.decorators import delete, get, post
+from classy_fastapi.routable import Routable
+from fastapi import Depends, HTTPException, Path, Query, status
+from fastapi.security import APIKeyHeader
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
+from neuroglia.serialization.json import JsonSerializer
+from pydantic import BaseModel, Field
+
 from application.commands.lab import (
     AppendPipelineRunCommand,
     BindLabToLabletCommand,
@@ -53,16 +64,6 @@ from application.queries.list_cml_workers_internal_query import ListCMLWorkersIn
 from application.queries.list_lablet_definitions_query import ListLabletDefinitionsQuery
 from application.queries.list_worker_templates_query import ListWorkerTemplatesQuery
 from application.settings import Settings
-from classy_fastapi.decorators import delete, get, post
-from classy_fastapi.routable import Routable
-from fastapi import Depends, HTTPException, Path, Query, status
-from fastapi.security import APIKeyHeader
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
-from neuroglia.serialization.json import JsonSerializer
-from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -439,6 +440,9 @@ class RecordContentSyncResultRequest(BaseModel):
     # Topology metadata auto-derived from CML YAML (AD-SEED-001)
     node_count: int | None = Field(default=None, description="Number of nodes in the CML topology")
     node_definitions_required: list[str] | None = Field(default=None, description="Unique node definitions from CML topology")
+
+    # Multi-port device conflicts detected at sync time (AD-LDS-002)
+    port_conflicts: list[dict[str, Any]] | None = Field(default=None, description="Multi-port device conflicts with resolved ports")
 
 
 # ==============================================================================
@@ -1952,6 +1956,7 @@ class InternalController(ControllerBase):
             port_template=request.port_template,
             node_count=request.node_count,
             node_definitions_required=request.node_definitions_required,
+            port_conflicts=request.port_conflicts,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)

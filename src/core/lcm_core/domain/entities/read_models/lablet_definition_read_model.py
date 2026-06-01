@@ -60,6 +60,10 @@ class LabletDefinitionReadModel:
     # truthiness in skip_when expressions (e.g. 'not $DEFINITION.port_template')
     port_template: dict[str, Any] | None = None
 
+    # User-configurable per-device port override (AD-LDS-002 Phase 3)
+    # Maps device_label → preferred port_name (e.g., {"ubuntu-desktop": "ubuntu-desktop_serial"})
+    lds_port_preferences: dict[str, str] | None = None
+
     @property
     def has_port_template(self) -> bool:
         """Whether this definition has a non-empty port template with defined ports."""
@@ -109,4 +113,5 @@ class LabletDefinitionReadModel:
             boot_lead_time_minutes=data.get("boot_lead_time_minutes"),
             pipelines=data.get("pipelines"),
             port_template=port_template,
+            lds_port_preferences=data.get("lds_port_preferences"),
         )

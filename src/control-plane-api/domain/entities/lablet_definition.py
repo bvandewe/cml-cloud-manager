@@ -12,6 +12,11 @@ from datetime import datetime, timezone
 from typing import Any, cast
 from uuid import uuid4
 
+from lcm_core.domain.entities.timed_resource import TimedResourceState
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot
+
 from domain.enums import LabletDefinitionStatus, LicenseType
 from domain.events.lablet_definition_events import (
     LabletDefinitionActivatedDomainEvent,
@@ -29,10 +34,6 @@ from domain.events.lablet_definition_events import (
 from domain.utils import slugify_fqn
 from domain.value_objects.port_template import PortTemplate
 from domain.value_objects.resource_requirements import ResourceRequirements
-from lcm_core.domain.entities.timed_resource import TimedResourceState
-from lcm_core.domain.value_objects.state_transition import StateTransition
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot
 
 
 class NotificationConfig:
@@ -247,6 +248,8 @@ class LabletDefinitionState(TimedResourceState):
         self.content_xml_content: str | None = None  # Raw content.xml from session package
         self.user_visible_devices: list[dict[str, str]] | None = None  # From content.xml (AD-LDS-001)
         self.upstream_sync_status: dict | None = None
+        self.port_conflicts: list[dict[str, Any]] | None = None  # Multi-port device conflicts (AD-LDS-002)
+        self.lds_port_preferences: dict[str, str] | None = None  # User-configurable per-device port override (AD-LDS-002 Phase 3)
 
         # Pipeline definitions (ADR-034)
         self.pipelines: dict | None = None  # Optional pipeline DAGs from definition YAML
@@ -455,6 +458,10 @@ class LabletDefinitionState(TimedResourceState):
         if event.node_definitions_required is not None:
             self.resource_requirements = self.resource_requirements.with_node_definitions(tuple(event.node_definitions_required))
 
+        # Multi-port device conflicts (AD-LDS-002 Phase 2)
+        if event.port_conflicts is not None:
+            self.port_conflicts = event.port_conflicts
+
         # Transition from PENDING_SYNC to ACTIVE on successful sync (ADR-028)
         if event.sync_status == "success" and self.status == LabletDefinitionStatus.PENDING_SYNC:
             self.status = LabletDefinitionStatus.ACTIVE
@@ -513,6 +520,8 @@ class LabletDefinitionState(TimedResourceState):
             self.boot_lead_time_minutes = changes["boot_lead_time_minutes"]
         if "lab_reuse_enabled" in changes:
             self.lab_reuse_enabled = changes["lab_reuse_enabled"]
+        if "lds_port_preferences" in changes:
+            self.lds_port_preferences = changes["lds_port_preferences"]
         self.updated_at = event.updated_at
 
     @dispatch(LabletDefinitionActivatedDomainEvent)
@@ -816,6 +825,7 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
         port_template: PortTemplate | None = None,
         node_count: int | None = None,
         node_definitions_required: list[str] | None = None,
+        port_conflicts: list[dict[str, Any]] | None = None,
     ) -> None:
         """Record the result of a content synchronization operation.
 
@@ -839,6 +849,7 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
             port_template: PortTemplate extracted from CML YAML node tags.
             node_count: Number of nodes in the CML topology (AD-SEED-001).
             node_definitions_required: Unique node definitions from CML YAML.
+            port_conflicts: Multi-port device conflicts detected at sync time (AD-LDS-002).
         """
         self.state.on(
             self.register_event(  # type: ignore
@@ -864,6 +875,7 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
                     port_template=port_template.to_dict() if port_template else None,
                     node_count=node_count,
                     node_definitions_required=node_definitions_required,
+                    port_conflicts=port_conflicts,
                 )
             )
         )

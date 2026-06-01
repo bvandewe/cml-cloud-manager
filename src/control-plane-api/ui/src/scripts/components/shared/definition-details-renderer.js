@@ -8,6 +8,7 @@
  * @module components/shared/definition-details-renderer
  */
 
+import { apiRequest } from '../../api/client.js';
 import '../core/LcmCodeViewer.js';
 
 /**
@@ -102,6 +103,7 @@ export function renderDefinitionDetailsHtml(def, formatDateTime) {
 
                 <!-- Devices from content.xml -->
                 ${_renderDevicesTable(def)}
+                ${_renderPortConflictsWarning(def)}
             </div>
 
             <!-- ═══ CONTENT SYNC TAB ═══ -->
@@ -201,6 +203,56 @@ export function mountDefinitionContentViewer(container, def) {
         // Fallback: mount immediately if tabs not found
         _doMountContentViewer(viewerContainer, def);
     }
+}
+
+/**
+ * Mount event handlers for port preference save button (AD-LDS-002 Phase 3).
+ * Call after innerHTML is set on the modal body.
+ * @param {HTMLElement} container - The modal body container
+ */
+export function mountPortPreferenceHandlers(container) {
+    const saveBtn = container.querySelector('.port-pref-save-btn');
+    if (!saveBtn) return;
+
+    saveBtn.addEventListener('click', async () => {
+        const definitionId = saveBtn.dataset.definitionId;
+        const statusEl = container.querySelector('.port-pref-status');
+        const selects = container.querySelectorAll('.port-pref-select');
+
+        // Collect preferences from dropdowns
+        const preferences = {};
+        selects.forEach(sel => {
+            const device = sel.dataset.device;
+            const selectedOption = sel.options[sel.selectedIndex];
+            // Only store preference if it's NOT the auto-resolved default
+            // (auto options have text ending with "(auto)")
+            if (selectedOption && !selectedOption.textContent.endsWith('(auto)')) {
+                preferences[device] = sel.value;
+            }
+        });
+
+        saveBtn.disabled = true;
+        if (statusEl) statusEl.textContent = 'Saving...';
+
+        try {
+            await apiRequest(`/api/lablet-definitions/${encodeURIComponent(definitionId)}/port-preferences`, {
+                method: 'PATCH',
+                body: JSON.stringify({ lds_port_preferences: preferences }),
+            });
+            if (statusEl) {
+                statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Saved</span>';
+                setTimeout(() => {
+                    statusEl.textContent = '';
+                }, 3000);
+            }
+        } catch (err) {
+            if (statusEl) {
+                statusEl.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>${err.message}</span>`;
+            }
+        } finally {
+            saveBtn.disabled = false;
+        }
+    });
 }
 
 function _doMountContentViewer(viewerContainer, def) {
@@ -377,6 +429,84 @@ function _renderDevicesTable(def) {
                         </thead>
                         <tbody>${deviceRows}</tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Render a warning alert when multi-port device conflicts are detected (AD-LDS-002).
+ * Shows which devices have multiple ports and which port was auto-resolved.
+ */
+function _renderPortConflictsWarning(def) {
+    const conflicts = def.port_conflicts;
+    if (!conflicts || conflicts.length === 0) return '';
+
+    const preferences = def.lds_port_preferences || {};
+
+    const conflictRows = conflicts
+        .map(c => {
+            const deviceLabel = c.device_label || '';
+            const availablePorts = c.available_ports || [];
+            const currentPref = preferences[deviceLabel];
+            const resolvedPort = currentPref || c.resolved_port || '—';
+            const isOverridden = currentPref && currentPref !== c.resolved_port;
+
+            // Build dropdown options
+            const options = availablePorts
+                .map(p => {
+                    const selected = p === resolvedPort ? 'selected' : '';
+                    const isDefault = p === c.resolved_port;
+                    const label = isDefault ? `${_escapeAttr(p)} (auto)` : _escapeAttr(p);
+                    return `<option value="${_escapeAttr(p)}" ${selected}>${label}</option>`;
+                })
+                .join('');
+
+            const resolvedBadge = isOverridden ? `<span class="badge bg-info text-dark">override</span>` : `<span class="badge bg-secondary">auto</span>`;
+
+            return `
+            <tr>
+                <td class="font-monospace small py-1">${_escapeAttr(deviceLabel)}</td>
+                <td class="small py-1">
+                    <select class="form-select form-select-sm port-pref-select"
+                            data-device="${_escapeAttr(deviceLabel)}"
+                            style="font-size: 0.75rem; padding: 0.15rem 1.5rem 0.15rem 0.4rem; height: auto;">
+                        ${options}
+                    </select>
+                </td>
+                <td class="small py-1">${resolvedBadge}</td>
+            </tr>`;
+        })
+        .join('');
+
+    return `
+        <div class="row g-3 mt-2">
+            <div class="col-12">
+                <div class="alert alert-warning py-2 px-3 mb-0 small">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                    <strong>Port Conflicts (${conflicts.length})</strong> — These devices have multiple CML port annotations.
+                    Select a preferred port per device, or leave on <em>(auto)</em> for protocol-priority resolution.
+                    <div class="table-responsive mt-2" style="max-height: 200px; overflow-y: auto;">
+                        <table class="table table-sm table-bordered mb-0 bg-white" style="font-size: 0.78rem;">
+                            <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                                <tr>
+                                    <th class="py-1">Device</th>
+                                    <th class="py-1">Preferred Port</th>
+                                    <th class="py-1">Mode</th>
+                                </tr>
+                            </thead>
+                            <tbody>${conflictRows}</tbody>
+                        </table>
+                    </div>
+                    <div class="mt-2 text-end">
+                        <button class="btn btn-sm btn-outline-primary port-pref-save-btn"
+                                data-definition-id="${_escapeAttr(def.id)}"
+                                title="Save port preferences">
+                            <i class="bi bi-check-lg me-1"></i>Save Preferences
+                        </button>
+                        <span class="port-pref-status ms-2 small"></span>
+                    </div>
                 </div>
             </div>
         </div>

@@ -15,13 +15,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from integration.services.cml_labs_spi import CmlLabsSpiClient
-    from integration.services.lds_spi import LdsSpiClient
     from lcm_core.domain.entities import LabletSessionReadModel
     from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
     from lcm_core.integration.clients.control_plane_client import ControlPlaneApiClient
 
     from application.services.reconciler_helpers.lab_resolution import LabResolutionResult
+    from integration.services.cml_labs_spi import CmlLabsSpiClient
+    from integration.services.lds_spi import LdsSpiClient
 
 
 @dataclass
@@ -97,3 +97,12 @@ class PipelineContext:
 
     freshly_imported_sessions: set[str] | None = None
     """Shared set: session IDs whose labs were freshly imported (not reused)."""
+
+    # ── AD-LDS-002: LDS protocol priority for multi-port devices ──
+    lds_protocol_priority: list[str] | None = None
+
+    # AD-LDS-002 Phase 3: User-configurable per-device port override
+    # Maps device_label → preferred port_name (from LabletDefinition)
+    lds_port_preferences: dict[str, str] | None = None
+    """Protocol priority for resolving multi-port devices.
+    When a device has multiple ports, highest-priority protocol wins."""

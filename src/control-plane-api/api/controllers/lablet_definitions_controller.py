@@ -1,20 +1,5 @@
 """LabletDefinitions API controller with dual authentication (Session + JWT)."""
 
-from api.dependencies import get_current_user, require_roles
-from application.commands import (
-    CreateLabletDefinitionCommand,
-    SyncLabletDefinitionCommand,
-    UpdateLabletDefinitionCommand,
-)
-from application.commands.lablet_definition.activate_lablet_definition_command import ActivateLabletDefinitionCommand
-from application.commands.lablet_definition.deactivate_lablet_definition_command import DeactivateLabletDefinitionCommand
-from application.commands.lablet_definition.delete_lablet_definition_command import DeleteLabletDefinitionCommand
-from application.queries import (
-    GetDefinitionResourceObservationsQuery,
-    GetLabletDefinitionQuery,
-    ListLabletDefinitionsQuery,
-    SearchLabletDefinitionsQuery,
-)
 from classy_fastapi.decorators import delete, get, patch, post, put
 from classy_fastapi.routable import Routable
 from fastapi import Depends
@@ -24,6 +9,23 @@ from neuroglia.mediation import Mediator
 from neuroglia.mvc import ControllerBase
 from neuroglia.mvc.controller_base import generate_unique_id_function
 from pydantic import BaseModel, Field
+
+from api.dependencies import get_current_user, require_roles
+from application.commands import (
+    CreateLabletDefinitionCommand,
+    SyncLabletDefinitionCommand,
+    UpdateLabletDefinitionCommand,
+)
+from application.commands.lablet_definition.activate_lablet_definition_command import ActivateLabletDefinitionCommand
+from application.commands.lablet_definition.deactivate_lablet_definition_command import DeactivateLabletDefinitionCommand
+from application.commands.lablet_definition.delete_lablet_definition_command import DeleteLabletDefinitionCommand
+from application.commands.lablet_definition.set_lds_port_preferences_command import SetLdsPortPreferencesCommand
+from application.queries import (
+    GetDefinitionResourceObservationsQuery,
+    GetLabletDefinitionQuery,
+    ListLabletDefinitionsQuery,
+    SearchLabletDefinitionsQuery,
+)
 
 
 class CreateLabletDefinitionRequest(BaseModel):
@@ -129,6 +131,19 @@ class UpdateLabletDefinitionRequest(BaseModel):
     grading_rules_uri: str | None = Field(default=None, description="URI to grading rules")
     max_duration_minutes: int | None = Field(default=None, ge=1, le=480, description="Max lab duration in minutes")
     warm_pool_depth: int | None = Field(default=None, ge=0, le=10, description="Pre-provisioned instances to keep warm")
+
+
+class SetLdsPortPreferencesRequest(BaseModel):
+    """Request model for setting per-device LDS port preferences (AD-LDS-002 Phase 3).
+
+    Maps device_label → preferred port_name for multi-port conflict resolution override.
+    Send empty dict to clear preferences (revert to auto-resolution).
+    """
+
+    lds_port_preferences: dict[str, str] = Field(
+        default_factory=dict,
+        description="Map of device_label → preferred port_name (e.g., {'ubuntu-desktop': 'ubuntu-desktop_serial'})",
+    )
 
 
 class LabletDefinitionsController(ControllerBase):
@@ -425,6 +440,33 @@ class LabletDefinitionsController(ControllerBase):
         command = DeleteLabletDefinitionCommand(
             definition_id=definition_id,
             deleted_by=deleted_by,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @patch("/{definition_id}/port-preferences", summary="Set LDS Port Preferences", tags=["Lablet Definitions"])
+    async def set_port_preferences(
+        self,
+        definition_id: str,
+        request: SetLdsPortPreferencesRequest,
+        user: dict = Depends(require_roles("admin", "lab-author")),
+    ):
+        """Set per-device LDS port preferences for multi-port conflict resolution (AD-LDS-002 Phase 3).
+
+        **RBAC Protected**: Requires 'admin' or 'lab-author' role.
+
+        When a device has multiple CML port annotations (e.g., serial + vnc),
+        the system auto-resolves using a global protocol priority. This endpoint
+        lets users override the resolved port for specific devices.
+
+        Send an empty dict to clear all preferences (revert to auto-resolution).
+        """
+        updated_by = user.get("sub", user.get("preferred_username", "unknown"))
+
+        command = SetLdsPortPreferencesCommand(
+            definition_id=definition_id,
+            lds_port_preferences=request.lds_port_preferences,
+            updated_by=updated_by,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)

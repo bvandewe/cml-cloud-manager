@@ -29,7 +29,7 @@ class Settings(ApplicationSettings):
     log_level: str = "INFO"
 
     # HTTP Server
-    app_host: str = "0.0.0.0"
+    app_host: str = "0.0.0.0"  # nosec B104 — container requires all-interfaces binding
     app_port: int = 8082
 
     # ============================================================================
@@ -94,6 +94,10 @@ class Settings(ApplicationSettings):
     # ============================================================================
     lds_deployments_config_path: str | None = None  # Path to lds_deployments.yaml
     lds_verify_ssl: bool = True
+    # Protocol priority for resolving multi-port devices (AD-LDS-002).
+    # When a CML node has multiple annotations (e.g., serial + vnc), the first
+    # matching protocol in this list wins when sending to LDS.
+    lds_protocol_priority: list[str] = ["vnc", "http", "https", "rdp", "ssh", "serial", "telnet"]
 
     # ============================================================================
     # Security & Authentication (Keycloak)

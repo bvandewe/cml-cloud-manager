@@ -115,6 +115,8 @@ class LabletDefinitionDto:
     content_xml_content: str | None  # Raw content.xml from session package (for content viewer)
     user_visible_devices: list[dict[str, str]] | None  # From content.xml (AD-LDS-001)
     upstream_sync_status: dict | None
+    port_conflicts: list[dict] | None  # Multi-port device conflicts (AD-LDS-002)
+    lds_port_preferences: dict[str, str] | None  # User per-device port override (AD-LDS-002 Phase 3)
 
     # Deprecation
     deprecated_by: str | None
@@ -222,6 +224,8 @@ def map_lablet_definition_to_dto(entity) -> LabletDefinitionDto:
         content_xml_content=getattr(state, "content_xml_content", None),
         user_visible_devices=getattr(state, "user_visible_devices", None),
         upstream_sync_status=state.upstream_sync_status,
+        port_conflicts=getattr(state, "port_conflicts", None),
+        lds_port_preferences=getattr(state, "lds_port_preferences", None),
         deprecated_by=state.deprecated_by,
         deprecated_at=state.deprecated_at.isoformat() if state.deprecated_at else None,
         deprecation_reason=state.deprecation_reason,

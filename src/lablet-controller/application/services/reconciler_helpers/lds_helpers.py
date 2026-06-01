@@ -11,22 +11,38 @@ not from pipeline step handlers.
 
 import logging
 
-from integration.services.cml_labs_spi import NodeInfo
-from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
 from lcm_core.domain.entities import LabletSessionReadModel
 
+from integration.services.cml_labs_spi import NodeInfo
+from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
+
 logger = logging.getLogger(__name__)
+
+# Default protocol priority for resolving multi-port devices (AD-LDS-002).
+# When a CML node has multiple annotations, the first matching protocol wins.
+DEFAULT_PROTOCOL_PRIORITY: list[str] = ["vnc", "http", "https", "rdp", "ssh", "serial", "telnet"]
 
 
 def build_device_access_from_allocated_ports(
     allocated_ports: dict[str, int],
     worker_ip: str,
     user_visible_labels: set[str] | None = None,
+    protocol_priority: list[str] | None = None,
+    port_preferences: dict[str, str] | None = None,
 ) -> list[DeviceAccessInfo]:
     """Build LDS device access info from allocated ports, filtered by visibility.
 
     Port name convention (from PortTemplate): "{node_label}_{protocol}"
     e.g., "Router1_serial" → label="Router1", protocol="serial"
+
+    When multiple ports map to the same device_label (e.g., ubuntu-desktop_serial
+    and ubuntu-desktop_vnc both → device_label="ubuntu-desktop"), only the port
+    with the highest-priority protocol is included. This prevents LDS
+    UniqueViolation on (session_part_id, device_label). See AD-LDS-002.
+
+    User-configurable port_preferences (AD-LDS-002 Phase 3) override the global
+    protocol priority. When a device_label has a preference, the preferred port_name
+    is selected directly instead of applying priority-based resolution.
 
     Args:
         allocated_ports: Dict of port_name → port_number from ports_alloc step.
@@ -34,11 +50,20 @@ def build_device_access_from_allocated_ports(
         user_visible_labels: Set of device labels from content.xml.
             If provided, only devices whose label appears in this set are included.
             If None, all devices from allocated_ports are included.
+        protocol_priority: Ordered list of protocols (highest priority first).
+            When a device has multiple ports, the protocol appearing earliest
+            in this list wins. Defaults to DEFAULT_PROTOCOL_PRIORITY.
+        port_preferences: User-configurable per-device port override.
+            Maps device_label → preferred port_name. When set for a device,
+            bypasses protocol priority and selects the specified port directly.
 
     Returns:
-        List of DeviceAccessInfo for LDS device provisioning.
+        List of DeviceAccessInfo for LDS device provisioning (one per device_label).
     """
-    devices: list[DeviceAccessInfo] = []
+    priority = protocol_priority or DEFAULT_PROTOCOL_PRIORITY
+
+    # First pass: collect all candidates grouped by device_label
+    candidates: dict[str, list[tuple[str, int]]] = {}
 
     for port_name, port_number in allocated_ports.items():
         # Parse convention: "{label}_{protocol}"
@@ -55,6 +80,39 @@ def build_device_access_from_allocated_ports(
             logger.debug(f"Skipping device '{node_label}' — not in user_visible_devices")
             continue
 
+        if node_label not in candidates:
+            candidates[node_label] = []
+        candidates[node_label].append((protocol, port_number))
+
+    # Second pass: resolve conflicts — pick highest-priority protocol per device
+    devices: list[DeviceAccessInfo] = []
+
+    for node_label, port_list in candidates.items():
+        if len(port_list) == 1:
+            # No conflict — use directly
+            protocol, port_number = port_list[0]
+        else:
+            # Multiple ports for same device_label — check user preference first (AD-LDS-002 Phase 3)
+            preferred_port_name = (port_preferences or {}).get(node_label)
+            if preferred_port_name:
+                # User specified a preferred port_name (e.g., "ubuntu-desktop_serial")
+                # Parse protocol from port_name convention: "{label}_{protocol}"
+                preferred_parts = preferred_port_name.rsplit("_", 1)
+                preferred_protocol = preferred_parts[1] if len(preferred_parts) == 2 else None
+                match = next(((p, pn) for p, pn in port_list if p == preferred_protocol), None)
+                if match:
+                    protocol, port_number = match
+                    logger.info(f"Multi-port device '{node_label}': user preference selected '{protocol}' (port_name={preferred_port_name})")
+                else:
+                    # Preference doesn't match available protocols — fall back to priority
+                    protocol, port_number = _select_by_priority(port_list, priority)
+                    logger.warning(f"Multi-port device '{node_label}': preference '{preferred_port_name}' not found in available protocols, fell back to '{protocol}' via priority")
+            else:
+                # No user preference — apply protocol priority
+                protocol, port_number = _select_by_priority(port_list, priority)
+                skipped = [p for p, _ in port_list if p != protocol]
+                logger.info(f"Multi-port device '{node_label}': selected '{protocol}' (skipped {skipped}) per protocol priority")
+
         devices.append(
             DeviceAccessInfo(
                 device_label=node_label,
@@ -65,6 +123,36 @@ def build_device_access_from_allocated_ports(
         )
 
     return devices
+
+
+def _select_by_priority(
+    port_list: list[tuple[str, int]],
+    priority: list[str],
+) -> tuple[str, int]:
+    """Select the highest-priority protocol from a list of (protocol, port) pairs.
+
+    Args:
+        port_list: List of (protocol, port_number) tuples for a single device.
+        priority: Ordered protocol list (highest priority first).
+
+    Returns:
+        The (protocol, port_number) tuple with the highest priority.
+        If no protocol matches the priority list, returns the first in port_list.
+    """
+    best_idx = len(priority)  # Sentinel: worse than any priority
+    best_entry = port_list[0]
+
+    for protocol, port_number in port_list:
+        try:
+            idx = priority.index(protocol)
+        except ValueError:
+            idx = len(priority)  # Unknown protocol → lowest priority
+
+        if idx < best_idx:
+            best_idx = idx
+            best_entry = (protocol, port_number)
+
+    return best_entry
 
 
 def build_device_access_list(
