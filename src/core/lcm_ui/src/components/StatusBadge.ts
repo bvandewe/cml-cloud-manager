@@ -35,7 +35,7 @@ export const STATUS_COLORS: Record<string, string> = {
     inactive: 'secondary',
     offline: 'secondary',
     idle: 'secondary',
-    paused: 'secondary',
+    paused: 'warning',
     disabled: 'secondary',
     archived: 'secondary',
     unknown: 'secondary',
@@ -72,6 +72,16 @@ export const STATUS_COLORS: Record<string, string> = {
     imported: 'primary',
     new: 'primary',
     updated: 'primary',
+
+    // CML Lab Record statuses
+    booted: 'success',
+    defined: 'info',
+    discovered: 'light',
+    importing: 'info',
+    wiped: 'secondary',
+    wiping: 'warning',
+    deleting: 'danger',
+    orphaned: 'danger',
 };
 
 /**
@@ -130,6 +140,16 @@ export const STATUS_ICONS: Record<string, string> = {
     imported: 'bi-box-arrow-in-down',
     new: 'bi-star-fill',
     updated: 'bi-arrow-clockwise',
+
+    // CML Lab Record statuses
+    booted: 'bi-rocket-takeoff-fill',
+    defined: 'bi-diagram-3',
+    discovered: 'bi-search',
+    importing: 'bi-cloud-download',
+    wiped: 'bi-eraser-fill',
+    wiping: 'bi-eraser',
+    deleting: 'bi-trash',
+    orphaned: 'bi-exclamation-diamond-fill',
 };
 
 /**

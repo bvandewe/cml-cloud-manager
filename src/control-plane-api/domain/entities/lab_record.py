@@ -14,16 +14,6 @@ Refactored for Phase 7 (LabRecord Architecture):
 from datetime import datetime, timezone
 from typing import Any
 
-from lcm_core.domain.entities.resource import ResourceState
-from lcm_core.domain.enums import (
-    CML_STATE_TO_LAB_RECORD_STATUS,
-    LAB_RECORD_VALID_TRANSITIONS,
-    LabRecordStatus,
-)
-from lcm_core.domain.value_objects.state_transition import StateTransition
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot
-
 from domain.events.lab_record_events import (
     LabActionClearedDomainEvent,
     LabActionCompletedDomainEvent,
@@ -54,6 +44,15 @@ from domain.value_objects.lab_run_record import LabRunRecord
 from domain.value_objects.lab_topology_spec import LabTopologySpec
 from domain.value_objects.pipeline_run_record import PipelineRunRecord
 from domain.value_objects.runtime_binding import RuntimeBinding
+from lcm_core.domain.entities.resource import ResourceState
+from lcm_core.domain.enums import (
+    CML_STATE_TO_LAB_RECORD_STATUS,
+    LAB_RECORD_VALID_TRANSITIONS,
+    LabRecordStatus,
+)
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot
 
 
 class InvalidLabRecordTransitionError(Exception):
@@ -172,6 +171,10 @@ class LabRecordState(ResourceState):
     active_lablet_session_id: str | None
     active_binding_id: str | None
 
+    # Cleanliness tracking — True when lab has never been used or was wiped after use
+    # Set False when bound to a LabletSession; NOT reset by rediscovery/sync
+    is_clean: bool
+
     # Real-time lab stats from WebSocket monitoring (ADR-041)
     node_stats: dict[str, Any] | None  # node_id -> {cpu_usage, ram_usage, disk_usage, ...}
     link_stats: dict[str, Any] | None  # link_id -> {readbytes, writebytes, ...}
@@ -247,6 +250,9 @@ class LabRecordState(ResourceState):
         # Active binding (ADR-031 / AD-BIND-001)
         self.active_lablet_session_id = None
         self.active_binding_id = None
+
+        # Cleanliness — True until bound to a session
+        self.is_clean = True
 
         # Real-time lab stats (ADR-041)
         self.node_stats = None
@@ -499,6 +505,7 @@ class LabRecordState(ResourceState):
         old_status = self.status
         self.status = LabRecordStatus.WIPED
         self.state = "WIPED"
+        self.is_clean = True
         self._record_transition(
             from_state=old_status.value,
             to_state=LabRecordStatus.WIPED.value,
@@ -575,9 +582,11 @@ class LabRecordState(ResourceState):
         """Apply binding event — records that a lablet session is using this lab.
 
         ADR-031 / AD-BIND-001: Tracks the active binding on the LabRecord.
+        Once bound, is_clean is permanently False until explicitly wiped.
         """
         self.active_lablet_session_id = event.lablet_session_id
         self.active_binding_id = event.binding_id
+        self.is_clean = False
 
     @dispatch(LabRecordUnboundFromLabletDomainEvent)
     def on(self, event: LabRecordUnboundFromLabletDomainEvent) -> None:  # type: ignore[override]

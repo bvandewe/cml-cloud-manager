@@ -133,6 +133,7 @@ class GetLabRecordsQueryHandler(QueryHandlerBase, QueryHandler[GetLabRecordsQuer
                     "source": s.source,
                     "based_on_definition_id": s.based_on_definition_id,
                     "active_lablet_session_id": s.active_lablet_session_id,
+                    "is_clean": getattr(s, "is_clean", s.active_lablet_session_id is None),
                     "allocated_ports": s.allocated_ports or {},
                     "pending_action": s.pending_action,
                     "pending_action_at": (s.pending_action_at.isoformat() if s.pending_action_at else None),

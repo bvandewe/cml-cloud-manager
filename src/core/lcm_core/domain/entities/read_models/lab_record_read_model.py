@@ -39,6 +39,9 @@ class LabRecordReadModel:
     # Active session binding
     active_lablet_session_id: str | None = None
 
+    # Cleanliness — True when lab has never been used or was wiped after use
+    is_clean: bool = True
+
     # Runtime binding (serialized RuntimeBinding dict)
     runtime_binding: dict[str, Any] | None = None
 
@@ -82,6 +85,7 @@ class LabRecordReadModel:
             source=data.get("source", "discovery"),
             based_on_definition_id=data.get("based_on_definition_id"),
             active_lablet_session_id=data.get("active_lablet_session_id"),
+            is_clean=data.get("is_clean", True),
             runtime_binding=data.get("runtime_binding"),
             revision=data.get("revision", 1),
             cml_created_at=_safe_str(data.get("cml_created_at")),
@@ -108,8 +112,8 @@ class LabRecordReadModel:
 
     @property
     def is_reusable(self) -> bool:
-        """Check if lab can be reused."""
-        return self.status in ("defined", "wiped", "stopped")
+        """Check if lab can be reused (clean and in a ready state)."""
+        return self.is_clean and self.status in ("defined", "wiped", "stopped")
 
     @property
     def has_pending_action(self) -> bool:

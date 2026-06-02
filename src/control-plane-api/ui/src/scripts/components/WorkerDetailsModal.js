@@ -1048,6 +1048,8 @@ export class WorkerDetailsModal extends BaseComponent {
                             const state = lab.status || lab.state || 'unknown';
                             const isRunning = ['started', 'booted', 'queued', 'starting', 'paused'].includes(state.toLowerCase());
                             const isStopped = ['stopped', 'wiped', 'defined', 'defined_on_core', 'imported', 'discovered'].includes(state.toLowerCase());
+                            const isClean = lab.is_clean === true;
+                            const isAvailable = isClean && isStopped && !lab.active_lablet_session_id;
                             const bindingInfo = bindingsMap[lab.id];
                             const pendingAction = lab.pending_action;
 
@@ -1058,6 +1060,8 @@ export class WorkerDetailsModal extends BaseComponent {
                                         <div class="d-flex align-items-center w-100 me-3">
                                             <span class="fw-bold me-3">${escapeHtml(lab.title)}</span>
                                             <span class="badge ${this.getLabStateBadgeClass(state)} me-auto">${state}</span>
+                                            ${isAvailable ? '<span class="badge bg-success bg-opacity-25 text-success me-2" title="Clean lab — ready for assignment"><i class="bi bi-check-circle-fill"></i> Available</span>' : ''}
+                                            ${!isClean && isStopped ? '<span class="badge bg-secondary bg-opacity-25 text-secondary me-2" title="Previously used — requires wipe before reassignment"><i class="bi bi-recycle"></i> Used</span>' : ''}
                                             ${pendingAction ? `<span class="badge bg-warning text-dark me-2" title="Pending action: ${pendingAction}"><i class="bi bi-hourglass-split"></i> ${pendingAction}</span>` : ''}
                                             ${bindingInfo && bindingInfo.bindings.length > 0 ? `<span class="badge bg-info me-2" title="Bound to ${bindingInfo.bindings.length} lablet instance(s)"><i class="bi bi-link-45deg"></i> ${bindingInfo.bindings.length}</span>` : ''}
                                             <span class="small text-muted me-3"><i class="bi bi-pc-display"></i> ${lab.node_count || 0} Nodes</span>
@@ -1241,13 +1245,14 @@ export class WorkerDetailsModal extends BaseComponent {
             case 'deleting':
                 return 'bg-warning text-dark';
             case 'stopped':
-            case 'wiped':
+                return 'bg-secondary';
             case 'defined':
             case 'defined_on_core':
+            case 'wiped':
             case 'discovered':
-                return 'bg-secondary';
-            case 'paused':
                 return 'bg-info';
+            case 'paused':
+                return 'bg-info text-dark';
             case 'error':
             case 'orphaned':
                 return 'bg-danger';
