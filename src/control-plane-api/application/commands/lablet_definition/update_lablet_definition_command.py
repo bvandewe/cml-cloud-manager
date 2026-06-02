@@ -14,12 +14,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
 from application.dtos.lablet_definition_dto import LabletDefinitionDto, map_lablet_definition_to_dto
 from domain.entities.lablet_definition import LabletDefinition
@@ -27,6 +21,8 @@ from domain.enums import LabletDefinitionStatus, LicenseType
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.utils import slugify_fqn
 from domain.value_objects.resource_requirements import ResourceRequirements
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 logger = logging.getLogger(__name__)
 
@@ -82,20 +78,7 @@ class UpdateLabletDefinitionCommandHandler(
     - DEPRECATED definitions → rejected
     """
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        lablet_definition_repository: LabletDefinitionRepository,
-    ):
-        super().__init__(
-            mediator,
-            mapper,
-            cloud_event_bus,
-            cloud_event_publishing_options,
-        )
+    def __init__(self, lablet_definition_repository: LabletDefinitionRepository):
         self._repository = lablet_definition_repository
 
     async def handle_async(self, request: UpdateLabletDefinitionCommand) -> OperationResult[LabletDefinitionDto]:

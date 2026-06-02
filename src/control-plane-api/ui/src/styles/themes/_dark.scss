@@ -84,6 +84,22 @@
             border-bottom-color: var(--color-border);
         }
 
+        // Override Bootstrap's .table-light which forces light backgrounds
+        thead.table-light,
+        .table-light {
+            --bs-table-bg: var(--color-bg-secondary);
+            --bs-table-color: var(--color-text-primary);
+            --bs-table-border-color: var(--color-border);
+            background-color: var(--color-bg-secondary) !important;
+            color: var(--color-text-primary);
+
+            th {
+                background-color: var(--color-bg-secondary) !important;
+                color: var(--color-text-secondary);
+                border-color: var(--color-border);
+            }
+        }
+
         tbody tr {
             border-color: var(--color-border);
         }
@@ -181,6 +197,17 @@
     // Prevents white backgrounds bleeding through in card headers, input groups, etc.
     .bg-white {
         background-color: var(--color-bg-secondary) !important;
+    }
+
+    // Override bg-light utility class in dark mode
+    // Prevents light backgrounds on footer, headers, etc.
+    .bg-light {
+        background-color: var(--color-bg-primary) !important;
+    }
+
+    // Footer dark mode
+    .footer {
+        border-top-color: var(--color-border) !important;
     }
 
     // Input group text (search icons, etc.)

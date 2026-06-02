@@ -13,16 +13,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-from opentelemetry import trace
-
 from domain.entities.lab_record import LabRecord
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.value_objects.lab_topology_spec import LabTopologySpec
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
+from opentelemetry import trace
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -53,15 +49,7 @@ class UpdateLabTopologyCommandHandler(
 ):
     """Handler for UpdateLabTopologyCommand — updates topology and creates revisions."""
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        lab_record_repository: LabRecordRepository,
-    ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+    def __init__(self, lab_record_repository: LabRecordRepository):
         self._lab_repository = lab_record_repository
 
     async def handle_async(self, request: UpdateLabTopologyCommand) -> OperationResult[dict]:
@@ -95,7 +83,7 @@ class UpdateLabTopologyCommandHandler(
                 await self._lab_repository.update_async(lab)
 
                 log.info(
-                    "Lab topology updated: lab_record_id=%s, revision=%d, " "new_revision_created=%s",
+                    "Lab topology updated: lab_record_id=%s, revision=%d, new_revision_created=%s",
                     request.lab_record_id,
                     lab.state.revision,
                     revision_created,

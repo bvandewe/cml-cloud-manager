@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from application.commands.command_handler_base import CommandHandlerBase
 from application.queries.get_worker_idle_status_query import GetWorkerIdleStatusQuery
 from application.services.system_configuration_service import SystemConfigurationService
 from application.settings import Settings
@@ -13,7 +14,6 @@ from application.utils.telemetry_filter import (
     get_latest_activity_timestamp,
     get_most_recent_events,
 )
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -41,8 +41,7 @@ class DetectWorkerIdleCommand(Command):
     raw_telemetry_events: list[dict[str, Any]] | None = field(default=None)
 
 
-@instrumented
-class DetectWorkerIdleCommandHandler(CommandHandler[DetectWorkerIdleCommand, dict]):
+class DetectWorkerIdleCommandHandler(CommandHandlerBase, CommandHandler[DetectWorkerIdleCommand, dict]):
     """Handler for DetectWorkerIdleCommand.
 
     Orchestrates idle detection workflow:

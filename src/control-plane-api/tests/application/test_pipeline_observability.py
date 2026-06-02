@@ -31,23 +31,10 @@ Pattern: pytest fixtures + MagicMock + AsyncMock.
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-
-from application.commands.lablet_session.update_pipeline_progress_command import (
-    UpdatePipelineProgressCommand,
-    UpdatePipelineProgressCommandHandler,
-)
-from application.queries.lablet_session.get_pipeline_progress_query import (
-    GetPipelineProgressQuery,
-    GetPipelineProgressQueryHandler,
-)
-from application.queries.lablet_session.list_pipeline_executions_query import (
-    ListPipelineExecutionsQuery,
-    ListPipelineExecutionsQueryHandler,
-    _map_execution_summary,
-)
+from application.commands.lablet_session.update_pipeline_progress_command import UpdatePipelineProgressCommand, UpdatePipelineProgressCommandHandler
+from application.events.integration.pipeline_events import PipelineCompletedEventV1, PipelineStepCompletedEventV1, PipelineStepFailedEventV1, PipelineStepStartedEventV1
+from application.queries.lablet_session.get_pipeline_progress_query import GetPipelineProgressQuery, GetPipelineProgressQueryHandler
+from application.queries.lablet_session.list_pipeline_executions_query import ListPipelineExecutionsQuery, ListPipelineExecutionsQueryHandler, _map_execution_summary
 from domain.entities.lablet_session import LabletSession, LabletSessionState
 from domain.entities.pipeline_execution_record import PipelineExecutionRecord
 from domain.enums import LabletSessionStatus
@@ -78,38 +65,7 @@ def mock_execution_repository() -> MagicMock:
     return mock
 
 
-@pytest.fixture
-def mock_mediator() -> MagicMock:
-    mock = MagicMock(spec=Mediator)
-    mock.execute_async = AsyncMock()
-    return mock
-
-
-@pytest.fixture
-def mock_mapper() -> MagicMock:
-    return MagicMock(spec=Mapper)
-
-
-@pytest.fixture
-def mock_cloud_event_bus() -> MagicMock:
-    bus = MagicMock(spec=CloudEventBus)
-    bus.output_stream = MagicMock()
-    return bus
-
-
-@pytest.fixture
-def mock_cloud_event_publishing_options() -> MagicMock:
-    opts = MagicMock()
-    opts.source = "test-source"
-    opts.type_prefix = "com.lablet"
-    return opts
-
-
-def _make_session(
-    session_id: str = "session-001",
-    status: LabletSessionStatus = LabletSessionStatus.INSTANTIATING,
-    pipeline_progress: dict | None = None,
-) -> MagicMock:
+def _make_session(session_id: str = "session-001", status: LabletSessionStatus = LabletSessionStatus.INSTANTIATING, pipeline_progress: dict | None = None) -> MagicMock:
     """Create a mock LabletSession with configurable pipeline_progress."""
     session = MagicMock(spec=LabletSession)
     session.id.return_value = session_id
@@ -325,36 +281,15 @@ class TestListPipelineExecutionsQueryHandler:
 class TestPipelineObservability:
     """Tests for G1 (execution record upsert) and G5 (CloudEvent emission)."""
 
-    def _make_handler(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ) -> UpdatePipelineProgressCommandHandler:
-        return UpdatePipelineProgressCommandHandler(
-            mediator=mock_mediator,
-            mapper=mock_mapper,
-            cloud_event_bus=mock_cloud_event_bus,
-            cloud_event_publishing_options=mock_cloud_event_publishing_options,
-            lablet_session_repository=mock_session_repository,
-            pipeline_execution_repository=mock_execution_repository,
-        )
+    def _make_handler(self, mock_session_repository, mock_execution_repository, mock_publisher=None) -> UpdatePipelineProgressCommandHandler:
+        if mock_publisher is None:
+            mock_publisher = AsyncMock()
+        return UpdatePipelineProgressCommandHandler(cloud_event_publisher=mock_publisher, lablet_session_repository=mock_session_repository, pipeline_execution_repository=mock_execution_repository)
 
     # ─── G5: CloudEvent emission ─────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_emits_step_started_on_pending(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_emits_step_started_on_pending(self, mock_session_repository, mock_execution_repository):
         """step_status=pending → PipelineStepStartedEventV1 CloudEvent."""
         session = _make_session(
             pipeline_progress={
@@ -363,41 +298,21 @@ class TestPipelineObservability:
         )
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_execution_repository,
-        )
+        mock_publisher = AsyncMock()
+        handler = self._make_handler(mock_session_repository, mock_execution_repository, mock_publisher)
 
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="instantiate",
-            step_name="resolve_lab",
-            step_status="pending",
-        )
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="instantiate", step_name="resolve_lab", step_status="pending")
         result = await handler.handle_async(command)
 
         assert result.is_success
-        # Verify CloudEvent was published via the output_stream
-        assert mock_cloud_event_bus.output_stream.on_next.call_count >= 1
+        # Verify CloudEvent was published via the publisher
+        assert mock_publisher.publish_async.call_count >= 1
         # The first CloudEvent should be a step.started event
-        ce_call = mock_cloud_event_bus.output_stream.on_next.call_args_list[0]
-        cloud_event = ce_call[0][0]
-        assert "pipeline.step.started.v1" in cloud_event.type
+        cloud_event = mock_publisher.publish_async.call_args_list[0][0][0]
+        assert isinstance(cloud_event, PipelineStepStartedEventV1)
 
     @pytest.mark.asyncio
-    async def test_emits_step_completed_on_completed(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_emits_step_completed_on_completed(self, mock_session_repository, mock_execution_repository):
         """step_status=completed → PipelineStepCompletedEventV1."""
         session = _make_session(
             pipeline_progress={
@@ -408,39 +323,20 @@ class TestPipelineObservability:
             }
         )
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_execution_repository,
-        )
 
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="instantiate",
-            step_name="resolve_lab",
-            step_status="completed",
-            result_data={"lab_id": "lab-123"},
-        )
+        mock_publisher = AsyncMock()
+        handler = self._make_handler(mock_session_repository, mock_execution_repository, mock_publisher)
+
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="instantiate", step_name="resolve_lab", step_status="completed", result_data={"lab_id": "lab-123"})
         result = await handler.handle_async(command)
 
         assert result.is_success
-        assert mock_cloud_event_bus.output_stream.on_next.call_count >= 1
-        ce = mock_cloud_event_bus.output_stream.on_next.call_args_list[0][0][0]
-        assert "pipeline.step.completed.v1" in ce.type
+        assert mock_publisher.publish_async.call_count >= 1
+        ce = mock_publisher.publish_async.call_args_list[0][0][0]
+        assert isinstance(ce, PipelineStepCompletedEventV1)
 
     @pytest.mark.asyncio
-    async def test_emits_step_failed_on_failed(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_emits_step_failed_on_failed(self, mock_session_repository, mock_execution_repository):
         """step_status=failed → PipelineStepFailedEventV1."""
         session = _make_session(
             pipeline_progress={
@@ -448,39 +344,20 @@ class TestPipelineObservability:
             }
         )
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_execution_repository,
-        )
 
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="teardown",
-            step_name="stop_lab",
-            step_status="failed",
-            error="CML API timeout",
-        )
+        mock_publisher = AsyncMock()
+        handler = self._make_handler(mock_session_repository, mock_execution_repository, mock_publisher)
+
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="teardown", step_name="stop_lab", step_status="failed", error="CML API timeout")
         result = await handler.handle_async(command)
 
         assert result.is_success
-        assert mock_cloud_event_bus.output_stream.on_next.call_count >= 1
-        ce = mock_cloud_event_bus.output_stream.on_next.call_args_list[0][0][0]
-        assert "pipeline.step.failed.v1" in ce.type
+        assert mock_publisher.publish_async.call_count >= 1
+        ce = mock_publisher.publish_async.call_args_list[0][0][0]
+        assert isinstance(ce, PipelineStepFailedEventV1)
 
     @pytest.mark.asyncio
-    async def test_emits_pipeline_completed_when_all_done(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_emits_pipeline_completed_when_all_done(self, mock_session_repository, mock_execution_repository):
         """All steps done → PipelineCompletedEventV1."""
         session = _make_session(
             pipeline_progress={
@@ -495,43 +372,24 @@ class TestPipelineObservability:
         running_record = PipelineExecutionRecord.create(session_id="session-001", pipeline_name="teardown", attempt=1)
         mock_execution_repository.get_latest_by_session_and_pipeline_async = AsyncMock(return_value=running_record)
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_execution_repository,
-        )
+        mock_publisher = AsyncMock()
+        handler = self._make_handler(mock_session_repository, mock_execution_repository, mock_publisher)
 
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="teardown",
-            step_name="wipe_lab",
-            step_status="completed",
-        )
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="teardown", step_name="wipe_lab", step_status="completed")
         result = await handler.handle_async(command)
 
         assert result.is_success
         assert result.data["pipeline_complete"] is True
         # Should have 2 CloudEvents: step.completed + pipeline.completed
-        assert mock_cloud_event_bus.output_stream.on_next.call_count == 2
-        ce_types = [c[0][0].type for c in mock_cloud_event_bus.output_stream.on_next.call_args_list]
-        assert any("pipeline.step.completed.v1" in t for t in ce_types)
-        assert any("pipeline.completed.v1" in t for t in ce_types)
+        assert mock_publisher.publish_async.call_count == 2
+        published_events = [c[0][0] for c in mock_publisher.publish_async.call_args_list]
+        assert any(isinstance(e, PipelineStepCompletedEventV1) for e in published_events)
+        assert any(isinstance(e, PipelineCompletedEventV1) for e in published_events)
 
     # ─── G1: Execution record upsert ─────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_creates_execution_record_on_first_step(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_creates_execution_record_on_first_step(self, mock_session_repository, mock_execution_repository):
         """step_status=pending (first step) → creates PipelineExecutionRecord."""
         session = _make_session(
             pipeline_progress={
@@ -542,21 +400,9 @@ class TestPipelineObservability:
         # No existing records → attempt 1
         mock_execution_repository.get_by_session_and_pipeline_async = AsyncMock(return_value=[])
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_execution_repository,
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
 
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="instantiate",
-            step_name="resolve_lab",
-            step_status="pending",
-        )
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="instantiate", step_name="resolve_lab", step_status="pending")
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -569,15 +415,7 @@ class TestPipelineObservability:
         assert added_record.attempt == 1
 
     @pytest.mark.asyncio
-    async def test_finalizes_execution_record_on_completion(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_finalizes_execution_record_on_completion(self, mock_session_repository, mock_execution_repository):
         """All steps done → finalizes existing PipelineExecutionRecord."""
         session = _make_session(
             pipeline_progress={
@@ -592,21 +430,9 @@ class TestPipelineObservability:
         running_record = PipelineExecutionRecord.create(session_id="session-001", pipeline_name="instantiate", attempt=1)
         mock_execution_repository.get_latest_by_session_and_pipeline_async = AsyncMock(return_value=running_record)
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_execution_repository,
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
 
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="instantiate",
-            step_name="start_lab",
-            step_status="completed",
-        )
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="instantiate", step_name="start_lab", step_status="completed")
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -617,15 +443,7 @@ class TestPipelineObservability:
         assert updated_record.duration_seconds > 0 or updated_record.duration_seconds == 0.0
 
     @pytest.mark.asyncio
-    async def test_cloud_event_failure_does_not_break_handler(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_cloud_event_failure_does_not_break_handler(self, mock_session_repository, mock_execution_repository):
         """CloudEvent emission error is logged but handler still succeeds."""
         session = _make_session(
             pipeline_progress={
@@ -635,23 +453,12 @@ class TestPipelineObservability:
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
         # Make CloudEvent emission fail
-        mock_cloud_event_bus.output_stream.on_next.side_effect = RuntimeError("Bus crash")
+        mock_publisher = AsyncMock()
+        mock_publisher.publish_async.side_effect = RuntimeError("Bus crash")
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_execution_repository,
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository, mock_publisher)
 
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="instantiate",
-            step_name="resolve_lab",
-            step_status="pending",
-        )
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="instantiate", step_name="resolve_lab", step_status="pending")
         result = await handler.handle_async(command)
 
         # Handler should still succeed despite CloudEvent failure

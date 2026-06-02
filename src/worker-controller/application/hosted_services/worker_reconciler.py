@@ -20,6 +20,7 @@ Watch Pattern (ADR-006):
 """
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -387,6 +388,12 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         logger.debug(f"Reconciling worker {worker_id} (status={worker.status}, desired={worker.desired_status})")
 
         try:
+            # AD-043: Check for pending sync request (takes priority over status routing)
+            sync_data = await self._check_pending_sync(worker_id)
+            if sync_data is not None:
+                logger.info(f"Worker {worker_id} has pending sync request (scope={sync_data.get('scope', 'full')})")
+                return await self._handle_sync_request(worker, sync_data)
+
             # Route to appropriate handler based on current status
             if worker.status == CMLWorkerStatus.PENDING:
                 return await self._handle_pending(worker)
@@ -1580,6 +1587,97 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
         # So we don't need to call it again here.
 
         logger.info(f"On-demand refresh completed for worker {worker.id}")
+
+    # =========================================================================
+    # SYNC REQUEST HANDLING (AD-043)
+    # =========================================================================
+
+    async def _check_pending_sync(self, worker_id: str) -> dict[str, Any] | None:
+        """Check if a sync request is pending for a worker via etcd.
+
+        AD-043: Reads /lcm/workers/{id}/sync key. Returns the sync payload
+        if present, or None if no sync is pending.
+        """
+        etcd = getattr(self, "_etcd", None)
+        if etcd is None:
+            return None
+        prefix = getattr(self._settings, "etcd_key_prefix", "/lcm").rstrip("/")
+        key = f"{prefix}/workers/{worker_id}/sync"
+        try:
+            value = await etcd.get(key)
+            if value:
+                return json.loads(value)
+        except Exception as e:
+            logger.warning(f"Failed to read sync key for worker {worker_id}: {e}")
+        return None
+
+    async def _handle_sync_request(self, worker: CMLWorkerReadModel, sync_data: dict[str, Any]) -> ReconciliationResult:
+        """Handle a sync request — force full state re-read and alignment.
+
+        AD-043: Unlike the on-demand refresh (EC2 + CML data collection only),
+        sync performs FULL reconciliation including:
+        1. EC2 actual state verification
+        2. CML health + data re-read
+        3. Status alignment (correct stale status)
+        4. Lab discovery trigger (if include_labs=True)
+        5. Clear the sync trigger key
+        """
+        scope = sync_data.get("scope", "full")
+        include_labs = sync_data.get("include_labs", True)
+        reason = sync_data.get("reason", "manual")
+        logger.info(f"Performing sync for worker {worker.id} (scope={scope}, include_labs={include_labs}, reason={reason})")
+
+        # Step 1: Verify actual EC2 state
+        if worker.ec2_instance_id and scope in ("full", "ec2_only"):
+            try:
+                state = await self._ec2.get_instance_state(worker.ec2_instance_id)
+                if state:
+                    actual_status = self._map_ec2_state_to_worker_status(state.state)
+                    await self._report_ec2_details(worker.id, state)
+                    logger.info(f"Sync: EC2 actual state for {worker.id}: {state.state} → {actual_status}")
+
+                    # If actual EC2 state differs from stored status, correct it
+                    if actual_status and actual_status != worker.status:
+                        logger.warning(f"Sync: Status mismatch for {worker.id}: stored={worker.status}, actual={actual_status}. Correcting.")
+                        await self._api.update_worker_status(
+                            worker_id=worker.id,
+                            status=actual_status,
+                        )
+                else:
+                    logger.warning(f"Sync: EC2 instance {worker.ec2_instance_id} not found for worker {worker.id}")
+            except Exception as e:
+                logger.warning(f"Sync: EC2 state check failed for {worker.id}: {e}")
+
+        # Step 2: CML health + data (if worker has an IP and scope includes CML)
+        if worker.ip_address and scope in ("full", "cml_only"):
+            try:
+                is_healthy, msg = await self._cml.check_health(worker.ip_address)
+                if is_healthy:
+                    collected_at = datetime.now(timezone.utc).isoformat()
+                    await self._collect_and_report_cml_data(worker, collected_at)
+                    logger.info(f"Sync: CML data collected for {worker.id}")
+                else:
+                    logger.info(f"Sync: CML not healthy for {worker.id}: {msg}")
+            except Exception as e:
+                logger.warning(f"Sync: CML data collection failed for {worker.id}: {e}")
+
+        # Step 3: Trigger lab discovery (if requested)
+        if include_labs:
+            try:
+                await self._api.trigger_lab_discovery(worker_id=worker.id, lab_ids=[], source="sync")
+                logger.info(f"Sync: Triggered lab discovery for worker {worker.id}")
+            except Exception as e:
+                logger.warning(f"Sync: Failed to trigger lab discovery for {worker.id}: {e}")
+
+        # Step 4: Clear the sync trigger key via CPA internal API
+        try:
+            await self._api.complete_worker_sync(worker.id)
+            logger.info(f"Sync: Cleared sync key for worker {worker.id}")
+        except Exception as e:
+            logger.warning(f"Sync: Failed to clear sync key for {worker.id}: {e}")
+
+        # Requeue to ensure next reconciliation uses fresh state
+        return ReconciliationResult.requeue("Sync completed — re-reconcile with fresh state")
 
     # =========================================================================
     # WEBSOCKET CALLBACKS (ADR-041)

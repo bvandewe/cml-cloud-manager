@@ -10,11 +10,11 @@ ADR-017: Lab delete operations use the reconciliation pattern:
 import logging
 from dataclasses import dataclass
 
+from application.commands.command_handler_base import CommandHandlerBase
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core.operation_result import OperationResult
-from neuroglia.mediation import Command, CommandHandler, Mediator
+from neuroglia.mediation import Command, CommandHandler
 from opentelemetry import trace
 
 log = logging.getLogger(__name__)
@@ -37,8 +37,7 @@ class DeleteLabCommand(Command[OperationResult[dict]]):
     lab_id: str
 
 
-@instrumented
-class DeleteLabCommandHandler(CommandHandler[DeleteLabCommand, OperationResult[dict]]):
+class DeleteLabCommandHandler(CommandHandlerBase, CommandHandler[DeleteLabCommand, OperationResult[dict]]):
     """Handler for DeleteLabCommand - queues lab deletion for reconciliation.
 
     ADR-017: This handler only updates the database, setting pending_action=delete.
@@ -47,18 +46,15 @@ class DeleteLabCommandHandler(CommandHandler[DeleteLabCommand, OperationResult[d
 
     def __init__(
         self,
-        mediator: Mediator,
         worker_repository: CMLWorkerRepository,
         lab_record_repository: LabRecordRepository,
     ):
         """Initialize handler with repository dependencies.
 
         Args:
-            mediator: Mediator for triggering other commands
             worker_repository: Repository for accessing CML worker data
             lab_record_repository: Repository for accessing lab records
         """
-        self._mediator = mediator
         self._worker_repository = worker_repository
         self._lab_record_repository = lab_record_repository
 

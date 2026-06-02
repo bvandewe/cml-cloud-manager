@@ -14,15 +14,8 @@ Pattern: pytest fixtures + MagicMock + AsyncMock, matching test_expire_lablet_se
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-
 from application.commands.lab.wipe_lab_record_command import WipeLabRecordCommand
-from application.commands.lablet_session.terminate_lablet_session_command import (
-    TerminateLabletSessionCommand,
-    TerminateLabletSessionCommandHandler,
-)
+from application.commands.lablet_session.terminate_lablet_session_command import TerminateLabletSessionCommand, TerminateLabletSessionCommandHandler
 from application.commands.worker.release_capacity_command import ReleaseCapacityCommand
 from domain.entities.lab_record import LabRecord, LabRecordState
 from domain.entities.lablet_definition import LabletDefinition, LabletDefinitionState
@@ -31,6 +24,7 @@ from domain.enums import LabletSessionStatus
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.mediation import Mediator
 
 # =============================================================================
 # Shared fixtures
@@ -42,21 +36,6 @@ def mock_mediator() -> MagicMock:
     mock = MagicMock(spec=Mediator)
     mock.execute_async = AsyncMock()
     return mock
-
-
-@pytest.fixture
-def mock_mapper() -> MagicMock:
-    return MagicMock(spec=Mapper)
-
-
-@pytest.fixture
-def mock_cloud_event_bus() -> MagicMock:
-    return MagicMock(spec=CloudEventBus)
-
-
-@pytest.fixture
-def mock_cloud_event_publishing_options() -> MagicMock:
-    return MagicMock()
 
 
 @pytest.fixture
@@ -118,11 +97,7 @@ def _make_session(
 
 
 def _make_lab_record(
-    record_id: str = "lr-001",
-    active_lablet_session_id: str | None = "session-001",
-    active_binding_id: str | None = "binding-001",
-    is_terminal: bool = False,
-    pending_action: str | None = None,
+    record_id: str = "lr-001", active_lablet_session_id: str | None = "session-001", active_binding_id: str | None = "binding-001", is_terminal: bool = False, pending_action: str | None = None
 ) -> MagicMock:
     """Create a mock LabRecord with state."""
     lab_record = MagicMock(spec=LabRecord)
@@ -140,11 +115,7 @@ def _make_lab_record(
     return lab_record
 
 
-def _make_definition(
-    cpu_cores: int = 4,
-    memory_gb: int = 8,
-    storage_gb: int = 50,
-) -> MagicMock:
+def _make_definition(cpu_cores: int = 4, memory_gb: int = 8, storage_gb: int = 50) -> MagicMock:
     """Create a mock LabletDefinition with resource requirements."""
     definition = MagicMock(spec=LabletDefinition)
 
@@ -185,35 +156,15 @@ class TestTerminateSessionLabWipe:
     """Tests for session termination → lab record unbind + wipe (AD-WIPE-001)."""
 
     def _make_handler(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_definition_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_definition_repository: MagicMock, mock_lab_record_repository: MagicMock
     ) -> TerminateLabletSessionCommandHandler:
         return TerminateLabletSessionCommandHandler(
-            mediator=mock_mediator,
-            mapper=mock_mapper,
-            cloud_event_bus=mock_cloud_event_bus,
-            cloud_event_publishing_options=mock_cloud_event_publishing_options,
-            lablet_session_repository=mock_session_repository,
-            lablet_definition_repository=mock_definition_repository,
-            lab_record_repository=mock_lab_record_repository,
+            mediator=mock_mediator, lablet_session_repository=mock_session_repository, lablet_definition_repository=mock_definition_repository, lab_record_repository=mock_lab_record_repository
         )
 
     @pytest.mark.asyncio
     async def test_nominal_terminate_unbinds_and_queues_wipe(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Nominal: terminate unbinds the lab record and queues a wipe."""
         session = _make_session(lab_record_id="lr-001", definition_id="def-001")
@@ -226,21 +177,9 @@ class TestTerminateSessionLabWipe:
         # First call: ReleaseCapacityCommand, Second call: WipeLabRecordCommand
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_definition_repository,
-            mock_lab_record_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_definition_repository, mock_lab_record_repository)
 
-        command = TerminateLabletSessionCommand(
-            session_id="session-001",
-            terminated_by="admin",
-            reason="test",
-        )
+        command = TerminateLabletSessionCommand(session_id="session-001", terminated_by="admin", reason="test")
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -249,10 +188,7 @@ class TestTerminateSessionLabWipe:
         session.terminate.assert_called_once()
 
         # Verify lab record was unbound
-        lab_record.unbind_from_lablet.assert_called_once_with(
-            lablet_session_id="session-001",
-            binding_id="binding-001",
-        )
+        lab_record.unbind_from_lablet.assert_called_once_with(lablet_session_id="session-001", binding_id="binding-001")
         mock_lab_record_repository.update_async.assert_awaited_once_with(lab_record)
 
         # Verify wipe was queued (second mediator call)
@@ -264,14 +200,7 @@ class TestTerminateSessionLabWipe:
 
     @pytest.mark.asyncio
     async def test_no_lab_record_skips_unbind_and_wipe(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Session without lab_record_id → no unbind or wipe attempted."""
         session = _make_session(lab_record_id=None)
@@ -281,15 +210,7 @@ class TestTerminateSessionLabWipe:
         mock_definition_repository.get_by_id_async.return_value = definition
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_definition_repository,
-            mock_lab_record_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_definition_repository, mock_lab_record_repository)
 
         command = TerminateLabletSessionCommand(session_id="session-001", terminated_by="admin")
         result = await handler.handle_async(command)
@@ -304,14 +225,7 @@ class TestTerminateSessionLabWipe:
 
     @pytest.mark.asyncio
     async def test_lab_in_terminal_state_skips_wipe(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Lab already in terminal state (DELETED/ARCHIVED) → no wipe dispatched."""
         session = _make_session(lab_record_id="lr-001")
@@ -323,15 +237,7 @@ class TestTerminateSessionLabWipe:
         mock_definition_repository.get_by_id_async.return_value = definition
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_definition_repository,
-            mock_lab_record_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_definition_repository, mock_lab_record_repository)
 
         command = TerminateLabletSessionCommand(session_id="session-001", terminated_by="admin")
         result = await handler.handle_async(command)
@@ -344,14 +250,7 @@ class TestTerminateSessionLabWipe:
 
     @pytest.mark.asyncio
     async def test_lab_with_pending_action_skips_wipe(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Lab has existing pending_action → wipe skipped (avoid conflict)."""
         session = _make_session(lab_record_id="lr-001")
@@ -363,15 +262,7 @@ class TestTerminateSessionLabWipe:
         mock_definition_repository.get_by_id_async.return_value = definition
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_definition_repository,
-            mock_lab_record_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_definition_repository, mock_lab_record_repository)
 
         command = TerminateLabletSessionCommand(session_id="session-001", terminated_by="admin")
         result = await handler.handle_async(command)
@@ -382,14 +273,7 @@ class TestTerminateSessionLabWipe:
 
     @pytest.mark.asyncio
     async def test_lab_record_not_found_still_succeeds(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Lab record not found → session still terminates successfully."""
         session = _make_session(lab_record_id="lr-missing")
@@ -400,15 +284,7 @@ class TestTerminateSessionLabWipe:
         mock_definition_repository.get_by_id_async.return_value = definition
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_definition_repository,
-            mock_lab_record_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_definition_repository, mock_lab_record_repository)
 
         command = TerminateLabletSessionCommand(session_id="session-001", terminated_by="admin")
         result = await handler.handle_async(command)
@@ -418,14 +294,7 @@ class TestTerminateSessionLabWipe:
 
     @pytest.mark.asyncio
     async def test_wipe_failure_does_not_block_termination(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Wipe command failure → termination still succeeds (best-effort)."""
         session = _make_session(lab_record_id="lr-001")
@@ -438,15 +307,7 @@ class TestTerminateSessionLabWipe:
         # Capacity release succeeds, wipe fails
         mock_mediator.execute_async = AsyncMock(side_effect=[_success_result(), _failure_result("Wipe conflict")])
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_definition_repository,
-            mock_lab_record_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_definition_repository, mock_lab_record_repository)
 
         command = TerminateLabletSessionCommand(session_id="session-001", terminated_by="admin")
         result = await handler.handle_async(command)

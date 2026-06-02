@@ -13,7 +13,6 @@ log = logging.getLogger(__name__)
 @cloudevent("com.source.dummy.test.requested.v1")
 @dataclass
 class TestRequestedIntegrationEventV1(IntegrationEvent[str]):
-
     foo: str
     """A string field."""
 

@@ -9,17 +9,11 @@ Tests cover:
 - _increment_patch_version helper
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
-
-from application.commands.lablet_definition import (
-    UpdateLabletDefinitionCommand,
-    UpdateLabletDefinitionCommandHandler,
-)
-from application.commands.lablet_definition.update_lablet_definition_command import (
-    _increment_patch_version,
-)
+from application.commands.lablet_definition import UpdateLabletDefinitionCommand, UpdateLabletDefinitionCommandHandler
+from application.commands.lablet_definition.update_lablet_definition_command import _increment_patch_version
 from application.dtos.lablet_definition_dto import LabletDefinitionDto
 from domain.entities.lablet_definition import LabletDefinition
 from domain.enums import LabletDefinitionStatus, LicenseType
@@ -42,41 +36,9 @@ def mock_repository() -> AsyncMock:
 
 
 @pytest.fixture
-def mock_mediator() -> MagicMock:
-    return MagicMock()
-
-
-@pytest.fixture
-def mock_mapper() -> MagicMock:
-    return MagicMock()
-
-
-@pytest.fixture
-def mock_cloud_event_bus() -> MagicMock:
-    bus = MagicMock()
-    bus.output_stream = MagicMock()
-    bus.output_stream.on_next = MagicMock()
-    return bus
-
-
-@pytest.fixture
-def mock_cloud_event_options() -> MagicMock:
-    opts = MagicMock()
-    opts.source = "test-source"
-    opts.type_prefix = "test.prefix"
-    return opts
-
-
-@pytest.fixture
-def handler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository):
+def handler(mock_repository):
     """Create an UpdateLabletDefinitionCommandHandler."""
-    return UpdateLabletDefinitionCommandHandler(
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_options,
-        mock_repository,
-    )
+    return UpdateLabletDefinitionCommandHandler(mock_repository)
 
 
 @pytest.fixture
@@ -149,11 +111,7 @@ class TestUpdateLabletDefinitionValidation:
     async def test_deprecated_definition_returns_bad_request(self, handler, mock_repository, deprecated_definition):
         """Updating a DEPRECATED definition should return 400."""
         mock_repository.get_async.return_value = deprecated_definition
-        command = UpdateLabletDefinitionCommand(
-            definition_id=deprecated_definition.id(),
-            updated_by="user",
-            cpu_cores=4,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=deprecated_definition.id(), updated_by="user", cpu_cores=4)
         result = await handler.handle_async(command)
         assert not result.is_success
         assert result.status_code == 400
@@ -163,11 +121,7 @@ class TestUpdateLabletDefinitionValidation:
     async def test_invalid_license_affinity_returns_bad_request(self, handler, mock_repository, active_definition):
         """Invalid license_affinity value should return 400."""
         mock_repository.get_async.return_value = active_definition
-        command = UpdateLabletDefinitionCommand(
-            definition_id=active_definition.id(),
-            updated_by="user",
-            license_affinity=["invalid_type"],
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=active_definition.id(), updated_by="user", license_affinity=["invalid_type"])
         result = await handler.handle_async(command)
         assert not result.is_success
         assert result.status_code == 400
@@ -187,11 +141,7 @@ class TestVersionBumpForActiveDefinitions:
         """Editing an ACTIVE definition should create a new version."""
         mock_repository.get_async.return_value = active_definition
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=active_definition.id(),
-            updated_by="admin-user",
-            cpu_cores=8,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=active_definition.id(), updated_by="admin-user", cpu_cores=8)
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -205,11 +155,7 @@ class TestVersionBumpForActiveDefinitions:
         """The old ACTIVE definition should be deprecated after version bump."""
         mock_repository.get_async.return_value = active_definition
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=active_definition.id(),
-            updated_by="admin-user",
-            cpu_cores=8,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=active_definition.id(), updated_by="admin-user", cpu_cores=8)
         await handler.handle_async(command)
 
         # The original definition passed to the first update_async call should be DEPRECATED
@@ -222,11 +168,7 @@ class TestVersionBumpForActiveDefinitions:
         mock_repository.get_async.return_value = active_definition
         old_version = active_definition.state.version  # "1.0.0"
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=active_definition.id(),
-            updated_by="admin-user",
-            cpu_cores=8,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=active_definition.id(), updated_by="admin-user", cpu_cores=8)
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -240,11 +182,7 @@ class TestVersionBumpForActiveDefinitions:
         """New definition from version bump should be in PENDING_SYNC status."""
         mock_repository.get_async.return_value = active_definition
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=active_definition.id(),
-            updated_by="admin-user",
-            cpu_cores=8,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=active_definition.id(), updated_by="admin-user", cpu_cores=8)
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -256,11 +194,7 @@ class TestVersionBumpForActiveDefinitions:
         """Version bump should preserve the definition name."""
         mock_repository.get_async.return_value = active_definition
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=active_definition.id(),
-            updated_by="admin-user",
-            cpu_cores=8,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=active_definition.id(), updated_by="admin-user", cpu_cores=8)
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -273,11 +207,7 @@ class TestVersionBumpForActiveDefinitions:
         mock_repository.get_async.return_value = active_definition
         new_fqn = "Exam Professional ENCOR v2.0 LAB 2.1b"
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=active_definition.id(),
-            updated_by="admin-user",
-            form_qualified_name=new_fqn,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=active_definition.id(), updated_by="admin-user", form_qualified_name=new_fqn)
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -340,11 +270,7 @@ class TestInPlaceUpdateForPendingSyncDefinitions:
         """In-place update should NOT call add_async (no new version)."""
         mock_repository.get_async.return_value = pending_definition
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=pending_definition.id(),
-            updated_by="user",
-            cpu_cores=8,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=pending_definition.id(), updated_by="user", cpu_cores=8)
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -357,11 +283,7 @@ class TestInPlaceUpdateForPendingSyncDefinitions:
         mock_repository.get_async.return_value = pending_definition
         original_version = pending_definition.state.version
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=pending_definition.id(),
-            updated_by="user",
-            cpu_cores=8,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=pending_definition.id(), updated_by="user", cpu_cores=8)
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -374,11 +296,7 @@ class TestInPlaceUpdateForPendingSyncDefinitions:
         mock_repository.get_async.return_value = pending_definition
         new_fqn = "Exam Professional ENCOR v2.0 LAB 2.1b"
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=pending_definition.id(),
-            updated_by="user",
-            form_qualified_name=new_fqn,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=pending_definition.id(), updated_by="user", form_qualified_name=new_fqn)
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -391,12 +309,7 @@ class TestInPlaceUpdateForPendingSyncDefinitions:
         """In-place update should update resource requirements."""
         mock_repository.get_async.return_value = pending_definition
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=pending_definition.id(),
-            updated_by="user",
-            cpu_cores=16,
-            memory_gb=32,
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=pending_definition.id(), updated_by="user", cpu_cores=16, memory_gb=32)
         result = await handler.handle_async(command)
 
         assert result.is_success
@@ -409,12 +322,7 @@ class TestInPlaceUpdateForPendingSyncDefinitions:
         """In-place update should apply content sync settings."""
         mock_repository.get_async.return_value = pending_definition
 
-        command = UpdateLabletDefinitionCommand(
-            definition_id=pending_definition.id(),
-            updated_by="user",
-            user_session_package_name="Updated.zip",
-            user_session_type="LDS_V2",
-        )
+        command = UpdateLabletDefinitionCommand(definition_id=pending_definition.id(), updated_by="user", user_session_package_name="Updated.zip", user_session_type="LDS_V2")
         result = await handler.handle_async(command)
 
         assert result.is_success

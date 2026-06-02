@@ -221,6 +221,32 @@ export async function triggerLabDiscovery(region, workerId) {
 }
 
 /**
+ * Request full state synchronization for a worker (AD-043).
+ * Triggers immediate reconciliation via etcd watch. Forces the worker-controller
+ * to re-evaluate actual EC2 + CML state and correct any inconsistencies.
+ * Works for any non-terminal worker status.
+ * @param {string} region - AWS region
+ * @param {string} workerId - Worker UUID
+ * @param {Object} [options] - Optional sync options
+ * @param {string} [options.scope='full'] - Sync scope: "full" | "ec2_only" | "cml_only"
+ * @param {boolean} [options.include_labs=true] - Whether to trigger lab record reconciliation
+ * @param {string} [options.reason='manual'] - Audit trail reason
+ * @returns {Promise<Object>} { worker_id, sync_requested, scope, include_labs, message }
+ */
+export async function requestWorkerSync(region, workerId, options = {}) {
+    const response = await apiRequest(`/api/workers/region/${region}/workers/${workerId}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            scope: options.scope || 'full',
+            include_labs: options.include_labs !== false,
+            reason: options.reason || 'manual',
+        }),
+    });
+    return await response.json();
+}
+
+/**
  * Legacy refresh alias used by pre-refactor UI code (calls requestWorkerRefresh).
  * Some older bundles called refreshWorker(workerId, region) with reversed argument order.
  * This function normalizes argument order and provides backward compatibility.

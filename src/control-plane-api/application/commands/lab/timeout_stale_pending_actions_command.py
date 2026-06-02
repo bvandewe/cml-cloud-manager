@@ -13,13 +13,9 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from domain.repositories.lab_record_repository import LabRecordRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -61,20 +57,7 @@ class TimeoutStalePendingActionsCommandHandler(
 ):
     """Sweep pending actions and auto-fail those exceeding the threshold."""
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        lab_record_repository: LabRecordRepository,
-    ):
-        super().__init__(
-            mediator,
-            mapper,
-            cloud_event_bus,
-            cloud_event_publishing_options,
-        )
+    def __init__(self, lab_record_repository: LabRecordRepository):
         self.lab_record_repository = lab_record_repository
 
     async def handle_async(

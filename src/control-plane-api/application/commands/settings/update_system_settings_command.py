@@ -4,8 +4,8 @@ import logging
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from application.commands.command_handler_base import CommandHandlerBase
 from domain.repositories.system_settings_repository import SystemSettingsRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 
@@ -23,12 +23,10 @@ class UpdateSystemSettingsCommand(Command[OperationResult[dict[str, Any]]]):
     updated_by: str | None = None
 
 
-@instrumented
-class UpdateSystemSettingsCommandHandler(CommandHandler[UpdateSystemSettingsCommand, OperationResult[dict[str, Any]]]):
+class UpdateSystemSettingsCommandHandler(CommandHandlerBase, CommandHandler[UpdateSystemSettingsCommand, OperationResult[dict[str, Any]]]):
     """Handle updating system settings."""
 
     def __init__(self, settings_repository: SystemSettingsRepository):
-        super().__init__()
         self.settings_repository = settings_repository
 
     async def handle_async(self, request: UpdateSystemSettingsCommand) -> OperationResult[dict[str, Any]]:

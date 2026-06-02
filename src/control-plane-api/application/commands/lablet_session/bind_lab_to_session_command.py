@@ -19,18 +19,14 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
 from domain.entities.lab_record import LabRecord
 from domain.entities.lablet_session import LabletSession
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from domain.value_objects.lab_run_record import LabRunRecord
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -66,16 +62,7 @@ class BindLabToSessionCommandHandler(
     5. Persist both aggregates
     """
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        lab_record_repository: LabRecordRepository,
-        lablet_session_repository: LabletSessionRepository,
-    ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+    def __init__(self, lab_record_repository: LabRecordRepository, lablet_session_repository: LabletSessionRepository):
         self._lab_record_repo = lab_record_repository
         self._session_repo = lablet_session_repository
 

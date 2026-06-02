@@ -13,9 +13,9 @@ import logging
 from dataclasses import dataclass
 
 import httpx
+from application.commands.command_handler_base import CommandHandlerBase
 from application.settings import Settings
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core.operation_result import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 from opentelemetry import trace
@@ -39,8 +39,7 @@ class DownloadLabCommand(Command[OperationResult[str]]):
     lab_id: str
 
 
-@instrumented
-class DownloadLabCommandHandler(CommandHandler[DownloadLabCommand, OperationResult[str]]):
+class DownloadLabCommandHandler(CommandHandlerBase, CommandHandler[DownloadLabCommand, OperationResult[str]]):
     """Handler for DownloadLabCommand — proxies lab download through lablet-controller.
 
     ADR-017 BFF: CPA → lablet-controller → CML API.
@@ -57,7 +56,6 @@ class DownloadLabCommandHandler(CommandHandler[DownloadLabCommand, OperationResu
             worker_repository: Repository for resolving worker host IP.
             settings: Application settings (lablet_controller_url, internal_api_key).
         """
-        super().__init__()
         self._worker_repository = worker_repository
         self._settings = settings
 

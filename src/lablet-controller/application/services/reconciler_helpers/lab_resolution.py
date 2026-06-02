@@ -7,6 +7,7 @@ _try_reuse_existing_lab(), and _import_fresh_lab().
 import logging
 from dataclasses import dataclass
 
+from integration.services.cml_labs_spi import CmlLabsSpiClient
 from lcm_core.domain.entities import LabletSessionReadModel
 from lcm_core.domain.entities.read_models.lab_record_read_model import LabRecordReadModel
 from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
@@ -15,7 +16,6 @@ from lcm_core.integration.clients import ControlPlaneApiClient
 
 from application.services.reconciler_helpers.definition_cache import get_definition
 from application.services.reconciler_helpers.lab_record_helpers import update_lab_record_status
-from integration.services.cml_labs_spi import CmlLabsSpiClient
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +135,10 @@ async def try_reuse_existing_lab(
         for lr in candidates:
             # Must match the session's definition via provenance tracking
             if lr.based_on_definition_id != instance.definition_id:
+                continue
+
+            # Must not already be bound to an active session
+            if lr.active_lablet_session_id:
                 continue
 
             # Must not already have an active pending action

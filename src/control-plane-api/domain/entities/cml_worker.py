@@ -11,12 +11,6 @@ from typing import cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from lcm_core.domain.entities.timed_resource import TimedResourceState
-from lcm_core.domain.value_objects.managed_lifecycle import ManagedLifecycle
-from lcm_core.domain.value_objects.state_transition import StateTransition
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot
-
 from domain.enums import CML_WORKER_VALID_TRANSITIONS, CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 from domain.events.cloudwatch_monitoring_updated_domain_event import CloudWatchMonitoringUpdatedDomainEvent
 from domain.events.cml_worker import (
@@ -42,6 +36,7 @@ from domain.events.cml_worker import (
     CMLWorkerPortsAllocatedDomainEvent,
     CMLWorkerPortsReleasedDomainEvent,
     CMLWorkerStatusUpdatedDomainEvent,
+    CMLWorkerSyncRequestedDomainEvent,
     CMLWorkerTagsUpdatedDomainEvent,
     CMLWorkerTelemetryUpdatedDomainEvent,
     CMLWorkerTerminatedDomainEvent,
@@ -78,6 +73,11 @@ from domain.value_objects.cml_metrics import (
 )
 from domain.value_objects.port_allocation import PortAllocation
 from domain.value_objects.worker_capacity import WorkerCapacity
+from lcm_core.domain.entities.timed_resource import TimedResourceState
+from lcm_core.domain.value_objects.managed_lifecycle import ManagedLifecycle
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot
 
 
 class CMLWorkerState(TimedResourceState):
@@ -792,6 +792,12 @@ class CMLWorkerState(TimedResourceState):
     @dispatch(CMLWorkerLabDiscoveryTriggeredDomainEvent)
     def on(self, event: CMLWorkerLabDiscoveryTriggeredDomainEvent) -> None:  # type: ignore[override]
         """Apply lab discovery triggered event to the state (ADR-041 Phase 2)."""
+        # No state changes needed - event is for etcd projection/notification only
+        pass
+
+    @dispatch(CMLWorkerSyncRequestedDomainEvent)
+    def on(self, event: CMLWorkerSyncRequestedDomainEvent) -> None:  # type: ignore[override]
+        """Apply sync requested event to the state (AD-043)."""
         # No state changes needed - event is for etcd projection/notification only
         pass
 
@@ -1945,6 +1951,41 @@ class CMLWorker(AggregateRoot[CMLWorkerState, str]):
                     lab_ids=lab_ids,
                     source=source,
                     triggered_at=triggered_at,
+                )
+            )
+        )
+
+    def request_sync(
+        self,
+        requested_at: str,
+        requested_by: str,
+        scope: str = "full",
+        include_labs: bool = True,
+        reason: str = "manual",
+    ) -> None:
+        """Request full state synchronization for this worker (AD-043).
+
+        Unlike refresh (data collection only), sync triggers full reconciliation
+        including desired_status vs actual_status alignment and lab record recovery.
+        Projected to etcd /workers/{id}/sync for reactive worker-controller reconciliation.
+
+        Args:
+            requested_at: ISO timestamp of the request
+            requested_by: Identity of requester (email or "system")
+            scope: Sync scope - "full", "ec2_only", "cml_only"
+            include_labs: Whether to trigger lab record reconciliation downstream
+            reason: Why sync was requested (for audit trail)
+        """
+        self.state.on(
+            self.register_event(  # type: ignore
+                CMLWorkerSyncRequestedDomainEvent(
+                    aggregate_id=self.id(),
+                    worker_id=self.id(),
+                    requested_at=requested_at,
+                    requested_by=requested_by,
+                    scope=scope,
+                    include_labs=include_labs,
+                    reason=reason,
                 )
             )
         )

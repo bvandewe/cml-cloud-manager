@@ -17,8 +17,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from lcm_core.domain.enums import LabRecordStatus
-
 from application.events.domain.cml_worker_events import CMLWorkerTerminatedDomainEventHandler
 from application.services.sse_event_relay import SSEEventRelay
 from domain.entities.lab_record import LabRecord
@@ -26,6 +24,7 @@ from domain.events.cml_worker import CMLWorkerTerminatedDomainEvent
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from lcm_core.domain.enums import LabRecordStatus
 
 # =============================================================================
 # Fixtures
@@ -81,12 +80,7 @@ def mock_mediator() -> MagicMock:
 
 @pytest.fixture
 def handler(
-    mock_sse_relay: MagicMock,
-    mock_worker_repository: MagicMock,
-    mock_serializer: MagicMock,
-    mock_lab_repository: MagicMock,
-    mock_lablet_session_repository: MagicMock,
-    mock_mediator: MagicMock,
+    mock_sse_relay: MagicMock, mock_worker_repository: MagicMock, mock_serializer: MagicMock, mock_lab_repository: MagicMock, mock_lablet_session_repository: MagicMock, mock_mediator: MagicMock
 ) -> CMLWorkerTerminatedDomainEventHandler:
     """Create the handler under test with all mocked deps."""
     return CMLWorkerTerminatedDomainEventHandler(
@@ -101,30 +95,12 @@ def handler(
 
 def _make_terminated_event(worker_id: str = "worker-001") -> CMLWorkerTerminatedDomainEvent:
     """Create a CMLWorkerTerminatedDomainEvent for testing."""
-    return CMLWorkerTerminatedDomainEvent(
-        aggregate_id=worker_id,
-        name="Test Worker",
-        terminated_at=datetime.now(timezone.utc),
-        terminated_by="admin",
-    )
+    return CMLWorkerTerminatedDomainEvent(aggregate_id=worker_id, name="Test Worker", terminated_at=datetime.now(timezone.utc), terminated_by="admin")
 
 
-def _make_lab(
-    lab_id: str = "lab-001",
-    worker_id: str = "worker-001",
-    status: LabRecordStatus = LabRecordStatus.DISCOVERED,
-) -> LabRecord:
+def _make_lab(lab_id: str = "lab-001", worker_id: str = "worker-001", status: LabRecordStatus = LabRecordStatus.DISCOVERED) -> LabRecord:
     """Create a LabRecord via the discover factory and optionally force state."""
-    lab = LabRecord.discover(
-        lab_id=lab_id,
-        worker_id=worker_id,
-        title=f"Lab {lab_id}",
-        description="Test lab",
-        state="DEFINED_ON_CORE",
-        owner_username="admin",
-        node_count=3,
-        link_count=2,
-    )
+    lab = LabRecord.discover(lab_id=lab_id, worker_id=worker_id, title=f"Lab {lab_id}", description="Test lab", state="DEFINED_ON_CORE", owner_username="admin", node_count=3, link_count=2)
     lab.state.status = status
     return lab
 
@@ -138,11 +114,7 @@ def _make_lab(
 class TestWorkerTerminatedOrphanCascade:
     """Test cascade-orphaning of lab records on worker termination."""
 
-    async def test_orphans_discovered_lab(
-        self,
-        handler: CMLWorkerTerminatedDomainEventHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_orphans_discovered_lab(self, handler: CMLWorkerTerminatedDomainEventHandler, mock_lab_repository: MagicMock) -> None:
         """DISCOVERED lab on terminated worker → ORPHANED."""
         lab = _make_lab(status=LabRecordStatus.DISCOVERED)
         mock_lab_repository.get_all_by_worker_async.return_value = [lab]
@@ -152,11 +124,7 @@ class TestWorkerTerminatedOrphanCascade:
         assert lab.state.status == LabRecordStatus.ORPHANED
         mock_lab_repository.update_async.assert_called_once_with(lab)
 
-    async def test_orphans_booted_lab(
-        self,
-        handler: CMLWorkerTerminatedDomainEventHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_orphans_booted_lab(self, handler: CMLWorkerTerminatedDomainEventHandler, mock_lab_repository: MagicMock) -> None:
         """BOOTED lab on terminated worker → ORPHANED (force-majeure transition)."""
         lab = _make_lab(status=LabRecordStatus.BOOTED)
         mock_lab_repository.get_all_by_worker_async.return_value = [lab]
@@ -166,11 +134,7 @@ class TestWorkerTerminatedOrphanCascade:
         assert lab.state.status == LabRecordStatus.ORPHANED
         mock_lab_repository.update_async.assert_called_once_with(lab)
 
-    async def test_orphans_multiple_labs_in_various_states(
-        self,
-        handler: CMLWorkerTerminatedDomainEventHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_orphans_multiple_labs_in_various_states(self, handler: CMLWorkerTerminatedDomainEventHandler, mock_lab_repository: MagicMock) -> None:
         """Multiple labs in different states → all non-terminal become ORPHANED."""
         labs = [
             _make_lab(lab_id="lab-discovered", status=LabRecordStatus.DISCOVERED),
@@ -188,11 +152,7 @@ class TestWorkerTerminatedOrphanCascade:
             assert lab.state.status == LabRecordStatus.ORPHANED, f"Lab {lab.state.lab_id} should be ORPHANED but is {lab.state.status}"
         assert mock_lab_repository.update_async.call_count == 6
 
-    async def test_skips_terminal_labs(
-        self,
-        handler: CMLWorkerTerminatedDomainEventHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_skips_terminal_labs(self, handler: CMLWorkerTerminatedDomainEventHandler, mock_lab_repository: MagicMock) -> None:
         """DELETED and ARCHIVED labs are not re-orphaned."""
         labs = [
             _make_lab(lab_id="lab-deleted", status=LabRecordStatus.DELETED),
@@ -208,11 +168,7 @@ class TestWorkerTerminatedOrphanCascade:
         assert labs[2].state.status == LabRecordStatus.ORPHANED  # orphaned
         mock_lab_repository.update_async.assert_called_once_with(labs[2])
 
-    async def test_skips_already_orphaned_labs(
-        self,
-        handler: CMLWorkerTerminatedDomainEventHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_skips_already_orphaned_labs(self, handler: CMLWorkerTerminatedDomainEventHandler, mock_lab_repository: MagicMock) -> None:
         """Already-ORPHANED labs are not re-processed."""
         lab = _make_lab(status=LabRecordStatus.ORPHANED)
         mock_lab_repository.get_all_by_worker_async.return_value = [lab]
@@ -222,12 +178,7 @@ class TestWorkerTerminatedOrphanCascade:
         assert lab.state.status == LabRecordStatus.ORPHANED
         mock_lab_repository.update_async.assert_not_called()
 
-    async def test_no_labs_for_worker(
-        self,
-        handler: CMLWorkerTerminatedDomainEventHandler,
-        mock_lab_repository: MagicMock,
-        mock_sse_relay: MagicMock,
-    ) -> None:
+    async def test_no_labs_for_worker(self, handler: CMLWorkerTerminatedDomainEventHandler, mock_lab_repository: MagicMock, mock_sse_relay: MagicMock) -> None:
         """Worker with no labs → SSE fires, no orphan errors."""
         mock_lab_repository.get_all_by_worker_async.return_value = []
 
@@ -237,11 +188,7 @@ class TestWorkerTerminatedOrphanCascade:
         # SSE broadcast still happens
         mock_sse_relay.broadcast_event.assert_called()
 
-    async def test_partial_failure_best_effort(
-        self,
-        handler: CMLWorkerTerminatedDomainEventHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_partial_failure_best_effort(self, handler: CMLWorkerTerminatedDomainEventHandler, mock_lab_repository: MagicMock) -> None:
         """If one lab fails to orphan, others are still processed."""
         lab_ok = _make_lab(lab_id="lab-ok", status=LabRecordStatus.DISCOVERED)
         lab_fail = _make_lab(lab_id="lab-fail", status=LabRecordStatus.STOPPED)
@@ -260,12 +207,7 @@ class TestWorkerTerminatedOrphanCascade:
         # lab_fail was not actually orphaned (exception thrown before state change)
         assert mock_lab_repository.update_async.call_count == 2
 
-    async def test_sse_fires_before_cascade(
-        self,
-        handler: CMLWorkerTerminatedDomainEventHandler,
-        mock_lab_repository: MagicMock,
-        mock_sse_relay: MagicMock,
-    ) -> None:
+    async def test_sse_fires_before_cascade(self, handler: CMLWorkerTerminatedDomainEventHandler, mock_lab_repository: MagicMock, mock_sse_relay: MagicMock) -> None:
         """SSE worker.terminated event is always broadcast, even if cascade fails."""
         mock_lab_repository.get_all_by_worker_async.side_effect = Exception("DB down")
 
@@ -276,11 +218,7 @@ class TestWorkerTerminatedOrphanCascade:
         event_types = [call.kwargs.get("event_type") for call in broadcast_calls]
         assert "worker.terminated" in event_types
 
-    async def test_cascade_uses_correct_worker_id(
-        self,
-        handler: CMLWorkerTerminatedDomainEventHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_cascade_uses_correct_worker_id(self, handler: CMLWorkerTerminatedDomainEventHandler, mock_lab_repository: MagicMock) -> None:
         """Cascade queries labs for the correct worker_id from the event."""
         event = _make_terminated_event(worker_id="specific-worker-xyz")
 

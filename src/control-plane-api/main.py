@@ -5,22 +5,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-# Generic Database Seeding Infrastructure (lcm-core)
-from lcm_core.infrastructure import configure_logging
-from lcm_core.infrastructure.seeding import DatabaseSeederService
-from neuroglia.data.infrastructure.mongo import MotorRepository
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_ingestor import CloudEventIngestor
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_middleware import CloudEventMiddleware
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublisher
-from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-from neuroglia.observability import Observability
-from neuroglia.serialization.json import JsonSerializer
-
 from api.services import DualAuthService
 from api.services.openapi_config import configure_api_openapi, configure_mounted_apps_openapi_prefix
 from application.services.event_deduplication_service import EventDeduplicationService
@@ -48,6 +32,8 @@ from domain.repositories.system_settings_repository import SystemSettingsReposit
 from domain.repositories.user_session_repository import UserSessionRepository
 from domain.repositories.worker_template_repository import WorkerTemplateRepository
 from domain.services.idle_detection_service import IdleDetectionService
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 # Entity-specific seeders for this service
 from infrastructure.seeding import LabletDefinitionSeeder, SystemSettingsSeeder, WorkerTemplateSeeder
@@ -64,9 +50,23 @@ from integration.repositories.motor_system_settings_repository import MongoSyste
 from integration.repositories.motor_user_session_repository import MongoUserSessionRepository
 
 # ADR-015: AwsEc2Client and CMLApiClientFactory removed - external calls delegated to controllers
+from integration.services.cloud_event_publisher import CloudEventPublisher as LcmCloudEventPublisher
 from integration.services.etcd_client import EtcdClient
 from integration.services.etcd_state_store import EtcdStateStore
 from integration.services.lds_adapter import LdsAdapter
+
+# Generic Database Seeding Infrastructure (lcm-core)
+from lcm_core.infrastructure import configure_logging
+from lcm_core.infrastructure.seeding import DatabaseSeederService
+from neuroglia.data.infrastructure.mongo import MotorRepository
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_ingestor import CloudEventIngestor
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_middleware import CloudEventMiddleware
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublisher
+from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
+from neuroglia.mapping import Mapper
+from neuroglia.mediation import Mediator
+from neuroglia.observability import Observability
+from neuroglia.serialization.json import JsonSerializer
 
 # Configure logging using centralized lcm_core function
 # LOG_TO_FILE, LOG_FILE, LOG_FILE_TRUNCATE_ON_START are read from environment
@@ -163,6 +163,10 @@ def create_app() -> FastAPI:
     )
     CloudEventPublisher.configure(builder)
     CloudEventIngestor.configure(builder, ["application.events.integration"])
+
+    # ADR-042: Standalone integration event publisher (replaces CommandHandlerBase.publish_cloud_event_async)
+    builder.services.add_scoped(LcmCloudEventPublisher)
+
     Observability.configure(builder)
 
     # Configure CML Worker MongoDB repository

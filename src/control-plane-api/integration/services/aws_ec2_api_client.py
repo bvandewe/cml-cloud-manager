@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 import boto3  # type: ignore
 from botocore.exceptions import ClientError, ParamValidationError  # type: ignore
-
 from integration.enums import AwsRegion, Ec2InstanceResourcesUtilizationRelativeStartTime
 from integration.exceptions import (
     EC2AuthenticationException,
@@ -248,7 +247,7 @@ class AwsEc2Client:
                 ami_creation_date=image.get("CreationDate"),
             )
 
-            log.debug(f"Retrieved AMI details for {ami_id}: name={ami_details.ami_name}, " f"created={ami_details.ami_creation_date}")
+            log.debug(f"Retrieved AMI details for {ami_id}: name={ami_details.ami_name}, created={ami_details.ami_creation_date}")
 
             return ami_details
 

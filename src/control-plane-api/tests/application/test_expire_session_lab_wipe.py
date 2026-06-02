@@ -14,15 +14,8 @@ Pattern: pytest fixtures + MagicMock + AsyncMock, matching test_expire_lablet_se
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-
 from application.commands.lab.wipe_lab_record_command import WipeLabRecordCommand
-from application.commands.lablet_session.expire_lablet_session_command import (
-    ExpireLabletSessionCommand,
-    ExpireLabletSessionCommandHandler,
-)
+from application.commands.lablet_session.expire_lablet_session_command import ExpireLabletSessionCommand, ExpireLabletSessionCommandHandler
 from domain.entities.lab_record import LabRecord, LabRecordState
 from domain.entities.lablet_definition import LabletDefinition, LabletDefinitionState
 from domain.entities.lablet_session import LabletSession, LabletSessionState
@@ -30,6 +23,7 @@ from domain.enums import LabletSessionStatus
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.mediation import Mediator
 
 # =============================================================================
 # Shared fixtures
@@ -41,21 +35,6 @@ def mock_mediator() -> MagicMock:
     mock = MagicMock(spec=Mediator)
     mock.execute_async = AsyncMock()
     return mock
-
-
-@pytest.fixture
-def mock_mapper() -> MagicMock:
-    return MagicMock(spec=Mapper)
-
-
-@pytest.fixture
-def mock_cloud_event_bus() -> MagicMock:
-    return MagicMock(spec=CloudEventBus)
-
-
-@pytest.fixture
-def mock_cloud_event_publishing_options() -> MagicMock:
-    return MagicMock()
 
 
 @pytest.fixture
@@ -111,11 +90,7 @@ def _make_session(
 
 
 def _make_lab_record(
-    record_id: str = "lr-001",
-    active_lablet_session_id: str | None = "session-001",
-    active_binding_id: str | None = "binding-001",
-    is_terminal: bool = False,
-    pending_action: str | None = None,
+    record_id: str = "lr-001", active_lablet_session_id: str | None = "session-001", active_binding_id: str | None = "binding-001", is_terminal: bool = False, pending_action: str | None = None
 ) -> MagicMock:
     """Create a mock LabRecord with state."""
     lab_record = MagicMock(spec=LabRecord)
@@ -134,11 +109,7 @@ def _make_lab_record(
     return lab_record
 
 
-def _make_definition(
-    cpu_cores: int = 4,
-    memory_gb: int = 8,
-    storage_gb: int = 50,
-) -> MagicMock:
+def _make_definition(cpu_cores: int = 4, memory_gb: int = 8, storage_gb: int = 50) -> MagicMock:
     """Create a mock LabletDefinition with resource requirements."""
     definition = MagicMock(spec=LabletDefinition)
 
@@ -177,36 +148,14 @@ class TestExpireSessionLabWipe:
     """Tests for session expiry → lab record wipe (AD-WIPE-001)."""
 
     def _make_handler(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> ExpireLabletSessionCommandHandler:
         return ExpireLabletSessionCommandHandler(
-            mediator=mock_mediator,
-            mapper=mock_mapper,
-            cloud_event_bus=mock_cloud_event_bus,
-            cloud_event_publishing_options=mock_cloud_event_publishing_options,
-            lablet_session_repository=mock_session_repository,
-            lab_record_repository=mock_lab_record_repository,
-            lablet_definition_repository=mock_definition_repository,
+            mediator=mock_mediator, lablet_session_repository=mock_session_repository, lab_record_repository=mock_lab_record_repository, lablet_definition_repository=mock_definition_repository
         )
 
     @pytest.mark.asyncio
-    async def test_nominal_expiry_queues_wipe(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
-    ) -> None:
+    async def test_nominal_expiry_queues_wipe(self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock) -> None:
         """Nominal: expired session queues wipe for linked lab record."""
         session = _make_session(lab_record_id="lr-001", definition_id="def-001")
         lab_record = _make_lab_record()
@@ -217,15 +166,7 @@ class TestExpireSessionLabWipe:
         mock_definition_repository.get_by_id_async.return_value = definition
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_lab_record_repository,
-            mock_definition_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_lab_record_repository, mock_definition_repository)
 
         command = ExpireLabletSessionCommand(session_id="session-001", reason="timeslot_expired")
         result = await handler.handle_async(command)
@@ -242,14 +183,7 @@ class TestExpireSessionLabWipe:
 
     @pytest.mark.asyncio
     async def test_lab_terminal_state_skips_wipe(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Lab in terminal state (DELETED/ARCHIVED) → no wipe dispatched."""
         session = _make_session(lab_record_id="lr-001")
@@ -261,15 +195,7 @@ class TestExpireSessionLabWipe:
         mock_definition_repository.get_by_id_async.return_value = definition
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_lab_record_repository,
-            mock_definition_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_lab_record_repository, mock_definition_repository)
 
         command = ExpireLabletSessionCommand(session_id="session-001")
         result = await handler.handle_async(command)
@@ -283,14 +209,7 @@ class TestExpireSessionLabWipe:
 
     @pytest.mark.asyncio
     async def test_lab_pending_action_skips_wipe(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Lab with existing pending_action → wipe skipped."""
         session = _make_session(lab_record_id="lr-001")
@@ -302,15 +221,7 @@ class TestExpireSessionLabWipe:
         mock_definition_repository.get_by_id_async.return_value = definition
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_lab_record_repository,
-            mock_definition_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_lab_record_repository, mock_definition_repository)
 
         command = ExpireLabletSessionCommand(session_id="session-001")
         result = await handler.handle_async(command)
@@ -320,14 +231,7 @@ class TestExpireSessionLabWipe:
 
     @pytest.mark.asyncio
     async def test_wipe_failure_does_not_block_expiry(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Wipe failure → expiry still completes successfully."""
         session = _make_session(lab_record_id="lr-001")
@@ -340,15 +244,7 @@ class TestExpireSessionLabWipe:
         # Wipe fails, capacity release succeeds
         mock_mediator.execute_async = AsyncMock(side_effect=[_failure_result("Wipe conflict"), _success_result()])
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_lab_record_repository,
-            mock_definition_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_lab_record_repository, mock_definition_repository)
 
         command = ExpireLabletSessionCommand(session_id="session-001")
         result = await handler.handle_async(command)
@@ -358,16 +254,7 @@ class TestExpireSessionLabWipe:
         assert result.data["capacity_released"] is True
 
     @pytest.mark.asyncio
-    async def test_no_lab_record_skips_wipe(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
-    ) -> None:
+    async def test_no_lab_record_skips_wipe(self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock) -> None:
         """Session without lab_record_id → wipe not attempted."""
         session = _make_session(lab_record_id=None)
         definition = _make_definition()
@@ -376,15 +263,7 @@ class TestExpireSessionLabWipe:
         mock_definition_repository.get_by_id_async.return_value = definition
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_lab_record_repository,
-            mock_definition_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_lab_record_repository, mock_definition_repository)
 
         command = ExpireLabletSessionCommand(session_id="session-001")
         result = await handler.handle_async(command)
@@ -395,14 +274,7 @@ class TestExpireSessionLabWipe:
 
     @pytest.mark.asyncio
     async def test_response_includes_lab_wipe_queued_field(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_lab_record_repository: MagicMock,
-        mock_definition_repository: MagicMock,
+        self, mock_mediator: MagicMock, mock_session_repository: MagicMock, mock_lab_record_repository: MagicMock, mock_definition_repository: MagicMock
     ) -> None:
         """Response payload includes lab_wipe_queued boolean field."""
         session = _make_session(lab_record_id="lr-001")
@@ -414,15 +286,7 @@ class TestExpireSessionLabWipe:
         mock_definition_repository.get_by_id_async.return_value = definition
         mock_mediator.execute_async = AsyncMock(return_value=_success_result())
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-            mock_lab_record_repository,
-            mock_definition_repository,
-        )
+        handler = self._make_handler(mock_mediator, mock_session_repository, mock_lab_record_repository, mock_definition_repository)
 
         command = ExpireLabletSessionCommand(session_id="session-001")
         result = await handler.handle_async(command)

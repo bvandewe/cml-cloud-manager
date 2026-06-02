@@ -8,7 +8,7 @@ compatibility with the idle detection system.
 import logging
 from dataclasses import dataclass
 
-from infrastructure.observability.cqrs_instrumentation import instrumented
+from application.commands.command_handler_base import CommandHandlerBase
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler, Mediator
 from opentelemetry import trace
@@ -37,8 +37,7 @@ class PauseWorkerCommand(Command[OperationResult[None]]):
     reason: str | None = None
 
 
-@instrumented
-class PauseWorkerCommandHandler(CommandHandler[PauseWorkerCommand, OperationResult[None]]):
+class PauseWorkerCommandHandler(CommandHandlerBase, CommandHandler[PauseWorkerCommand, OperationResult[None]]):
     """Handler for PauseWorkerCommand.
 
     DEPRECATED: Delegates to StopCMLWorkerCommand for unified stop/pause handling.
@@ -65,7 +64,7 @@ class PauseWorkerCommandHandler(CommandHandler[PauseWorkerCommand, OperationResu
             span.set_attribute("worker_id", command.worker_id)
             span.set_attribute("is_auto_pause", command.is_auto_pause)
 
-            log.info(f"PauseWorkerCommand delegating to StopCMLWorkerCommand: " f"worker_id={command.worker_id}, is_auto_pause={command.is_auto_pause}")
+            log.info(f"PauseWorkerCommand delegating to StopCMLWorkerCommand: worker_id={command.worker_id}, is_auto_pause={command.is_auto_pause}")
 
             # Delegate to unified StopCMLWorkerCommand
             stop_command = StopCMLWorkerCommand(

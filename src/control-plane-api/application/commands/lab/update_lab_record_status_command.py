@@ -11,16 +11,12 @@ Architecture ref: §8.2 (internal endpoints).
 import logging
 from dataclasses import dataclass
 
-from lcm_core.domain.enums import CML_STATE_TO_LAB_RECORD_STATUS, LabRecordStatus
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-from opentelemetry import trace
-
 from domain.entities.lab_record import InvalidLabRecordTransitionError, LabRecord
 from domain.repositories.lab_record_repository import LabRecordRepository
+from lcm_core.domain.enums import CML_STATE_TO_LAB_RECORD_STATUS, LabRecordStatus
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
+from opentelemetry import trace
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -55,15 +51,7 @@ class UpdateLabRecordStatusCommandHandler(
 ):
     """Handler for UpdateLabRecordStatusCommand — applies typed status transitions."""
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        lab_record_repository: LabRecordRepository,
-    ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+    def __init__(self, lab_record_repository: LabRecordRepository):
         self._lab_repository = lab_record_repository
 
     async def handle_async(self, request: UpdateLabRecordStatusCommand) -> OperationResult[dict]:

@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from application.commands.command_handler_base import CommandHandlerBase
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 
@@ -34,8 +34,7 @@ class ReportActivityEventsCommand(Command[OperationResult[dict[str, Any]]]):
     source: str = "websocket"
 
 
-@instrumented
-class ReportActivityEventsCommandHandler(CommandHandler[ReportActivityEventsCommand, OperationResult[dict[str, Any]]]):
+class ReportActivityEventsCommandHandler(CommandHandlerBase, CommandHandler[ReportActivityEventsCommand, OperationResult[dict[str, Any]]]):
     """Handler for ReportActivityEventsCommand.
 
     Updates worker aggregate with the latest activity events from the

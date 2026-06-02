@@ -36,6 +36,9 @@ class LabRecordReadModel:
     source: str = "discovery"
     based_on_definition_id: str | None = None
 
+    # Active session binding
+    active_lablet_session_id: str | None = None
+
     # Runtime binding (serialized RuntimeBinding dict)
     runtime_binding: dict[str, Any] | None = None
 
@@ -78,6 +81,7 @@ class LabRecordReadModel:
             groups=data.get("groups", []),
             source=data.get("source", "discovery"),
             based_on_definition_id=data.get("based_on_definition_id"),
+            active_lablet_session_id=data.get("active_lablet_session_id"),
             runtime_binding=data.get("runtime_binding"),
             revision=data.get("revision", 1),
             cml_created_at=_safe_str(data.get("cml_created_at")),

@@ -1841,6 +1841,24 @@ class ControlPlaneApiClient:
         )
         return dict(result) if result else {}
 
+    async def complete_worker_sync(self, worker_id: str) -> dict[str, Any]:
+        """Signal CPA that worker sync reconciliation is complete (AD-043).
+
+        Called by worker-controller after processing a sync etcd trigger.
+        CPA deletes the etcd key so it's not re-processed.
+
+        Args:
+            worker_id: ID of the worker whose sync is complete.
+
+        Returns:
+            Acknowledgment data.
+        """
+        result = await self._request(
+            "DELETE",
+            f"/api/internal/workers/{worker_id}/sync",
+        )
+        return dict(result) if result else {}
+
     async def get_discovery_settings(self) -> dict[str, Any]:
         """Get worker discovery settings from the Control Plane API.
 

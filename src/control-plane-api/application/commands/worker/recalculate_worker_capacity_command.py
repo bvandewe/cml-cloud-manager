@@ -16,18 +16,14 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
 from domain.entities.cml_worker import CMLWorker
 from domain.enums import LabletSessionStatus
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -76,17 +72,7 @@ class RecalculateWorkerCapacityCommandHandler(
     requirements for active sessions, and replaces allocated_capacity.
     """
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        cml_worker_repository: CMLWorkerRepository,
-        lablet_session_repository: LabletSessionRepository,
-        lablet_definition_repository: LabletDefinitionRepository,
-    ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+    def __init__(self, cml_worker_repository: CMLWorkerRepository, lablet_session_repository: LabletSessionRepository, lablet_definition_repository: LabletDefinitionRepository):
         self._worker_repository = cml_worker_repository
         self._session_repository = lablet_session_repository
         self._definition_repository = lablet_definition_repository

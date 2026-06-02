@@ -111,7 +111,7 @@ class GetWorkerIdleStatusQueryHandler(QueryHandlerBase, QueryHandler[GetWorkerId
                     "checked_at": datetime.now(timezone.utc),
                 }
 
-                log.debug(f"Worker {request.worker_id} idle status: " f"idle={is_idle}, eligible_for_pause={eligible_for_pause}")
+                log.debug(f"Worker {request.worker_id} idle status: idle={is_idle}, eligible_for_pause={eligible_for_pause}")
 
                 span.set_attribute("is_idle", is_idle)
                 span.set_attribute("eligible_for_pause", eligible_for_pause)

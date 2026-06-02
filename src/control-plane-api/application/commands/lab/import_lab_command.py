@@ -10,12 +10,12 @@ ADR-017: Lab import operations use the reconciliation pattern:
 import logging
 from dataclasses import dataclass
 
+from application.commands.command_handler_base import CommandHandlerBase
 from domain.entities.pending_lab_import import PendingLabImport
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.pending_lab_import_repository import PendingLabImportRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core.operation_result import OperationResult
-from neuroglia.mediation import Command, CommandHandler, Mediator
+from neuroglia.mediation import Command, CommandHandler
 from opentelemetry import trace
 
 log = logging.getLogger(__name__)
@@ -42,8 +42,7 @@ class ImportLabCommand(Command[OperationResult[dict]]):
     requested_by: str | None = None
 
 
-@instrumented
-class ImportLabCommandHandler(CommandHandler[ImportLabCommand, OperationResult[dict]]):
+class ImportLabCommandHandler(CommandHandlerBase, CommandHandler[ImportLabCommand, OperationResult[dict]]):
     """Handler for ImportLabCommand - queues lab import for reconciliation.
 
     ADR-017: This handler stores the YAML in MongoDB, setting status=pending.
@@ -52,18 +51,15 @@ class ImportLabCommandHandler(CommandHandler[ImportLabCommand, OperationResult[d
 
     def __init__(
         self,
-        mediator: Mediator,
         worker_repository: CMLWorkerRepository,
         pending_import_repository: PendingLabImportRepository,
     ):
         """Initialize handler with repository dependencies.
 
         Args:
-            mediator: Mediator for triggering other commands
             worker_repository: Repository for accessing CML worker data
             pending_import_repository: Repository for pending lab imports
         """
-        self._mediator = mediator
         self._worker_repository = worker_repository
         self._pending_import_repository = pending_import_repository
 

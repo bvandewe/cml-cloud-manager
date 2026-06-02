@@ -54,6 +54,7 @@ from .report_activity_events_command import ReportActivityEventsCommand, ReportA
 from .report_lab_state_change_command import ReportLabStateChangeCommand, ReportLabStateChangeCommandHandler
 from .request_scale_up_command import RequestScaleUpCommand, RequestScaleUpCommandHandler
 from .request_worker_refresh_command import RequestWorkerRefreshCommand, RequestWorkerRefreshCommandHandler
+from .request_worker_sync_command import RequestWorkerSyncCommand, RequestWorkerSyncCommandHandler
 from .start_cml_worker_command import StartCMLWorkerCommand, StartCMLWorkerCommandHandler
 from .stop_cml_worker_command import StopCMLWorkerCommand, StopCMLWorkerCommandHandler
 from .terminate_cml_worker_command import TerminateCMLWorkerCommand, TerminateCMLWorkerCommandHandler
@@ -162,4 +163,7 @@ __all__ = [
     # ADR-041 Phase 2: Targeted lab discovery trigger
     "TriggerLabDiscoveryCommand",
     "TriggerLabDiscoveryCommandHandler",
+    # AD-043: Full state sync (etcd-triggered reconciliation)
+    "RequestWorkerSyncCommand",
+    "RequestWorkerSyncCommandHandler",
 ]

@@ -7,14 +7,10 @@ The record is kept in the database for audit purposes.
 import logging
 from dataclasses import dataclass
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
 from domain.repositories.worker_template_repository import WorkerTemplateRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +31,7 @@ class DeleteWorkerTemplateCommandHandler(
 ):
     """Handle WorkerTemplate soft delete."""
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        worker_template_repository: WorkerTemplateRepository,
-    ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+    def __init__(self, worker_template_repository: WorkerTemplateRepository):
         self._repository = worker_template_repository
 
     async def handle_async(self, request: DeleteWorkerTemplateCommand) -> OperationResult[dict]:

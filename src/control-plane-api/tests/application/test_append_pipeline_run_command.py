@@ -11,18 +11,12 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from lcm_core.domain.enums import LabRecordStatus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-
-from application.commands.lab import (
-    AppendPipelineRunCommand,
-    AppendPipelineRunCommandHandler,
-)
+from application.commands.lab import AppendPipelineRunCommand, AppendPipelineRunCommandHandler
 from domain.entities.lab_record import LabRecord
 from domain.repositories.lab_record_repository import LabRecordRepository
 from domain.value_objects.pipeline_run_record import PipelineRunRecord
+from lcm_core.domain.enums import LabRecordStatus
+
 from tests.fixtures.mixins import BaseTestCase
 
 # =============================================================================
@@ -31,13 +25,7 @@ from tests.fixtures.mixins import BaseTestCase
 
 
 def _make_pipeline_run(
-    run_id: str = "run-001",
-    pipeline_name: str = "instantiate",
-    status: str = "completed",
-    duration_seconds: float = 42.5,
-    steps_completed: int = 5,
-    steps_failed: int = 0,
-    steps_skipped: int = 1,
+    run_id: str = "run-001", pipeline_name: str = "instantiate", status: str = "completed", duration_seconds: float = 42.5, steps_completed: int = 5, steps_failed: int = 0, steps_skipped: int = 1
 ) -> PipelineRunRecord:
     """Create a PipelineRunRecord for testing."""
     return PipelineRunRecord(
@@ -57,21 +45,9 @@ def _make_pipeline_run(
     )
 
 
-def _make_discovered_lab(
-    lab_record_id: str = "lr-001",
-    status: LabRecordStatus = LabRecordStatus.DISCOVERED,
-) -> LabRecord:
+def _make_discovered_lab(lab_record_id: str = "lr-001", status: LabRecordStatus = LabRecordStatus.DISCOVERED) -> LabRecord:
     """Create a LabRecord via the discover factory."""
-    lab = LabRecord.discover(
-        lab_id="lab-001",
-        worker_id="worker-001",
-        title="Test Lab",
-        description="A test lab",
-        state="DEFINED_ON_CORE",
-        owner_username="admin",
-        node_count=3,
-        link_count=2,
-    )
+    lab = LabRecord.discover(lab_id="lab-001", worker_id="worker-001", title="Test Lab", description="A test lab", state="DEFINED_ON_CORE", owner_username="admin", node_count=3, link_count=2)
     lab.state.id = lab_record_id
     lab.state.status = status
     return lab
@@ -107,20 +83,12 @@ class TestPipelineRunRecord:
     def test_validation_empty_run_id(self):
         """PipelineRunRecord should reject empty run_id."""
         with pytest.raises(ValueError, match="run_id"):
-            PipelineRunRecord(
-                run_id="",
-                pipeline_name="instantiate",
-                started_at=datetime.now(timezone.utc),
-            )
+            PipelineRunRecord(run_id="", pipeline_name="instantiate", started_at=datetime.now(timezone.utc))
 
     def test_validation_empty_pipeline_name(self):
         """PipelineRunRecord should reject empty pipeline_name."""
         with pytest.raises(ValueError, match="pipeline_name"):
-            PipelineRunRecord(
-                run_id="run-001",
-                pipeline_name="",
-                started_at=datetime.now(timezone.utc),
-            )
+            PipelineRunRecord(run_id="run-001", pipeline_name="", started_at=datetime.now(timezone.utc))
 
     def test_to_dict(self):
         """to_dict should serialize all fields including ISO timestamps."""
@@ -271,51 +239,15 @@ class TestAppendPipelineRunCommand(BaseTestCase):
     """Tests for AppendPipelineRunCommandHandler."""
 
     @pytest.fixture
-    def mock_mediator(self) -> MagicMock:
-        return MagicMock(spec=Mediator)
-
-    @pytest.fixture
-    def mock_mapper(self) -> MagicMock:
-        return MagicMock(spec=Mapper)
-
-    @pytest.fixture
-    def mock_cloud_event_bus(self) -> MagicMock:
-        return MagicMock(spec=CloudEventBus)
-
-    @pytest.fixture
-    def mock_cloud_event_publishing_options(self) -> MagicMock:
-        mock = MagicMock()
-        mock.source = "test"
-        mock.type_prefix = "test"
-        return mock
-
-    @pytest.fixture
     def mock_lab_repository(self) -> MagicMock:
         return MagicMock(spec=LabRecordRepository)
 
     @pytest.fixture
-    def handler(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_lab_repository: MagicMock,
-    ) -> AppendPipelineRunCommandHandler:
-        return AppendPipelineRunCommandHandler(
-            mediator=mock_mediator,
-            mapper=mock_mapper,
-            cloud_event_bus=mock_cloud_event_bus,
-            cloud_event_publishing_options=mock_cloud_event_publishing_options,
-            lab_record_repository=mock_lab_repository,
-        )
+    def handler(self, mock_lab_repository: MagicMock) -> AppendPipelineRunCommandHandler:
+        return AppendPipelineRunCommandHandler(lab_record_repository=mock_lab_repository)
 
     @pytest.mark.asyncio
-    async def test_append_pipeline_run_success(
-        self,
-        handler: AppendPipelineRunCommandHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_append_pipeline_run_success(self, handler: AppendPipelineRunCommandHandler, mock_lab_repository: MagicMock) -> None:
         """Append a pipeline run with full data succeeds with 201."""
         lab = _make_discovered_lab()
         mock_lab_repository.get_by_id_async = self.create_async_mock(return_value=lab)
@@ -346,44 +278,24 @@ class TestAppendPipelineRunCommand(BaseTestCase):
         mock_lab_repository.update_async.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_append_pipeline_run_not_found(
-        self,
-        handler: AppendPipelineRunCommandHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_append_pipeline_run_not_found(self, handler: AppendPipelineRunCommandHandler, mock_lab_repository: MagicMock) -> None:
         """Append a pipeline run for nonexistent lab returns 404."""
         mock_lab_repository.get_by_id_async = self.create_async_mock(return_value=None)
 
-        result = await handler.handle_async(
-            AppendPipelineRunCommand(
-                lab_record_id="missing",
-                pipeline_name="teardown",
-            )
-        )
+        result = await handler.handle_async(AppendPipelineRunCommand(lab_record_id="missing", pipeline_name="teardown"))
 
         assert not result.is_success
         assert result.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_append_pipeline_run_failed_status(
-        self,
-        handler: AppendPipelineRunCommandHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_append_pipeline_run_failed_status(self, handler: AppendPipelineRunCommandHandler, mock_lab_repository: MagicMock) -> None:
         """Append a failed pipeline run records the error message."""
         lab = _make_discovered_lab()
         mock_lab_repository.get_by_id_async = self.create_async_mock(return_value=lab)
         mock_lab_repository.update_async = self.create_async_mock()
 
         result = await handler.handle_async(
-            AppendPipelineRunCommand(
-                lab_record_id="lr-001",
-                pipeline_name="teardown",
-                status="failed",
-                error_message="Lab stop timed out",
-                steps_completed=2,
-                steps_failed=1,
-            )
+            AppendPipelineRunCommand(lab_record_id="lr-001", pipeline_name="teardown", status="failed", error_message="Lab stop timed out", steps_completed=2, steps_failed=1)
         )
 
         assert result.is_success
@@ -394,22 +306,13 @@ class TestAppendPipelineRunCommand(BaseTestCase):
         assert len(lab.state.pipeline_run_history) == 1
 
     @pytest.mark.asyncio
-    async def test_append_pipeline_run_minimal_fields(
-        self,
-        handler: AppendPipelineRunCommandHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_append_pipeline_run_minimal_fields(self, handler: AppendPipelineRunCommandHandler, mock_lab_repository: MagicMock) -> None:
         """Append a pipeline run with only required fields uses defaults."""
         lab = _make_discovered_lab()
         mock_lab_repository.get_by_id_async = self.create_async_mock(return_value=lab)
         mock_lab_repository.update_async = self.create_async_mock()
 
-        result = await handler.handle_async(
-            AppendPipelineRunCommand(
-                lab_record_id="lr-001",
-                pipeline_name="collect_evidence",
-            )
-        )
+        result = await handler.handle_async(AppendPipelineRunCommand(lab_record_id="lr-001", pipeline_name="collect_evidence"))
 
         assert result.is_success
         assert result.status_code == 201
@@ -419,20 +322,11 @@ class TestAppendPipelineRunCommand(BaseTestCase):
         assert len(lab.state.pipeline_run_history) == 1
 
     @pytest.mark.asyncio
-    async def test_append_pipeline_run_repository_error(
-        self,
-        handler: AppendPipelineRunCommandHandler,
-        mock_lab_repository: MagicMock,
-    ) -> None:
+    async def test_append_pipeline_run_repository_error(self, handler: AppendPipelineRunCommandHandler, mock_lab_repository: MagicMock) -> None:
         """Repository error should return 500."""
         mock_lab_repository.get_by_id_async = AsyncMock(side_effect=Exception("DB connection failed"))
 
-        result = await handler.handle_async(
-            AppendPipelineRunCommand(
-                lab_record_id="lr-001",
-                pipeline_name="instantiate",
-            )
-        )
+        result = await handler.handle_async(AppendPipelineRunCommand(lab_record_id="lr-001", pipeline_name="instantiate"))
 
         assert not result.is_success
         assert result.status_code == 500

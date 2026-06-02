@@ -4,8 +4,8 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from application.commands.command_handler_base import CommandHandlerBase
 from domain.repositories import CMLWorkerRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 from opentelemetry import trace
@@ -36,8 +36,7 @@ class UpdateWorkerActivityCommand(Command[OperationResult[None]]):
     target_pause_at: datetime | None = None
 
 
-@instrumented
-class UpdateWorkerActivityCommandHandler(CommandHandler[UpdateWorkerActivityCommand, OperationResult[None]]):
+class UpdateWorkerActivityCommandHandler(CommandHandlerBase, CommandHandler[UpdateWorkerActivityCommand, OperationResult[None]]):
     """Handler for UpdateWorkerActivityCommand.
 
     Updates worker aggregate with latest activity data from telemetry.
@@ -87,7 +86,7 @@ class UpdateWorkerActivityCommandHandler(CommandHandler[UpdateWorkerActivityComm
                 # Persist changes
                 await self._repository.update_async(worker)
 
-                log.info(f"Updated activity for worker {command.worker_id}: " f"last_activity_at={command.last_activity_at}, " f"events={len(command.recent_events or [])}")
+                log.info(f"Updated activity for worker {command.worker_id}: last_activity_at={command.last_activity_at}, events={len(command.recent_events or [])}")
 
                 span.set_status(Status(StatusCode.OK))
                 return self.no_content()

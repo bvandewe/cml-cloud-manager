@@ -1,4 +1,5 @@
 """GradingSession commands — CQRS command handlers for GradingSession child entity."""
+
 from application.commands.grading_session.create_grading_session_command import (
     CreateGradingSessionCommand,
     CreateGradingSessionCommandHandler,

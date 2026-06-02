@@ -10,16 +10,12 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-from neuroglia.observability.tracing import add_span_attributes
-from opentelemetry import trace
-
 from domain.enums import CMLWorkerStatus
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
+from neuroglia.observability.tracing import add_span_attributes
+from opentelemetry import trace
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -58,20 +54,7 @@ class MarkWorkerTerminatedCommandHandler(
 ):
     """Handle marking a worker as terminated (database-only, no AWS calls)."""
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        cml_worker_repository: CMLWorkerRepository,
-    ):
-        super().__init__(
-            mediator,
-            mapper,
-            cloud_event_bus,
-            cloud_event_publishing_options,
-        )
+    def __init__(self, cml_worker_repository: CMLWorkerRepository):
         self.cml_worker_repository = cml_worker_repository
 
     async def handle_async(self, request: MarkWorkerTerminatedCommand) -> OperationResult[dict]:

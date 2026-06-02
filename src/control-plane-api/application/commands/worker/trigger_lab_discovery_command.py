@@ -13,15 +13,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
 from domain.entities.cml_worker import CMLWorker
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -56,15 +52,7 @@ class TriggerLabDiscoveryCommandHandler(
     writes the etcd key, and lablet-controller picks it up via watch.
     """
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        cml_worker_repository: CMLWorkerRepository,
-    ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+    def __init__(self, cml_worker_repository: CMLWorkerRepository):
         self._worker_repository = cml_worker_repository
 
     async def handle_async(self, command: TriggerLabDiscoveryCommand) -> OperationResult[dict[str, Any]]:
@@ -89,7 +77,7 @@ class TriggerLabDiscoveryCommandHandler(
         # Persist aggregate (publishes domain events → etcd projector fires)
         await self._worker_repository.update_async(worker)
 
-        log.info(f"Lab discovery triggered for worker {command.worker_id}: " f"lab_ids={command.lab_ids}, source={command.source}")
+        log.info(f"Lab discovery triggered for worker {command.worker_id}: lab_ids={command.lab_ids}, source={command.source}")
 
         return self.accepted(
             {

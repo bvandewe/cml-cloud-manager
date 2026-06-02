@@ -17,15 +17,7 @@ Pattern: pytest fixtures + MagicMock + AsyncMock, matching test_lablet_session_c
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-
-from application.commands.lablet_session.set_desired_status_command import (
-    VALID_DESIRED_STATUSES,
-    SetDesiredStatusCommand,
-    SetDesiredStatusCommandHandler,
-)
+from application.commands.lablet_session.set_desired_status_command import VALID_DESIRED_STATUSES, SetDesiredStatusCommand, SetDesiredStatusCommandHandler
 from domain.entities.lablet_session import LabletSession, LabletSessionState
 from domain.enums import LabletSessionStatus
 from domain.repositories.lablet_session_repository import LabletSessionRepository
@@ -36,28 +28,6 @@ from domain.repositories.lablet_session_repository import LabletSessionRepositor
 
 
 @pytest.fixture
-def mock_mediator() -> MagicMock:
-    mock = MagicMock(spec=Mediator)
-    mock.execute_async = AsyncMock()
-    return mock
-
-
-@pytest.fixture
-def mock_mapper() -> MagicMock:
-    return MagicMock(spec=Mapper)
-
-
-@pytest.fixture
-def mock_cloud_event_bus() -> MagicMock:
-    return MagicMock(spec=CloudEventBus)
-
-
-@pytest.fixture
-def mock_cloud_event_publishing_options() -> MagicMock:
-    return MagicMock()
-
-
-@pytest.fixture
 def mock_session_repository() -> MagicMock:
     mock = MagicMock(spec=LabletSessionRepository)
     mock.get_by_id_async = AsyncMock(return_value=None)
@@ -65,11 +35,7 @@ def mock_session_repository() -> MagicMock:
     return mock
 
 
-def _make_session(
-    session_id: str = "session-001",
-    status: LabletSessionStatus = LabletSessionStatus.RUNNING,
-    desired_status: LabletSessionStatus = LabletSessionStatus.RUNNING,
-) -> MagicMock:
+def _make_session(session_id: str = "session-001", status: LabletSessionStatus = LabletSessionStatus.RUNNING, desired_status: LabletSessionStatus = LabletSessionStatus.RUNNING) -> MagicMock:
     """Create a mock LabletSession with configurable desired_status."""
     session = MagicMock(spec=LabletSession)
     session.id.return_value = session_id
@@ -95,45 +61,16 @@ def _make_session(
 class TestSetDesiredStatusCommandHandler:
     """Tests for session desired_status (spec) updates."""
 
-    def _make_handler(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-    ) -> SetDesiredStatusCommandHandler:
-        return SetDesiredStatusCommandHandler(
-            mediator=mock_mediator,
-            mapper=mock_mapper,
-            cloud_event_bus=mock_cloud_event_bus,
-            cloud_event_publishing_options=mock_cloud_event_publishing_options,
-            lablet_session_repository=mock_session_repository,
-        )
+    def _make_handler(self, mock_session_repository: MagicMock) -> SetDesiredStatusCommandHandler:
+        return SetDesiredStatusCommandHandler(lablet_session_repository=mock_session_repository)
 
     # ─── Validation ──────────────────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_rejects_invalid_desired_status(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-    ):
+    async def test_rejects_invalid_desired_status(self, mock_session_repository):
         """Unrecognized status string → 400 Bad Request."""
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-        )
-        command = SetDesiredStatusCommand(
-            session_id="session-001",
-            desired_status="bogus_status",
-        )
+        handler = self._make_handler(mock_session_repository)
+        command = SetDesiredStatusCommand(session_id="session-001", desired_status="bogus_status")
 
         result = await handler.handle_async(command)
 
@@ -142,26 +79,10 @@ class TestSetDesiredStatusCommandHandler:
         mock_session_repository.get_by_id_async.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_rejects_non_target_status(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-    ):
+    async def test_rejects_non_target_status(self, mock_session_repository):
         """Valid enum value but not a valid target (e.g., 'instantiating') → 400."""
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-        )
-        command = SetDesiredStatusCommand(
-            session_id="session-001",
-            desired_status="instantiating",
-        )
+        handler = self._make_handler(mock_session_repository)
+        command = SetDesiredStatusCommand(session_id="session-001", desired_status="instantiating")
 
         result = await handler.handle_async(command)
 
@@ -170,58 +91,26 @@ class TestSetDesiredStatusCommandHandler:
         assert "instantiating" in str(result.detail)
 
     @pytest.mark.asyncio
-    async def test_accepts_all_valid_target_statuses(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-    ):
+    async def test_accepts_all_valid_target_statuses(self, mock_session_repository):
         """All 3 valid targets (running, stopped, terminated) are accepted."""
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-        )
+        handler = self._make_handler(mock_session_repository)
 
         for target in VALID_DESIRED_STATUSES:
             session = _make_session(desired_status=LabletSessionStatus.RUNNING)
             mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-            command = SetDesiredStatusCommand(
-                session_id="session-001",
-                desired_status=target.value,
-            )
+            command = SetDesiredStatusCommand(session_id="session-001", desired_status=target.value)
             result = await handler.handle_async(command)
             assert result.is_success, f"desired_status '{target.value}' should be accepted"
 
     # ─── Session not found ───────────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_session_not_found_returns_404(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-    ):
+    async def test_session_not_found_returns_404(self, mock_session_repository):
         """Non-existent session_id → 404."""
         mock_session_repository.get_by_id_async = AsyncMock(return_value=None)
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-        )
-        command = SetDesiredStatusCommand(
-            session_id="nonexistent",
-            desired_status="stopped",
-        )
+        handler = self._make_handler(mock_session_repository)
+        command = SetDesiredStatusCommand(session_id="nonexistent", desired_status="stopped")
 
         result = await handler.handle_async(command)
 
@@ -231,30 +120,14 @@ class TestSetDesiredStatusCommandHandler:
     # ─── No-op when already at target ────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_noop_when_already_at_target(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-    ):
+    async def test_noop_when_already_at_target(self, mock_session_repository):
         """Returns success with changed=False when already at target."""
         session = _make_session(desired_status=LabletSessionStatus.RUNNING)
         session.update_desired_status = MagicMock(return_value=False)  # No-op
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-        )
-        command = SetDesiredStatusCommand(
-            session_id="session-001",
-            desired_status="running",
-        )
+        handler = self._make_handler(mock_session_repository)
+        command = SetDesiredStatusCommand(session_id="session-001", desired_status="running")
 
         result = await handler.handle_async(command)
 
@@ -266,77 +139,33 @@ class TestSetDesiredStatusCommandHandler:
     # ─── Successful change ───────────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_successful_change_persists(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-    ):
+    async def test_successful_change_persists(self, mock_session_repository):
         """Successful change calls update_desired_status and persists."""
         session = _make_session(desired_status=LabletSessionStatus.RUNNING)
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-        )
-        command = SetDesiredStatusCommand(
-            session_id="session-001",
-            desired_status="stopped",
-            requested_by="admin@test.com",
-            reason="User requested stop",
-        )
+        handler = self._make_handler(mock_session_repository)
+        command = SetDesiredStatusCommand(session_id="session-001", desired_status="stopped", requested_by="admin@test.com", reason="User requested stop")
 
         result = await handler.handle_async(command)
 
         assert result.is_success
         assert result.data["changed"] is True
         assert result.data["desired_status"] == "stopped"
-        session.update_desired_status.assert_called_once_with(
-            new_desired_status=LabletSessionStatus.STOPPED,
-            requested_by="admin@test.com",
-            reason="User requested stop",
-        )
+        session.update_desired_status.assert_called_once_with(new_desired_status=LabletSessionStatus.STOPPED, requested_by="admin@test.com", reason="User requested stop")
         mock_session_repository.update_async.assert_called_once_with(session)
 
     @pytest.mark.asyncio
-    async def test_terminated_desired_status(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-    ):
+    async def test_terminated_desired_status(self, mock_session_repository):
         """Setting desired_status to 'terminated' is valid."""
         session = _make_session(desired_status=LabletSessionStatus.RUNNING)
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_publishing_options,
-            mock_session_repository,
-        )
-        command = SetDesiredStatusCommand(
-            session_id="session-001",
-            desired_status="terminated",
-            requested_by="system",
-            reason="Admin force-kill",
-        )
+        handler = self._make_handler(mock_session_repository)
+        command = SetDesiredStatusCommand(session_id="session-001", desired_status="terminated", requested_by="system", reason="Admin force-kill")
 
         result = await handler.handle_async(command)
 
         assert result.is_success
         assert result.data["desired_status"] == "terminated"
-        session.update_desired_status.assert_called_once_with(
-            new_desired_status=LabletSessionStatus.TERMINATED,
-            requested_by="system",
-            reason="Admin force-kill",
-        )
+        session.update_desired_status.assert_called_once_with(new_desired_status=LabletSessionStatus.TERMINATED, requested_by="system", reason="Admin force-kill")

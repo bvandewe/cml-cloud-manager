@@ -4,9 +4,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from application.commands.command_handler_base import CommandHandlerBase
 from application.services.sse_event_relay import SSEEventRelay
 from domain.repositories.lab_record_repository import LabRecordRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 
@@ -37,8 +37,7 @@ class ReportLabStateChangeCommand(Command[OperationResult[dict[str, Any]]]):
     data: dict[str, Any] = field(default_factory=dict)
 
 
-@instrumented
-class ReportLabStateChangeCommandHandler(CommandHandler[ReportLabStateChangeCommand, OperationResult[dict[str, Any]]]):
+class ReportLabStateChangeCommandHandler(CommandHandlerBase, CommandHandler[ReportLabStateChangeCommand, OperationResult[dict[str, Any]]]):
     """Handler for ReportLabStateChangeCommand.
 
     Broadcasts state change as an SSE event for real-time frontend updates.

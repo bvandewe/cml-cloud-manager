@@ -1,13 +1,6 @@
 import logging
 from typing import Annotated, Any
 
-from classy_fastapi.decorators import delete, get, post
-from fastapi import Depends, HTTPException, Path
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.mvc.controller_base import ControllerBase
-
 from api.dependencies import get_current_user, require_roles
 from api.models import CreateCMLWorkerRequest, DeleteCMLWorkerRequest, ImportCMLWorkerRequest, RegisterLicenseRequest, UpdateCMLWorkerTagsRequest
 from application.commands import (
@@ -19,6 +12,7 @@ from application.commands import (
     EnableWorkerDetailedMonitoringCommand,
     RegisterCMLWorkerLicenseCommand,
     RequestWorkerRefreshCommand,
+    RequestWorkerSyncCommand,
     StartCMLWorkerCommand,
     StopCMLWorkerCommand,
     TriggerLabDiscoveryCommand,
@@ -29,8 +23,14 @@ from application.queries import GetCMLWorkerByIdQuery, GetCMLWorkerResourcesQuer
 from application.queries.get_cml_worker_resources_query import CachedResourcesUtilization
 from application.queries.get_worker_activity_query import GetWorkerActivityQuery
 from application.queries.get_worker_idle_status_query import GetWorkerIdleStatusQuery
+from classy_fastapi.decorators import delete, get, post
 from domain.enums import CMLWorkerStatus
+from fastapi import Depends, HTTPException, Path
 from integration.enums import AwsRegion
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.mvc.controller_base import ControllerBase
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,35 @@ class WorkersController(ControllerBase):
             worker_id=worker_id,
             lab_ids=[],
             source="manual",
+        )
+        return self.process(await self.mediator.execute_async(command))
+
+    @post(
+        "/region/{aws_region}/workers/{worker_id}/sync",
+        status_code=202,
+        responses=ControllerBase.error_responses,
+    )
+    async def request_worker_sync(
+        self,
+        aws_region: aws_region_annotation,
+        worker_id: worker_id_annotation,
+        token: str = Depends(get_current_user),
+    ) -> Any:
+        """Request full state synchronization for a worker (AD-043).
+
+        Triggers immediate reconciliation via etcd watch. Unlike refresh (data-only),
+        sync forces the worker-controller to re-evaluate actual vs desired state
+        and correct any inconsistencies. Works for any non-terminal worker status.
+
+        Returns 202 Accepted — reconciliation happens asynchronously.
+
+        (**Requires valid token.**)"""
+        command = RequestWorkerSyncCommand(
+            worker_id=worker_id,
+            scope="full",
+            include_labs=True,
+            reason="manual",
+            requested_by="user",
         )
         return self.process(await self.mediator.execute_async(command))
 

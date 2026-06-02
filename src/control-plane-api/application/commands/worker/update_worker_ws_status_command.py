@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from application.commands.command_handler_base import CommandHandlerBase
 from application.services.sse_event_relay import SSEEventRelay
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 
@@ -36,8 +36,7 @@ class UpdateWorkerWsStatusCommand(Command[OperationResult[dict[str, Any]]]):
     disconnected_at: str | None = None
 
 
-@instrumented
-class UpdateWorkerWsStatusCommandHandler(CommandHandler[UpdateWorkerWsStatusCommand, OperationResult[dict[str, Any]]]):
+class UpdateWorkerWsStatusCommandHandler(CommandHandlerBase, CommandHandler[UpdateWorkerWsStatusCommand, OperationResult[dict[str, Any]]]):
     """Handler for UpdateWorkerWsStatusCommand.
 
     Updates worker aggregate with WebSocket connection state and

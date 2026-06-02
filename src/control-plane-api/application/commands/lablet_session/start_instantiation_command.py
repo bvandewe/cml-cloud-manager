@@ -11,15 +11,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
 from domain.entities.lablet_session import LabletSession
 from domain.repositories.lablet_session_repository import LabletSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -40,15 +36,7 @@ class StartInstantiationCommandHandler(
 ):
     """Handle starting lab instantiation."""
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        lablet_session_repository: LabletSessionRepository,
-    ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+    def __init__(self, lablet_session_repository: LabletSessionRepository):
         self._session_repository = lablet_session_repository
 
     async def handle_async(self, request: StartInstantiationCommand) -> OperationResult[dict[str, Any]]:

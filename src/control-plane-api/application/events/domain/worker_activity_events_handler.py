@@ -10,8 +10,6 @@ by cml_worker_events.py handlers using proper DTO mapping via Neuroglia Mapper.
 import logging
 from datetime import datetime
 
-from neuroglia.mediation import DomainEventHandler
-
 from application.services.sse_event_relay import SSEEventRelay
 from domain.events.worker_activity_events import (
     IdleDetectionToggledDomainEvent,
@@ -19,6 +17,7 @@ from domain.events.worker_activity_events import (
     WorkerPausedDomainEvent,
     WorkerResumedDomainEvent,
 )
+from neuroglia.mediation import DomainEventHandler
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +48,7 @@ class IdleDetectionToggledDomainEventHandler(DomainEventHandler[IdleDetectionTog
             source="domain.worker_activity",
         )
 
-        log.info(f"Broadcasted idle detection toggle for worker {notification.aggregate_id}: " f"{'enabled' if notification.is_enabled else 'disabled'}")
+        log.info(f"Broadcasted idle detection toggle for worker {notification.aggregate_id}: {'enabled' if notification.is_enabled else 'disabled'}")
         return None
 
 
@@ -100,7 +99,7 @@ class WorkerPausedDomainEventHandler(DomainEventHandler[WorkerPausedDomainEvent]
             source="domain.worker_activity",
         )
 
-        log.info(f"Broadcasted worker paused event for {notification.aggregate_id}: " f"reason={notification.pause_reason}, by={notification.paused_by}")
+        log.info(f"Broadcasted worker paused event for {notification.aggregate_id}: reason={notification.pause_reason}, by={notification.paused_by}")
         return None
 
 
@@ -126,5 +125,5 @@ class WorkerResumedDomainEventHandler(DomainEventHandler[WorkerResumedDomainEven
             source="domain.worker_activity",
         )
 
-        log.info(f"Broadcasted worker resumed event for {notification.aggregate_id}: " f"reason={notification.resume_reason}, by={notification.resumed_by}")
+        log.info(f"Broadcasted worker resumed event for {notification.aggregate_id}: reason={notification.resume_reason}, by={notification.resumed_by}")
         return None

@@ -10,17 +10,6 @@ All other services request mutations via these internal endpoints.
 import logging
 from typing import Annotated, Any
 
-from classy_fastapi.decorators import delete, get, post
-from classy_fastapi.routable import Routable
-from fastapi import Depends, HTTPException, Path, Query, status
-from fastapi.security import APIKeyHeader
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
-from neuroglia.serialization.json import JsonSerializer
-from pydantic import BaseModel, Field
-
 from application.commands.lab import (
     AppendPipelineRunCommand,
     BindLabToLabletCommand,
@@ -64,6 +53,16 @@ from application.queries.list_cml_workers_internal_query import ListCMLWorkersIn
 from application.queries.list_lablet_definitions_query import ListLabletDefinitionsQuery
 from application.queries.list_worker_templates_query import ListWorkerTemplatesQuery
 from application.settings import Settings
+from classy_fastapi.decorators import delete, get, post
+from classy_fastapi.routable import Routable
+from fastapi import Depends, HTTPException, Path, Query, status
+from fastapi.security import APIKeyHeader
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
+from neuroglia.serialization.json import JsonSerializer
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -1736,6 +1735,36 @@ class InternalController(ControllerBase):
         etcd_store = self.service_provider.get_required_service(EtcdStateStore)
         deleted = await etcd_store.delete_worker_discover_labs(worker_id)
         logger.info(f"[Internal] Cleared discover_labs key for worker {worker_id}: deleted={deleted}")
+        return {"worker_id": worker_id, "deleted": deleted}
+
+    @delete(
+        "/workers/{worker_id}/sync",
+        summary="Complete Worker Sync (AD-043)",
+        tags=["Internal - Workers"],
+        status_code=200,
+    )
+    async def complete_worker_sync(
+        self,
+        worker_id: worker_id_annotation,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Delete the sync etcd key after worker-controller completes reconciliation.
+
+        Called by worker-controller after processing a sync trigger.
+        Cleans up the etcd key so it's not re-processed.
+
+        Args:
+            worker_id: ID of the worker.
+            api_key: Internal API key (from header).
+
+        Returns:
+            Acknowledgment with deletion status.
+        """
+        from integration.services.etcd_state_store import EtcdStateStore
+
+        etcd_store = self.service_provider.get_required_service(EtcdStateStore)
+        deleted = await etcd_store.delete_worker_sync(worker_id)
+        logger.info(f"[Internal] Cleared sync key for worker {worker_id}: deleted={deleted}")
         return {"worker_id": worker_id, "deleted": deleted}
 
     @post(

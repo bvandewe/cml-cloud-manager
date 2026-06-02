@@ -8,9 +8,9 @@ and execute the actual CML API call.
 import logging
 from dataclasses import dataclass
 
+from application.commands.command_handler_base import CommandHandlerBase
 from domain.enums import CMLWorkerStatus, LicenseStatus
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation.mediator import Command, CommandHandler
 
@@ -29,8 +29,7 @@ class DeregisterCMLWorkerLicenseCommand(Command[OperationResult[dict]]):
     initiated_by: str | None = None
 
 
-@instrumented
-class DeregisterCMLWorkerLicenseCommandHandler(CommandHandler[DeregisterCMLWorkerLicenseCommand, OperationResult[dict]]):
+class DeregisterCMLWorkerLicenseCommandHandler(CommandHandlerBase, CommandHandler[DeregisterCMLWorkerLicenseCommand, OperationResult[dict]]):
     """Handler for DeregisterCMLWorkerLicenseCommand.
 
     ADR-016: DB-only handler. Does NOT call CML API directly.
@@ -40,7 +39,6 @@ class DeregisterCMLWorkerLicenseCommandHandler(CommandHandler[DeregisterCMLWorke
         self,
         worker_repository: CMLWorkerRepository,
     ):
-        super().__init__()
         self._repository = worker_repository
 
     async def handle_async(

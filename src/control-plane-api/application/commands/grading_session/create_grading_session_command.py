@@ -11,15 +11,11 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
 from domain.entities.grading_session import GradingSession
 from domain.repositories.grading_session_repository import GradingSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -53,15 +49,7 @@ class CreateGradingSessionCommandHandler(
 ):
     """Handle GradingSession creation."""
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        grading_session_repository: GradingSessionRepository,
-    ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+    def __init__(self, grading_session_repository: GradingSessionRepository):
         self._repository = grading_session_repository
 
     async def handle_async(self, request: CreateGradingSessionCommand) -> OperationResult[dict[str, Any]]:

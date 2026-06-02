@@ -94,6 +94,7 @@ class EtcdStateStore:
     DEFINITION_CONTENT_SYNC_KEY = "/definitions/{id}/content_sync"  # AD-CS-001: Content sync reactive reconciliation
     SESSION_OBSERVE_RESOURCES_KEY = "/sessions/{id}/observe_resources"  # ADR-030: Manual observation trigger
     WORKER_DISCOVER_LABS_KEY = "/workers/{id}/discover_labs"  # ADR-041 Phase 2: Targeted lab discovery trigger
+    WORKER_SYNC_KEY = "/workers/{id}/sync"  # AD-043: Full sync trigger for reactive reconciliation
     LEADER_KEY = "/{service}/leader"
 
     def __init__(self, etcd_client: EtcdClient):
@@ -875,6 +876,60 @@ class EtcdStateStore:
         deleted = await self._etcd.delete(key)
         if deleted:
             log.info(f"Deleted worker {worker_id} discover_labs key")
+        return deleted
+
+    # -------------------------------------------------------------------------
+    # Worker Sync (AD-043)
+    # -------------------------------------------------------------------------
+
+    async def set_worker_sync(
+        self,
+        worker_id: str,
+        scope: str = "full",
+        include_labs: bool = True,
+        reason: str = "manual",
+        requested_by: str = "unknown",
+        requested_at: str | None = None,
+    ) -> None:
+        """Set a sync trigger for a worker.
+
+        AD-043: Triggers watch-based full reconciliation in worker-controller.
+        Worker-controller watches /workers/ prefix and reacts immediately.
+
+        Args:
+            worker_id: The CML worker ID to sync
+            scope: "full" | "ec2_only" | "cml_only"
+            include_labs: Whether to trigger lab record reconciliation
+            reason: Audit trail for why sync was requested
+            requested_by: Who requested the sync
+            requested_at: ISO timestamp (defaults to now)
+        """
+        key = self.WORKER_SYNC_KEY.format(id=worker_id)
+        data = {
+            "scope": scope,
+            "include_labs": include_labs,
+            "reason": reason,
+            "requested_by": requested_by,
+            "requested_at": requested_at or datetime.now(timezone.utc).isoformat(),
+        }
+        await self._etcd.put(key, json.dumps(data))
+        log.info(f"Set worker {worker_id} sync: scope={scope}, include_labs={include_labs}, reason={reason}")
+
+    async def delete_worker_sync(self, worker_id: str) -> bool:
+        """Delete the pending sync trigger for a worker.
+
+        Called by worker-controller (via internal API) after reconciliation completes.
+
+        Args:
+            worker_id: The CML worker ID
+
+        Returns:
+            True if deleted, False if not found
+        """
+        key = self.WORKER_SYNC_KEY.format(id=worker_id)
+        deleted = await self._etcd.delete(key)
+        if deleted:
+            log.info(f"Deleted worker {worker_id} sync key")
         return deleted
 
     # -------------------------------------------------------------------------

@@ -13,8 +13,8 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from application.commands.command_handler_base import CommandHandlerBase
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation.mediator import Command, CommandHandler
 
@@ -37,12 +37,10 @@ class StartLicenseRegistrationCommand(Command[OperationResult[dict]]):
     initiated_by: str | None = None
 
 
-@instrumented
-class StartLicenseRegistrationCommandHandler(CommandHandler[StartLicenseRegistrationCommand, OperationResult[dict]]):
+class StartLicenseRegistrationCommandHandler(CommandHandlerBase, CommandHandler[StartLicenseRegistrationCommand, OperationResult[dict]]):
     """Handler for StartLicenseRegistrationCommand."""
 
     def __init__(self, worker_repository: CMLWorkerRepository):
-        super().__init__()
         self._repository = worker_repository
 
     async def handle_async(self, request: StartLicenseRegistrationCommand) -> OperationResult[dict]:
@@ -79,12 +77,10 @@ class CompleteLicenseRegistrationCommand(Command[OperationResult[dict]]):
     virtual_account: str | None = None
 
 
-@instrumented
-class CompleteLicenseRegistrationCommandHandler(CommandHandler[CompleteLicenseRegistrationCommand, OperationResult[dict]]):
+class CompleteLicenseRegistrationCommandHandler(CommandHandlerBase, CommandHandler[CompleteLicenseRegistrationCommand, OperationResult[dict]]):
     """Handler for CompleteLicenseRegistrationCommand."""
 
     def __init__(self, worker_repository: CMLWorkerRepository):
-        super().__init__()
         self._repository = worker_repository
 
     async def handle_async(self, request: CompleteLicenseRegistrationCommand) -> OperationResult[dict]:
@@ -128,12 +124,10 @@ class FailLicenseRegistrationCommand(Command[OperationResult[dict]]):
     error_code: str | None = None
 
 
-@instrumented
-class FailLicenseRegistrationCommandHandler(CommandHandler[FailLicenseRegistrationCommand, OperationResult[dict]]):
+class FailLicenseRegistrationCommandHandler(CommandHandlerBase, CommandHandler[FailLicenseRegistrationCommand, OperationResult[dict]]):
     """Handler for FailLicenseRegistrationCommand."""
 
     def __init__(self, worker_repository: CMLWorkerRepository):
-        super().__init__()
         self._repository = worker_repository
 
     async def handle_async(self, request: FailLicenseRegistrationCommand) -> OperationResult[dict]:
@@ -174,12 +168,10 @@ class StartLicenseDeregistrationCommand(Command[OperationResult[dict]]):
     initiated_by: str | None = None
 
 
-@instrumented
-class StartLicenseDeregistrationCommandHandler(CommandHandler[StartLicenseDeregistrationCommand, OperationResult[dict]]):
+class StartLicenseDeregistrationCommandHandler(CommandHandlerBase, CommandHandler[StartLicenseDeregistrationCommand, OperationResult[dict]]):
     """Handler for StartLicenseDeregistrationCommand."""
 
     def __init__(self, worker_repository: CMLWorkerRepository):
-        super().__init__()
         self._repository = worker_repository
 
     async def handle_async(self, request: StartLicenseDeregistrationCommand) -> OperationResult[dict]:
@@ -214,12 +206,10 @@ class CompleteLicenseDeregistrationCommand(Command[OperationResult[dict]]):
     message: str = "License deregistered successfully"
 
 
-@instrumented
-class CompleteLicenseDeregistrationCommandHandler(CommandHandler[CompleteLicenseDeregistrationCommand, OperationResult[dict]]):
+class CompleteLicenseDeregistrationCommandHandler(CommandHandlerBase, CommandHandler[CompleteLicenseDeregistrationCommand, OperationResult[dict]]):
     """Handler for CompleteLicenseDeregistrationCommand."""
 
     def __init__(self, worker_repository: CMLWorkerRepository):
-        super().__init__()
         self._repository = worker_repository
 
     async def handle_async(self, request: CompleteLicenseDeregistrationCommand) -> OperationResult[dict]:
@@ -254,12 +244,10 @@ class FailLicenseDeregistrationCommand(Command[OperationResult[dict]]):
     error_message: str
 
 
-@instrumented
-class FailLicenseDeregistrationCommandHandler(CommandHandler[FailLicenseDeregistrationCommand, OperationResult[dict]]):
+class FailLicenseDeregistrationCommandHandler(CommandHandlerBase, CommandHandler[FailLicenseDeregistrationCommand, OperationResult[dict]]):
     """Handler for FailLicenseDeregistrationCommand."""
 
     def __init__(self, worker_repository: CMLWorkerRepository):
-        super().__init__()
         self._repository = worker_repository
 
     async def handle_async(self, request: FailLicenseDeregistrationCommand) -> OperationResult[dict]:

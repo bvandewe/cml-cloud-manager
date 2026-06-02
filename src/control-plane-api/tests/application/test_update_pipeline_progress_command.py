@@ -18,15 +18,7 @@ Pattern: pytest fixtures + MagicMock + AsyncMock, matching test_lablet_session_c
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Mediator
-
-from application.commands.lablet_session.update_pipeline_progress_command import (
-    VALID_PIPELINE_NAMES,
-    UpdatePipelineProgressCommand,
-    UpdatePipelineProgressCommandHandler,
-)
+from application.commands.lablet_session.update_pipeline_progress_command import VALID_PIPELINE_NAMES, UpdatePipelineProgressCommand, UpdatePipelineProgressCommandHandler
 from domain.entities.lablet_session import LabletSession, LabletSessionState
 from domain.enums import LabletSessionStatus
 from domain.repositories.lablet_session_repository import LabletSessionRepository
@@ -35,28 +27,6 @@ from domain.repositories.pipeline_execution_repository import PipelineExecutionR
 # =============================================================================
 # Shared fixtures
 # =============================================================================
-
-
-@pytest.fixture
-def mock_mediator() -> MagicMock:
-    mock = MagicMock(spec=Mediator)
-    mock.execute_async = AsyncMock()
-    return mock
-
-
-@pytest.fixture
-def mock_mapper() -> MagicMock:
-    return MagicMock(spec=Mapper)
-
-
-@pytest.fixture
-def mock_cloud_event_bus() -> MagicMock:
-    return MagicMock(spec=CloudEventBus)
-
-
-@pytest.fixture
-def mock_cloud_event_publishing_options() -> MagicMock:
-    return MagicMock()
 
 
 @pytest.fixture
@@ -77,11 +47,7 @@ def mock_execution_repository() -> MagicMock:
     return mock
 
 
-def _make_session(
-    session_id: str = "session-001",
-    status: LabletSessionStatus = LabletSessionStatus.INSTANTIATING,
-    pipeline_progress: dict | None = None,
-) -> MagicMock:
+def _make_session(session_id: str = "session-001", status: LabletSessionStatus = LabletSessionStatus.INSTANTIATING, pipeline_progress: dict | None = None) -> MagicMock:
     """Create a mock LabletSession with configurable pipeline_progress."""
     session = MagicMock(spec=LabletSession)
     session.id.return_value = session_id
@@ -107,47 +73,16 @@ def _make_session(
 class TestUpdatePipelineProgressCommandHandler:
     """Tests for generic pipeline progress updates."""
 
-    def _make_handler(
-        self,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_publishing_options: MagicMock,
-        mock_session_repository: MagicMock,
-        mock_execution_repository: MagicMock,
-    ) -> UpdatePipelineProgressCommandHandler:
-        return UpdatePipelineProgressCommandHandler(
-            mediator=mock_mediator,
-            mapper=mock_mapper,
-            cloud_event_bus=mock_cloud_event_bus,
-            cloud_event_publishing_options=mock_cloud_event_publishing_options,
-            lablet_session_repository=mock_session_repository,
-            pipeline_execution_repository=mock_execution_repository,
-        )
+    def _make_handler(self, mock_session_repository: MagicMock, mock_execution_repository: MagicMock) -> UpdatePipelineProgressCommandHandler:
+        return UpdatePipelineProgressCommandHandler(cloud_event_publisher=MagicMock(), lablet_session_repository=mock_session_repository, pipeline_execution_repository=mock_execution_repository)
 
     # ─── Validation ──────────────────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_rejects_invalid_pipeline_name(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_rejects_invalid_pipeline_name(self, mock_session_repository, mock_execution_repository):
         """Invalid pipeline_name → 400 Bad Request."""
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="bogus_pipeline",
-            step_name="step_1",
-            step_status="completed",
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="bogus_pipeline", step_name="step_1", step_status="completed")
 
         result = await handler.handle_async(command)
 
@@ -157,20 +92,9 @@ class TestUpdatePipelineProgressCommandHandler:
         mock_session_repository.get_by_id_async.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_rejects_invalid_step_status(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_rejects_invalid_step_status(self, mock_session_repository, mock_execution_repository):
         """Invalid step_status → 400 Bad Request."""
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
         command = UpdatePipelineProgressCommand(
             session_id="session-001",
             pipeline_name="instantiate",
@@ -185,58 +109,26 @@ class TestUpdatePipelineProgressCommandHandler:
         assert "running" in str(result.detail)
 
     @pytest.mark.asyncio
-    async def test_accepts_all_valid_pipeline_names(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_accepts_all_valid_pipeline_names(self, mock_session_repository, mock_execution_repository):
         """All 4 pipeline names are accepted."""
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
 
         for pipeline_name in VALID_PIPELINE_NAMES:
             session = _make_session(pipeline_progress={})
             mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-            command = UpdatePipelineProgressCommand(
-                session_id="session-001",
-                pipeline_name=pipeline_name,
-                step_name="step_1",
-                step_status="completed",
-            )
+            command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name=pipeline_name, step_name="step_1", step_status="completed")
             result = await handler.handle_async(command)
             assert result.is_success, f"Pipeline '{pipeline_name}' should be accepted"
 
     # ─── Session not found ───────────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_session_not_found_returns_404(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_session_not_found_returns_404(self, mock_session_repository, mock_execution_repository):
         """Non-existent session_id → 404."""
         mock_session_repository.get_by_id_async = AsyncMock(return_value=None)
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
-        command = UpdatePipelineProgressCommand(
-            session_id="nonexistent",
-            pipeline_name="teardown",
-            step_name="stop_lab",
-            step_status="completed",
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
+        command = UpdatePipelineProgressCommand(session_id="nonexistent", pipeline_name="teardown", step_name="stop_lab", step_status="completed")
 
         result = await handler.handle_async(command)
 
@@ -246,29 +138,13 @@ class TestUpdatePipelineProgressCommandHandler:
     # ─── Step auto-initialization ────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_auto_initializes_unknown_step(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_auto_initializes_unknown_step(self, mock_session_repository, mock_execution_repository):
         """Steps not in progress dict get auto-created before status update."""
         session = _make_session(pipeline_progress={})
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="teardown",
-            step_name="new_step",
-            step_status="completed",
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="teardown", step_name="new_step", step_status="completed")
 
         result = await handler.handle_async(command)
 
@@ -285,35 +161,20 @@ class TestUpdatePipelineProgressCommandHandler:
     # ─── Step transitions ────────────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_marks_step_completed_with_result_data(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_marks_step_completed_with_result_data(self, mock_session_repository, mock_execution_repository):
         """Completed step stores result_data."""
         session = _make_session(
             pipeline_progress={
                 "instantiate": {
                     "resolve_lab": {"status": "pending", "order": 0},
                 },
-            },
+            }
         )
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
         command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="instantiate",
-            step_name="resolve_lab",
-            step_status="completed",
-            result_data={"lab_id": "lab-123", "node_count": 5},
+            session_id="session-001", pipeline_name="instantiate", step_name="resolve_lab", step_status="completed", result_data={"lab_id": "lab-123", "node_count": 5}
         )
 
         result = await handler.handle_async(command)
@@ -326,36 +187,19 @@ class TestUpdatePipelineProgressCommandHandler:
         assert progress["resolve_lab"]["result_data"]["lab_id"] == "lab-123"
 
     @pytest.mark.asyncio
-    async def test_marks_step_failed_with_error(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_marks_step_failed_with_error(self, mock_session_repository, mock_execution_repository):
         """Failed step stores error message."""
         session = _make_session(
             pipeline_progress={
                 "collect_evidence": {
                     "capture_configs": {"status": "pending", "order": 0},
                 },
-            },
+            }
         )
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="collect_evidence",
-            step_name="capture_configs",
-            step_status="failed",
-            error="Connection timeout to CML API",
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="collect_evidence", step_name="capture_configs", step_status="failed", error="Connection timeout to CML API")
 
         result = await handler.handle_async(command)
 
@@ -366,36 +210,19 @@ class TestUpdatePipelineProgressCommandHandler:
         assert "Connection timeout" in progress["capture_configs"]["error"]
 
     @pytest.mark.asyncio
-    async def test_marks_step_skipped_with_reason(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_marks_step_skipped_with_reason(self, mock_session_repository, mock_execution_repository):
         """Skipped step stores skip_reason."""
         session = _make_session(
             pipeline_progress={
                 "compute_grading": {
                     "run_grading_script": {"status": "pending", "order": 0},
                 },
-            },
+            }
         )
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="compute_grading",
-            step_name="run_grading_script",
-            step_status="skipped",
-            error="No grading script configured",
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="compute_grading", step_name="run_grading_script", step_status="skipped", error="No grading script configured")
 
         result = await handler.handle_async(command)
 
@@ -408,15 +235,7 @@ class TestUpdatePipelineProgressCommandHandler:
     # ─── Pipeline completion detection ───────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_detects_pipeline_complete_when_all_steps_done(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_detects_pipeline_complete_when_all_steps_done(self, mock_session_repository, mock_execution_repository):
         """Result includes pipeline_complete=True when all steps are completed/skipped."""
         session = _make_session(
             pipeline_progress={
@@ -424,21 +243,13 @@ class TestUpdatePipelineProgressCommandHandler:
                     "stop_lab": {"status": "completed", "order": 0},
                     "wipe_lab": {"status": "pending", "order": 1},
                 },
-            },
+            }
         )
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
         # Complete the last pending step
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="teardown",
-            step_name="wipe_lab",
-            step_status="completed",
-        )
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="teardown", step_name="wipe_lab", step_status="completed")
 
         result = await handler.handle_async(command)
 
@@ -447,15 +258,7 @@ class TestUpdatePipelineProgressCommandHandler:
         assert result.data["pipeline_name"] == "teardown"
 
     @pytest.mark.asyncio
-    async def test_pipeline_not_complete_with_pending_steps(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_pipeline_not_complete_with_pending_steps(self, mock_session_repository, mock_execution_repository):
         """pipeline_complete=False when steps remain pending."""
         session = _make_session(
             pipeline_progress={
@@ -463,21 +266,13 @@ class TestUpdatePipelineProgressCommandHandler:
                     "resolve_lab": {"status": "pending", "order": 0},
                     "start_lab": {"status": "pending", "order": 1},
                 },
-            },
+            }
         )
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
         # Complete only the first step
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="instantiate",
-            step_name="resolve_lab",
-            step_status="completed",
-        )
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="instantiate", step_name="resolve_lab", step_status="completed")
 
         result = await handler.handle_async(command)
 
@@ -487,30 +282,13 @@ class TestUpdatePipelineProgressCommandHandler:
     # ─── Aggregate persistence ───────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_calls_aggregate_update_pipeline_progress(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_calls_aggregate_update_pipeline_progress(self, mock_session_repository, mock_execution_repository):
         """Handler calls session.update_pipeline_progress() and persists."""
         session = _make_session(pipeline_progress={})
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="instantiate",
-            step_name="apply_configs",
-            step_status="completed",
-            result_data={"config_count": 3},
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="instantiate", step_name="apply_configs", step_status="completed", result_data={"config_count": 3})
 
         result = await handler.handle_async(command)
 
@@ -521,36 +299,20 @@ class TestUpdatePipelineProgressCommandHandler:
     # ─── Multiple pipelines on same session ──────────────────────────
 
     @pytest.mark.asyncio
-    async def test_maintains_separate_progress_per_pipeline(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_publishing_options,
-        mock_session_repository,
-        mock_execution_repository,
-    ):
+    async def test_maintains_separate_progress_per_pipeline(self, mock_session_repository, mock_execution_repository):
         """Different pipeline names store progress independently."""
         session = _make_session(
             pipeline_progress={
                 "instantiate": {
                     "resolve_lab": {"status": "completed", "order": 0},
                 },
-            },
+            }
         )
         mock_session_repository.get_by_id_async = AsyncMock(return_value=session)
 
-        handler = self._make_handler(
-            mock_mediator, mock_mapper, mock_cloud_event_bus,
-            mock_cloud_event_publishing_options, mock_session_repository, mock_execution_repository,
-        )
+        handler = self._make_handler(mock_session_repository, mock_execution_repository)
         # Update teardown pipeline — instantiate progress should not be affected
-        command = UpdatePipelineProgressCommand(
-            session_id="session-001",
-            pipeline_name="teardown",
-            step_name="stop_lab",
-            step_status="completed",
-        )
+        command = UpdatePipelineProgressCommand(session_id="session-001", pipeline_name="teardown", step_name="stop_lab", step_status="completed")
 
         result = await handler.handle_async(command)
 

@@ -17,12 +17,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
 from application.events.integration.pipeline_events import (
     PipelineCompletedEventV1,
@@ -34,6 +28,9 @@ from domain.entities.lablet_session import LabletSession
 from domain.entities.pipeline_execution_record import PipelineExecutionRecord
 from domain.repositories.lablet_session_repository import LabletSessionRepository
 from domain.repositories.pipeline_execution_repository import PipelineExecutionRepository
+from integration.services.cloud_event_publisher import CloudEventPublisher
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -92,14 +89,11 @@ class UpdatePipelineProgressCommandHandler(
 
     def __init__(
         self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
+        cloud_event_publisher: CloudEventPublisher,
         lablet_session_repository: LabletSessionRepository,
         pipeline_execution_repository: PipelineExecutionRepository,
     ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+        self._cloud_event_publisher = cloud_event_publisher
         self._session_repo = lablet_session_repository
         self._execution_repo = pipeline_execution_repository
 
@@ -220,7 +214,7 @@ class UpdatePipelineProgressCommandHandler(
 
             if request.step_status == "pending":
                 # Step is transitioning to in_progress
-                await self.publish_cloud_event_async(
+                await self._cloud_event_publisher.publish_async(
                     PipelineStepStartedEventV1(
                         aggregate_id=request.session_id,
                         session_id=request.session_id,
@@ -230,7 +224,7 @@ class UpdatePipelineProgressCommandHandler(
                     )
                 )
             elif request.step_status == "completed":
-                await self.publish_cloud_event_async(
+                await self._cloud_event_publisher.publish_async(
                     PipelineStepCompletedEventV1(
                         aggregate_id=request.session_id,
                         session_id=request.session_id,
@@ -241,7 +235,7 @@ class UpdatePipelineProgressCommandHandler(
                     )
                 )
             elif request.step_status == "failed":
-                await self.publish_cloud_event_async(
+                await self._cloud_event_publisher.publish_async(
                     PipelineStepFailedEventV1(
                         aggregate_id=request.session_id,
                         session_id=request.session_id,
@@ -267,7 +261,7 @@ class UpdatePipelineProgressCommandHandler(
                 else:
                     terminal_status = "completed"
 
-                await self.publish_cloud_event_async(
+                await self._cloud_event_publisher.publish_async(
                     PipelineCompletedEventV1(
                         aggregate_id=request.session_id,
                         session_id=request.session_id,

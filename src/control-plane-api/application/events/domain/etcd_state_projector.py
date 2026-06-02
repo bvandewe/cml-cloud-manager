@@ -25,8 +25,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from neuroglia.mediation import DomainEventHandler
-
 from domain.events.cml_worker import (
     CMLWorkerCreatedDomainEvent,
     CMLWorkerDesiredStatusUpdatedDomainEvent,
@@ -36,6 +34,7 @@ from domain.events.cml_worker import (
     CMLWorkerLicenseRegistrationCompletedDomainEvent,
     CMLWorkerLicenseRegistrationRequestedDomainEvent,
     CMLWorkerStatusUpdatedDomainEvent,
+    CMLWorkerSyncRequestedDomainEvent,
     CMLWorkerTerminatedDomainEvent,
 )
 from domain.events.lab_record_events import (
@@ -63,6 +62,7 @@ from domain.events.lablet_session_events import (
     LabletSessionTerminatedDomainEvent,
 )
 from integration.services.etcd_state_store import EtcdStateStore
+from neuroglia.mediation import DomainEventHandler
 
 log = logging.getLogger(__name__)
 
@@ -561,4 +561,32 @@ class LabDiscoveryTriggeredEtcdProjector(DomainEventHandler[CMLWorkerLabDiscover
             triggered_at=event.triggered_at,
         )
         log.info(f"[etcd] Projected worker.lab_discovery_triggered: {event.worker_id} -> lab_ids={event.lab_ids} (source={event.source})")
+        return None
+
+
+# =============================================================================
+# CMLWorker Sync Projector (AD-043)
+# =============================================================================
+
+
+class CMLWorkerSyncRequestedEtcdProjector(DomainEventHandler[CMLWorkerSyncRequestedDomainEvent]):
+    """Project sync request to etcd for reactive worker-controller reconciliation.
+
+    AD-043: Same pattern as AD-016 (license) and AD-041 (discover_labs).
+    Write trigger key → watch fires → reconcile → clear key.
+    """
+
+    def __init__(self, etcd_store: EtcdStateStore):
+        self._etcd = etcd_store
+
+    async def handle_async(self, event: CMLWorkerSyncRequestedDomainEvent) -> None:  # type: ignore[override]
+        await self._etcd.set_worker_sync(
+            worker_id=event.worker_id,
+            scope=event.scope,
+            include_labs=event.include_labs,
+            reason=event.reason,
+            requested_by=event.requested_by,
+            requested_at=event.requested_at,
+        )
+        log.info(f"[etcd] Projected worker.sync.requested: {event.worker_id} scope={event.scope} include_labs={event.include_labs} reason={event.reason}")
         return None

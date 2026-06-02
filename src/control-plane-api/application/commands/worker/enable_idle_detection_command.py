@@ -3,8 +3,8 @@
 import logging
 from dataclasses import dataclass
 
+from application.commands.command_handler_base import CommandHandlerBase
 from domain.repositories import CMLWorkerRepository
-from infrastructure.observability.cqrs_instrumentation import instrumented
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 from opentelemetry import trace
@@ -30,8 +30,7 @@ class EnableIdleDetectionCommand(Command[OperationResult[dict]]):
     enabled_by: str | None = None
 
 
-@instrumented
-class EnableIdleDetectionCommandHandler(CommandHandler[EnableIdleDetectionCommand, OperationResult[dict]]):
+class EnableIdleDetectionCommandHandler(CommandHandlerBase, CommandHandler[EnableIdleDetectionCommand, OperationResult[dict]]):
     """Handler for EnableIdleDetectionCommand.
 
     Updates the worker aggregate to enable idle detection.

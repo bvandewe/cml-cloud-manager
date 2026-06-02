@@ -3,10 +3,9 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from domain.enums import CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 from neuroglia.data.abstractions import DomainEvent
 from neuroglia.eventing.cloud_events.decorators import cloudevent
-
-from domain.enums import CMLServiceStatus, CMLWorkerStatus, LicenseStatus, WorkerOrigin
 
 
 @cloudevent("cml_worker.created.v1")
@@ -933,3 +932,41 @@ class CMLWorkerLabDiscoveryTriggeredDomainEvent(DomainEvent):
         self.lab_ids = lab_ids
         self.source = source
         self.triggered_at = triggered_at
+
+
+@cloudevent("cml_worker.sync.requested.v1")
+@dataclass
+class CMLWorkerSyncRequestedDomainEvent(DomainEvent):
+    """Event raised when full state synchronization is requested for a worker (AD-043).
+
+    Unlike refresh (data collection only), sync triggers full reconciliation
+    including EC2/CML state re-read, status alignment, and lab record recovery.
+    Projected to etcd /workers/{id}/sync for reactive worker-controller reconciliation.
+    """
+
+    aggregate_id: str
+    worker_id: str
+    requested_at: str
+    requested_by: str
+    scope: str  # "full" | "ec2_only" | "cml_only"
+    include_labs: bool  # Whether to trigger lab record reconciliation
+    reason: str  # "manual" | "stale_state_detected" | "startup_recovery"
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        worker_id: str,
+        requested_at: str,
+        requested_by: str,
+        scope: str = "full",
+        include_labs: bool = True,
+        reason: str = "manual",
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.worker_id = worker_id
+        self.requested_at = requested_at
+        self.requested_by = requested_by
+        self.scope = scope
+        self.include_labs = include_labs
+        self.reason = reason

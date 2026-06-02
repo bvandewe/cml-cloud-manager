@@ -11,13 +11,7 @@ These commands are the control-plane-api entry points for auto-scaling.
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-from application.commands.worker import (
-    DrainWorkerCommand,
-    DrainWorkerCommandHandler,
-    RequestScaleUpCommand,
-    RequestScaleUpCommandHandler,
-)
+from application.commands.worker import DrainWorkerCommand, DrainWorkerCommandHandler, RequestScaleUpCommand, RequestScaleUpCommandHandler
 from application.services.worker_template_service import TemplateNotFoundError, WorkerTemplateService
 from application.settings import Settings
 from domain.entities.cml_worker import CMLWorker
@@ -41,38 +35,6 @@ def mock_worker_repository() -> AsyncMock:
     repo.update_async = AsyncMock(side_effect=lambda worker, *a, **kw: worker)
     repo.get_active_workers_async = AsyncMock(return_value=[])
     return repo
-
-
-@pytest.fixture
-def mock_mediator() -> MagicMock:
-    """Create a mock Mediator."""
-    mediator = MagicMock()
-    mediator.execute_async = AsyncMock()
-    return mediator
-
-
-@pytest.fixture
-def mock_mapper() -> MagicMock:
-    """Create a mock Mapper."""
-    return MagicMock()
-
-
-@pytest.fixture
-def mock_cloud_event_bus() -> MagicMock:
-    """Create a mock CloudEventBus."""
-    bus = MagicMock()
-    bus.output_stream = MagicMock()
-    bus.output_stream.on_next = MagicMock()
-    return bus
-
-
-@pytest.fixture
-def mock_cloud_event_options() -> MagicMock:
-    """Create mock CloudEventPublishingOptions."""
-    opts = MagicMock()
-    opts.source = "test-source"
-    opts.type_prefix = "test.prefix"
-    return opts
 
 
 @pytest.fixture
@@ -116,11 +78,7 @@ def sample_disabled_template() -> MagicMock:
 @pytest.fixture
 def sample_running_worker() -> CMLWorker:
     """Create a CMLWorker in RUNNING state."""
-    worker = CMLWorker(
-        name="test-worker",
-        aws_region="us-east-1",
-        instance_type="m5zn.metal",
-    )
+    worker = CMLWorker(name="test-worker", aws_region="us-east-1", instance_type="m5zn.metal")
     worker.update_status(CMLWorkerStatus.RUNNING)
     return worker
 
@@ -128,21 +86,13 @@ def sample_running_worker() -> CMLWorker:
 @pytest.fixture
 def sample_pending_worker() -> CMLWorker:
     """Create a CMLWorker in PENDING state."""
-    return CMLWorker(
-        name="pending-worker",
-        aws_region="us-east-1",
-        instance_type="m5zn.metal",
-    )
+    return CMLWorker(name="pending-worker", aws_region="us-east-1", instance_type="m5zn.metal")
 
 
 @pytest.fixture
 def sample_stopped_worker() -> CMLWorker:
     """Create a CMLWorker in STOPPED state."""
-    worker = CMLWorker(
-        name="stopped-worker",
-        aws_region="us-east-1",
-        instance_type="m5zn.metal",
-    )
+    worker = CMLWorker(name="stopped-worker", aws_region="us-east-1", instance_type="m5zn.metal")
     worker.update_status(CMLWorkerStatus.STOPPED)
     return worker
 
@@ -156,26 +106,9 @@ class TestRequestScaleUpCommandHandler:
     """Tests for RequestScaleUpCommandHandler."""
 
     @pytest.fixture
-    def handler(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_options,
-        mock_worker_repository,
-        mock_template_service,
-        mock_settings,
-    ) -> RequestScaleUpCommandHandler:
+    def handler(self, mock_worker_repository, mock_template_service, mock_settings) -> RequestScaleUpCommandHandler:
         """Create handler with mocked dependencies."""
-        return RequestScaleUpCommandHandler(
-            mediator=mock_mediator,
-            mapper=mock_mapper,
-            cloud_event_bus=mock_cloud_event_bus,
-            cloud_event_publishing_options=mock_cloud_event_options,
-            cml_worker_repository=mock_worker_repository,
-            template_service=mock_template_service,
-            settings=mock_settings,
-        )
+        return RequestScaleUpCommandHandler(cml_worker_repository=mock_worker_repository, template_service=mock_template_service, settings=mock_settings)
 
     @pytest.mark.asyncio
     @pytest.mark.command
@@ -184,11 +117,7 @@ class TestRequestScaleUpCommandHandler:
         # Arrange
         mock_template_service.get_template_by_name_async = AsyncMock(return_value=sample_template)
 
-        command = RequestScaleUpCommand(
-            template_name="metal",
-            reason="insufficient capacity for lablet inst-001",
-            requested_by="resource-scheduler",
-        )
+        command = RequestScaleUpCommand(template_name="metal", reason="insufficient capacity for lablet inst-001", requested_by="resource-scheduler")
 
         # Act
         result = await handler.handle_async(command)
@@ -213,10 +142,7 @@ class TestRequestScaleUpCommandHandler:
         # Arrange
         mock_template_service.get_template_by_name_async = AsyncMock(side_effect=TemplateNotFoundError("Template 'nonexistent' not found"))
 
-        command = RequestScaleUpCommand(
-            template_name="nonexistent",
-            reason="test",
-        )
+        command = RequestScaleUpCommand(template_name="nonexistent", reason="test")
 
         # Act
         result = await handler.handle_async(command)
@@ -232,10 +158,7 @@ class TestRequestScaleUpCommandHandler:
         # Arrange
         mock_template_service.get_template_by_name_async = AsyncMock(return_value=sample_disabled_template)
 
-        command = RequestScaleUpCommand(
-            template_name="metal",
-            reason="test",
-        )
+        command = RequestScaleUpCommand(template_name="metal", reason="test")
 
         # Act
         result = await handler.handle_async(command)
@@ -258,10 +181,7 @@ class TestRequestScaleUpCommandHandler:
             workers.append(w)
         mock_worker_repository.get_active_workers_async = AsyncMock(return_value=workers)
 
-        command = RequestScaleUpCommand(
-            template_name="metal",
-            reason="test",
-        )
+        command = RequestScaleUpCommand(template_name="metal", reason="test")
 
         # Act
         result = await handler.handle_async(command)
@@ -277,10 +197,7 @@ class TestRequestScaleUpCommandHandler:
         # Arrange
         mock_template_service.get_template_by_name_async = AsyncMock(return_value=sample_template)
 
-        command = RequestScaleUpCommand(
-            template_name="metal",
-            reason="test",
-        )
+        command = RequestScaleUpCommand(template_name="metal", reason="test")
 
         # Act
         result = await handler.handle_async(command)
@@ -297,10 +214,7 @@ class TestRequestScaleUpCommandHandler:
         sample_template.state.ami_name_pattern = "CML-Custom-AMI"
         mock_template_service.get_template_by_name_async = AsyncMock(return_value=sample_template)
 
-        command = RequestScaleUpCommand(
-            template_name="metal",
-            reason="test",
-        )
+        command = RequestScaleUpCommand(template_name="metal", reason="test")
 
         # Act
         result = await handler.handle_async(command)
@@ -320,10 +234,7 @@ class TestRequestScaleUpCommandHandler:
         sample_template.state.ami_name_pattern = ""  # No AMI in template
         mock_template_service.get_template_by_name_async = AsyncMock(return_value=sample_template)
 
-        command = RequestScaleUpCommand(
-            template_name="metal",
-            reason="test",
-        )
+        command = RequestScaleUpCommand(template_name="metal", reason="test")
 
         # Act
         result = await handler.handle_async(command)
@@ -340,10 +251,7 @@ class TestRequestScaleUpCommandHandler:
         # Arrange
         mock_template_service.get_template_by_name_async = AsyncMock(return_value=sample_template)
 
-        command = RequestScaleUpCommand(
-            template_name="metal",
-            reason="test",
-        )
+        command = RequestScaleUpCommand(template_name="metal", reason="test")
 
         # Act
         result = await handler.handle_async(command)
@@ -362,22 +270,9 @@ class TestDrainWorkerCommandHandler:
     """Tests for DrainWorkerCommandHandler."""
 
     @pytest.fixture
-    def handler(
-        self,
-        mock_mediator,
-        mock_mapper,
-        mock_cloud_event_bus,
-        mock_cloud_event_options,
-        mock_worker_repository,
-    ) -> DrainWorkerCommandHandler:
+    def handler(self, mock_worker_repository) -> DrainWorkerCommandHandler:
         """Create handler with mocked dependencies."""
-        return DrainWorkerCommandHandler(
-            mediator=mock_mediator,
-            mapper=mock_mapper,
-            cloud_event_bus=mock_cloud_event_bus,
-            cloud_event_publishing_options=mock_cloud_event_options,
-            cml_worker_repository=mock_worker_repository,
-        )
+        return DrainWorkerCommandHandler(cml_worker_repository=mock_worker_repository)
 
     @pytest.mark.asyncio
     @pytest.mark.command
@@ -386,11 +281,7 @@ class TestDrainWorkerCommandHandler:
         # Arrange
         mock_worker_repository.get_by_id_async = AsyncMock(return_value=sample_running_worker)
 
-        command = DrainWorkerCommand(
-            worker_id=sample_running_worker.id(),
-            reason="scale_down",
-            requested_by="worker-controller",
-        )
+        command = DrainWorkerCommand(worker_id=sample_running_worker.id(), reason="scale_down", requested_by="worker-controller")
 
         # Act
         result = await handler.handle_async(command)
@@ -457,11 +348,7 @@ class TestDrainWorkerCommandHandler:
         # Arrange
         mock_worker_repository.get_by_id_async = AsyncMock(return_value=sample_running_worker)
 
-        command = DrainWorkerCommand(
-            worker_id=sample_running_worker.id(),
-            reason="maintenance",
-            requested_by="admin",
-        )
+        command = DrainWorkerCommand(worker_id=sample_running_worker.id(), reason="maintenance", requested_by="admin")
 
         # Act
         result = await handler.handle_async(command)
@@ -479,11 +366,7 @@ class TestDrainWorkerCommandHandler:
         # Arrange
         mock_worker_repository.get_by_id_async = AsyncMock(return_value=sample_running_worker)
 
-        command = DrainWorkerCommand(
-            worker_id=sample_running_worker.id(),
-            reason="maintenance_window",
-            requested_by="ops-team",
-        )
+        command = DrainWorkerCommand(worker_id=sample_running_worker.id(), reason="maintenance_window", requested_by="ops-team")
 
         # Act
         result = await handler.handle_async(command)

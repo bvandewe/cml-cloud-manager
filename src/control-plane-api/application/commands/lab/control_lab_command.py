@@ -11,15 +11,11 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-from opentelemetry import trace
-
 from domain.repositories.cml_worker_repository import CMLWorkerRepository
 from domain.repositories.lab_record_repository import LabRecordRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
+from opentelemetry import trace
 
 from ..command_handler_base import CommandHandlerBase
 
@@ -63,21 +59,7 @@ class ControlLabCommandHandler(
     Lablet-controller reconciles by watching etcd and executing CML API calls.
     """
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        cml_worker_repository: CMLWorkerRepository,
-        lab_record_repository: LabRecordRepository,
-    ):
-        super().__init__(
-            mediator,
-            mapper,
-            cloud_event_bus,
-            cloud_event_publishing_options,
-        )
+    def __init__(self, cml_worker_repository: CMLWorkerRepository, lab_record_repository: LabRecordRepository):
         self._worker_repository = cml_worker_repository
         self._lab_repository = lab_record_repository
 

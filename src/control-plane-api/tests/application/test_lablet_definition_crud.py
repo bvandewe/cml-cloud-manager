@@ -10,39 +10,15 @@ Tests cover:
 - DeleteLabletDefinitionCommand (Phase 3)
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
-
-from application.commands.lablet_definition import (
-    CreateLabletDefinitionCommand,
-    CreateLabletDefinitionCommandHandler,
-    SyncLabletDefinitionCommand,
-    SyncLabletDefinitionCommandHandler,
-)
-from application.commands.lablet_definition.activate_lablet_definition_command import (
-    ActivateLabletDefinitionCommand,
-    ActivateLabletDefinitionCommandHandler,
-)
-from application.commands.lablet_definition.deactivate_lablet_definition_command import (
-    DeactivateLabletDefinitionCommand,
-    DeactivateLabletDefinitionCommandHandler,
-)
-from application.commands.lablet_definition.delete_lablet_definition_command import (
-    DeleteLabletDefinitionCommand,
-    DeleteLabletDefinitionCommandHandler,
-)
-from application.dtos.lablet_definition_dto import (
-    LabletDefinitionCreatedDto,
-    LabletDefinitionDto,
-    LabletDefinitionSyncResultDto,
-)
-from application.queries import (
-    GetLabletDefinitionQuery,
-    GetLabletDefinitionQueryHandler,
-    ListLabletDefinitionsQuery,
-    ListLabletDefinitionsQueryHandler,
-)
+from application.commands.lablet_definition import CreateLabletDefinitionCommand, CreateLabletDefinitionCommandHandler, SyncLabletDefinitionCommand, SyncLabletDefinitionCommandHandler
+from application.commands.lablet_definition.activate_lablet_definition_command import ActivateLabletDefinitionCommand, ActivateLabletDefinitionCommandHandler
+from application.commands.lablet_definition.deactivate_lablet_definition_command import DeactivateLabletDefinitionCommand, DeactivateLabletDefinitionCommandHandler
+from application.commands.lablet_definition.delete_lablet_definition_command import DeleteLabletDefinitionCommand, DeleteLabletDefinitionCommandHandler
+from application.dtos.lablet_definition_dto import LabletDefinitionCreatedDto, LabletDefinitionDto, LabletDefinitionSyncResultDto
+from application.queries import GetLabletDefinitionQuery, GetLabletDefinitionQueryHandler, ListLabletDefinitionsQuery, ListLabletDefinitionsQueryHandler
 from domain.entities.lablet_definition import LabletDefinition
 from domain.enums import LabletDefinitionStatus, LicenseType
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
@@ -66,36 +42,6 @@ def mock_repository() -> AsyncMock:
     repo.add_async = AsyncMock(side_effect=lambda e: e)
     repo.update_async = AsyncMock(side_effect=lambda e: e)
     return repo
-
-
-@pytest.fixture
-def mock_mediator() -> MagicMock:
-    """Create a mock Mediator."""
-    return MagicMock()
-
-
-@pytest.fixture
-def mock_mapper() -> MagicMock:
-    """Create a mock Mapper."""
-    return MagicMock()
-
-
-@pytest.fixture
-def mock_cloud_event_bus() -> MagicMock:
-    """Create a mock CloudEventBus."""
-    bus = MagicMock()
-    bus.output_stream = MagicMock()
-    bus.output_stream.on_next = MagicMock()
-    return bus
-
-
-@pytest.fixture
-def mock_cloud_event_options() -> MagicMock:
-    """Create mock CloudEventPublishingOptions."""
-    opts = MagicMock()
-    opts.source = "test-source"
-    opts.type_prefix = "test.prefix"
-    return opts
 
 
 @pytest.fixture
@@ -143,11 +89,7 @@ class TestGetLabletDefinitionQueryHandler:
     """Tests for GetLabletDefinitionQueryHandler."""
 
     @pytest.mark.asyncio
-    async def test_get_by_id_success(
-        self,
-        mock_repository: AsyncMock,
-        sample_lablet_definition: LabletDefinition,
-    ):
+    async def test_get_by_id_success(self, mock_repository: AsyncMock, sample_lablet_definition: LabletDefinition):
         """Test successful retrieval by ID."""
         # Arrange
         mock_repository.get_by_id_async.return_value = sample_lablet_definition
@@ -166,11 +108,7 @@ class TestGetLabletDefinitionQueryHandler:
         mock_repository.get_by_id_async.assert_called_once_with(sample_lablet_definition.id())
 
     @pytest.mark.asyncio
-    async def test_get_by_name_and_version_success(
-        self,
-        mock_repository: AsyncMock,
-        sample_lablet_definition: LabletDefinition,
-    ):
+    async def test_get_by_name_and_version_success(self, mock_repository: AsyncMock, sample_lablet_definition: LabletDefinition):
         """Test successful retrieval by name and version."""
         # Arrange
         mock_repository.get_by_name_and_version_async.return_value = sample_lablet_definition
@@ -185,10 +123,7 @@ class TestGetLabletDefinitionQueryHandler:
         assert result.is_success
         assert isinstance(result.data, LabletDefinitionDto)
         assert result.data.name == "test-lablet"
-        mock_repository.get_by_name_and_version_async.assert_called_once_with(
-            name="test-lablet",
-            version="1.0.0",
-        )
+        mock_repository.get_by_name_and_version_async.assert_called_once_with(name="test-lablet", version="1.0.0")
 
     @pytest.mark.asyncio
     async def test_get_by_id_not_found(self, mock_repository: AsyncMock):
@@ -247,11 +182,7 @@ class TestListLabletDefinitionsQueryHandler:
     """Tests for ListLabletDefinitionsQueryHandler."""
 
     @pytest.mark.asyncio
-    async def test_list_active_default(
-        self,
-        mock_repository: AsyncMock,
-        sample_lablet_definitions: list[LabletDefinition],
-    ):
+    async def test_list_active_default(self, mock_repository: AsyncMock, sample_lablet_definitions: list[LabletDefinition]):
         """Test listing active definitions by default."""
         # Arrange
         mock_repository.list_active_async.return_value = sample_lablet_definitions
@@ -268,11 +199,7 @@ class TestListLabletDefinitionsQueryHandler:
         mock_repository.list_active_async.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_list_by_name(
-        self,
-        mock_repository: AsyncMock,
-        sample_lablet_definition: LabletDefinition,
-    ):
+    async def test_list_by_name(self, mock_repository: AsyncMock, sample_lablet_definition: LabletDefinition):
         """Test listing by specific name."""
         # Arrange
         mock_repository.list_by_name_async.return_value = [sample_lablet_definition]
@@ -289,11 +216,7 @@ class TestListLabletDefinitionsQueryHandler:
         mock_repository.list_by_name_async.assert_called_once_with("test-lablet")
 
     @pytest.mark.asyncio
-    async def test_list_by_status(
-        self,
-        mock_repository: AsyncMock,
-        sample_lablet_definitions: list[LabletDefinition],
-    ):
+    async def test_list_by_status(self, mock_repository: AsyncMock, sample_lablet_definitions: list[LabletDefinition]):
         """Test listing by specific status."""
         # Arrange
         mock_repository.list_by_status_async.return_value = sample_lablet_definitions
@@ -325,11 +248,7 @@ class TestListLabletDefinitionsQueryHandler:
         assert result.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_list_with_pagination(
-        self,
-        mock_repository: AsyncMock,
-        sample_lablet_definitions: list[LabletDefinition],
-    ):
+    async def test_list_with_pagination(self, mock_repository: AsyncMock, sample_lablet_definitions: list[LabletDefinition]):
         """Test pagination with skip and limit."""
         # Arrange
         mock_repository.list_active_async.return_value = sample_lablet_definitions
@@ -354,33 +273,13 @@ class TestCreateLabletDefinitionCommandHandler:
     """Tests for CreateLabletDefinitionCommandHandler."""
 
     @pytest.mark.asyncio
-    async def test_create_success(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_create_success(self, mock_repository: AsyncMock):
         """Test successful creation of a LabletDefinition."""
         # Arrange
-        handler = CreateLabletDefinitionCommandHandler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_options,
-            mock_repository,
-        )
+        handler = CreateLabletDefinitionCommandHandler(mock_repository)
 
         command = CreateLabletDefinitionCommand(
-            name="new-lablet",
-            version="1.0.0",
-            form_qualified_name="Exam Associate CCNA v1.0 LAB 1.1a",
-            created_by="test-user",
-            cpu_cores=2,
-            memory_gb=4,
-            storage_gb=20,
-            node_count=5,
+            name="new-lablet", version="1.0.0", form_qualified_name="Exam Associate CCNA v1.0 LAB 1.1a", created_by="test-user", cpu_cores=2, memory_gb=4, storage_gb=20, node_count=5
         )
 
         # Act
@@ -395,32 +294,13 @@ class TestCreateLabletDefinitionCommandHandler:
         mock_repository.add_async.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_duplicate_conflict(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-        sample_lablet_definition: LabletDefinition,
-    ):
+    async def test_create_duplicate_conflict(self, mock_repository: AsyncMock, sample_lablet_definition: LabletDefinition):
         """Test conflict error when name+version already exists."""
         # Arrange
         mock_repository.get_by_name_and_version_async.return_value = sample_lablet_definition
-        handler = CreateLabletDefinitionCommandHandler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_options,
-            mock_repository,
-        )
+        handler = CreateLabletDefinitionCommandHandler(mock_repository)
 
-        command = CreateLabletDefinitionCommand(
-            name="test-lablet",
-            version="1.0.0",
-            form_qualified_name="Exam Associate CCNA v1.0 LAB 1.1a",
-            created_by="test-user",
-        )
+        command = CreateLabletDefinitionCommand(name="test-lablet", version="1.0.0", form_qualified_name="Exam Associate CCNA v1.0 LAB 1.1a", created_by="test-user")
 
         # Act
         result = await handler.handle_async(command)
@@ -431,23 +311,10 @@ class TestCreateLabletDefinitionCommandHandler:
         mock_repository.add_async.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_create_missing_name(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_create_missing_name(self, mock_repository: AsyncMock):
         """Test validation error when name is missing."""
         # Arrange
-        handler = CreateLabletDefinitionCommandHandler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_options,
-            mock_repository,
-        )
+        handler = CreateLabletDefinitionCommandHandler(mock_repository)
 
         command = CreateLabletDefinitionCommand(
             name="",  # Empty name
@@ -464,30 +331,13 @@ class TestCreateLabletDefinitionCommandHandler:
         assert result.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_create_invalid_license_type(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_create_invalid_license_type(self, mock_repository: AsyncMock):
         """Test validation error for invalid license type."""
         # Arrange
-        handler = CreateLabletDefinitionCommandHandler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_options,
-            mock_repository,
-        )
+        handler = CreateLabletDefinitionCommandHandler(mock_repository)
 
         command = CreateLabletDefinitionCommand(
-            name="new-lablet",
-            version="1.0.0",
-            form_qualified_name="Exam Associate CCNA v1.0 LAB 1.1a",
-            created_by="test-user",
-            license_affinity=["invalid_license_type"],
+            name="new-lablet", version="1.0.0", form_qualified_name="Exam Associate CCNA v1.0 LAB 1.1a", created_by="test-user", license_affinity=["invalid_license_type"]
         )
 
         # Act
@@ -507,30 +357,13 @@ class TestSyncLabletDefinitionCommandHandler:
     """Tests for SyncLabletDefinitionCommandHandler (trigger-only, 202 Accepted)."""
 
     @pytest.mark.asyncio
-    async def test_sync_trigger_success(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-        sample_lablet_definition: LabletDefinition,
-    ):
+    async def test_sync_trigger_success(self, mock_repository: AsyncMock, sample_lablet_definition: LabletDefinition):
         """Test successful sync trigger returns 202 Accepted."""
         # Arrange
         mock_repository.get_by_id_async.return_value = sample_lablet_definition
-        handler = SyncLabletDefinitionCommandHandler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_options,
-            mock_repository,
-        )
+        handler = SyncLabletDefinitionCommandHandler(mock_repository)
 
-        command = SyncLabletDefinitionCommand(
-            id=sample_lablet_definition.id(),
-            synced_by="test-user",
-        )
+        command = SyncLabletDefinitionCommand(id=sample_lablet_definition.id(), synced_by="test-user")
 
         # Act
         result = await handler.handle_async(command)
@@ -542,30 +375,14 @@ class TestSyncLabletDefinitionCommandHandler:
         mock_repository.update_async.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_sync_not_found(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_sync_not_found(self, mock_repository: AsyncMock):
         """Test sync fails when definition not found."""
         # Arrange
         mock_repository.get_by_id_async.return_value = None
         mock_repository.get_by_name_and_version_async.return_value = None
-        handler = SyncLabletDefinitionCommandHandler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_options,
-            mock_repository,
-        )
+        handler = SyncLabletDefinitionCommandHandler(mock_repository)
 
-        command = SyncLabletDefinitionCommand(
-            id="nonexistent-id",
-            synced_by="test-user",
-        )
+        command = SyncLabletDefinitionCommand(id="nonexistent-id", synced_by="test-user")
 
         # Act
         result = await handler.handle_async(command)
@@ -575,27 +392,12 @@ class TestSyncLabletDefinitionCommandHandler:
         assert result.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_sync_bad_request_no_identifier(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_sync_bad_request_no_identifier(self, mock_repository: AsyncMock):
         """Test sync fails when no identifier provided."""
         # Arrange
-        handler = SyncLabletDefinitionCommandHandler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_options,
-            mock_repository,
-        )
+        handler = SyncLabletDefinitionCommandHandler(mock_repository)
 
-        command = SyncLabletDefinitionCommand(
-            synced_by="test-user",
-        )
+        command = SyncLabletDefinitionCommand(synced_by="test-user")
 
         # Act
         result = await handler.handle_async(command)
@@ -605,14 +407,7 @@ class TestSyncLabletDefinitionCommandHandler:
         assert result.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_sync_trigger_missing_fqn(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_sync_trigger_missing_fqn(self, mock_repository: AsyncMock):
         """Test sync fails when definition has no form_qualified_name."""
         # Arrange - create a definition without FQN (should not happen normally)
         definition = LabletDefinition.create(
@@ -629,18 +424,9 @@ class TestSyncLabletDefinitionCommandHandler:
         definition.state.form_qualified_name = ""
         mock_repository.get_by_id_async.return_value = definition
 
-        handler = SyncLabletDefinitionCommandHandler(
-            mock_mediator,
-            mock_mapper,
-            mock_cloud_event_bus,
-            mock_cloud_event_options,
-            mock_repository,
-        )
+        handler = SyncLabletDefinitionCommandHandler(mock_repository)
 
-        command = SyncLabletDefinitionCommand(
-            id=definition.id(),
-            synced_by="test-user",
-        )
+        command = SyncLabletDefinitionCommand(id=definition.id(), synced_by="test-user")
 
         # Act
         result = await handler.handle_async(command)
@@ -688,24 +474,13 @@ class TestActivateLabletDefinitionCommandHandler:
     """Tests for ActivateLabletDefinitionCommandHandler."""
 
     @pytest.mark.asyncio
-    async def test_activate_success(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-        inactive_lablet_definition: LabletDefinition,
-    ):
+    async def test_activate_success(self, mock_repository: AsyncMock, inactive_lablet_definition: LabletDefinition):
         """Test successful activation from INACTIVE → ACTIVE."""
         mock_repository.get_by_id_async.return_value = inactive_lablet_definition
 
-        handler = ActivateLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = ActivateLabletDefinitionCommandHandler(mock_repository)
 
-        command = ActivateLabletDefinitionCommand(
-            definition_id=inactive_lablet_definition.id(),
-            activated_by="admin-user",
-        )
+        command = ActivateLabletDefinitionCommand(definition_id=inactive_lablet_definition.id(), activated_by="admin-user")
 
         result = await handler.handle_async(command)
 
@@ -715,18 +490,11 @@ class TestActivateLabletDefinitionCommandHandler:
         mock_repository.update_async.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_activate_not_found(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_activate_not_found(self, mock_repository: AsyncMock):
         """Test activate returns 404 for unknown definition."""
         mock_repository.get_by_id_async.return_value = None
 
-        handler = ActivateLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = ActivateLabletDefinitionCommandHandler(mock_repository)
 
         command = ActivateLabletDefinitionCommand(definition_id="nonexistent", activated_by="admin")
 
@@ -736,24 +504,13 @@ class TestActivateLabletDefinitionCommandHandler:
         assert result.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_activate_rejects_pending_sync(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-        sample_lablet_definition: LabletDefinition,
-    ):
+    async def test_activate_rejects_pending_sync(self, mock_repository: AsyncMock, sample_lablet_definition: LabletDefinition):
         """Test activate returns 400 for PENDING_SYNC definition."""
         mock_repository.get_by_id_async.return_value = sample_lablet_definition
 
-        handler = ActivateLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = ActivateLabletDefinitionCommandHandler(mock_repository)
 
-        command = ActivateLabletDefinitionCommand(
-            definition_id=sample_lablet_definition.id(),
-            activated_by="admin",
-        )
+        command = ActivateLabletDefinitionCommand(definition_id=sample_lablet_definition.id(), activated_by="admin")
 
         result = await handler.handle_async(command)
 
@@ -761,16 +518,9 @@ class TestActivateLabletDefinitionCommandHandler:
         assert result.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_activate_missing_definition_id(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_activate_missing_definition_id(self, mock_repository: AsyncMock):
         """Test activate returns 400 when definition_id is empty."""
-        handler = ActivateLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = ActivateLabletDefinitionCommandHandler(mock_repository)
 
         command = ActivateLabletDefinitionCommand(definition_id="", activated_by="admin")
 
@@ -789,25 +539,13 @@ class TestDeactivateLabletDefinitionCommandHandler:
     """Tests for DeactivateLabletDefinitionCommandHandler."""
 
     @pytest.mark.asyncio
-    async def test_deactivate_success(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-        active_lablet_definition: LabletDefinition,
-    ):
+    async def test_deactivate_success(self, mock_repository: AsyncMock, active_lablet_definition: LabletDefinition):
         """Test successful deactivation from ACTIVE → INACTIVE."""
         mock_repository.get_by_id_async.return_value = active_lablet_definition
 
-        handler = DeactivateLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = DeactivateLabletDefinitionCommandHandler(mock_repository)
 
-        command = DeactivateLabletDefinitionCommand(
-            definition_id=active_lablet_definition.id(),
-            deactivated_by="admin-user",
-            reason="Planned maintenance",
-        )
+        command = DeactivateLabletDefinitionCommand(definition_id=active_lablet_definition.id(), deactivated_by="admin-user", reason="Planned maintenance")
 
         result = await handler.handle_async(command)
 
@@ -817,18 +555,11 @@ class TestDeactivateLabletDefinitionCommandHandler:
         mock_repository.update_async.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_deactivate_not_found(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_deactivate_not_found(self, mock_repository: AsyncMock):
         """Test deactivate returns 404 for unknown definition."""
         mock_repository.get_by_id_async.return_value = None
 
-        handler = DeactivateLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = DeactivateLabletDefinitionCommandHandler(mock_repository)
 
         command = DeactivateLabletDefinitionCommand(definition_id="nonexistent", deactivated_by="admin")
 
@@ -838,24 +569,13 @@ class TestDeactivateLabletDefinitionCommandHandler:
         assert result.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_deactivate_rejects_pending_sync(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-        sample_lablet_definition: LabletDefinition,
-    ):
+    async def test_deactivate_rejects_pending_sync(self, mock_repository: AsyncMock, sample_lablet_definition: LabletDefinition):
         """Test deactivate returns 400 for PENDING_SYNC definition."""
         mock_repository.get_by_id_async.return_value = sample_lablet_definition
 
-        handler = DeactivateLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = DeactivateLabletDefinitionCommandHandler(mock_repository)
 
-        command = DeactivateLabletDefinitionCommand(
-            definition_id=sample_lablet_definition.id(),
-            deactivated_by="admin",
-        )
+        command = DeactivateLabletDefinitionCommand(definition_id=sample_lablet_definition.id(), deactivated_by="admin")
 
         result = await handler.handle_async(command)
 
@@ -863,16 +583,9 @@ class TestDeactivateLabletDefinitionCommandHandler:
         assert result.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_deactivate_missing_definition_id(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_deactivate_missing_definition_id(self, mock_repository: AsyncMock):
         """Test deactivate returns 400 when definition_id is empty."""
-        handler = DeactivateLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = DeactivateLabletDefinitionCommandHandler(mock_repository)
 
         command = DeactivateLabletDefinitionCommand(definition_id="", deactivated_by="admin")
 
@@ -891,24 +604,13 @@ class TestDeleteLabletDefinitionCommandHandler:
     """Tests for DeleteLabletDefinitionCommandHandler."""
 
     @pytest.mark.asyncio
-    async def test_delete_success(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-        active_lablet_definition: LabletDefinition,
-    ):
+    async def test_delete_success(self, mock_repository: AsyncMock, active_lablet_definition: LabletDefinition):
         """Test successful soft-deletion returns 204."""
         mock_repository.get_by_id_async.return_value = active_lablet_definition
 
-        handler = DeleteLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = DeleteLabletDefinitionCommandHandler(mock_repository)
 
-        command = DeleteLabletDefinitionCommand(
-            definition_id=active_lablet_definition.id(),
-            deleted_by="admin-user",
-        )
+        command = DeleteLabletDefinitionCommand(definition_id=active_lablet_definition.id(), deleted_by="admin-user")
 
         result = await handler.handle_async(command)
 
@@ -917,18 +619,11 @@ class TestDeleteLabletDefinitionCommandHandler:
         mock_repository.update_async.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_delete_not_found(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_delete_not_found(self, mock_repository: AsyncMock):
         """Test delete returns 404 for unknown definition."""
         mock_repository.get_by_id_async.return_value = None
 
-        handler = DeleteLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = DeleteLabletDefinitionCommandHandler(mock_repository)
 
         command = DeleteLabletDefinitionCommand(definition_id="nonexistent", deleted_by="admin")
 
@@ -938,25 +633,14 @@ class TestDeleteLabletDefinitionCommandHandler:
         assert result.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_idempotent_when_already_deleted(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-        active_lablet_definition: LabletDefinition,
-    ):
+    async def test_delete_idempotent_when_already_deleted(self, mock_repository: AsyncMock, active_lablet_definition: LabletDefinition):
         """Test delete is idempotent (no-op) for already-deleted definition."""
         active_lablet_definition.soft_delete(deleted_by="admin")
         mock_repository.get_by_id_async.return_value = active_lablet_definition
 
-        handler = DeleteLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = DeleteLabletDefinitionCommandHandler(mock_repository)
 
-        command = DeleteLabletDefinitionCommand(
-            definition_id=active_lablet_definition.id(),
-            deleted_by="admin",
-        )
+        command = DeleteLabletDefinitionCommand(definition_id=active_lablet_definition.id(), deleted_by="admin")
 
         result = await handler.handle_async(command)
 
@@ -965,16 +649,9 @@ class TestDeleteLabletDefinitionCommandHandler:
         assert result.status_code == 204
 
     @pytest.mark.asyncio
-    async def test_delete_missing_definition_id(
-        self,
-        mock_repository: AsyncMock,
-        mock_mediator: MagicMock,
-        mock_mapper: MagicMock,
-        mock_cloud_event_bus: MagicMock,
-        mock_cloud_event_options: MagicMock,
-    ):
+    async def test_delete_missing_definition_id(self, mock_repository: AsyncMock):
         """Test delete returns 400 when definition_id is empty."""
-        handler = DeleteLabletDefinitionCommandHandler(mock_mediator, mock_mapper, mock_cloud_event_bus, mock_cloud_event_options, mock_repository)
+        handler = DeleteLabletDefinitionCommandHandler(mock_repository)
 
         command = DeleteLabletDefinitionCommand(definition_id="", deleted_by="admin")
 

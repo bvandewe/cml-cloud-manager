@@ -11,16 +11,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from neuroglia.core import OperationResult
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_bus import CloudEventBus
-from neuroglia.eventing.cloud_events.infrastructure.cloud_event_publisher import CloudEventPublishingOptions
-from neuroglia.mapping import Mapper
-from neuroglia.mediation import Command, CommandHandler, Mediator
-
 from application.commands.command_handler_base import CommandHandlerBase
 from domain.entities.user_session import UserSession
 from domain.enums import UserSessionStatus
 from domain.repositories.user_session_repository import UserSessionRepository
+from neuroglia.core import OperationResult
+from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
@@ -50,15 +46,7 @@ class UpdateUserSessionStatusCommandHandler(
 ):
     """Handle UserSession status transitions."""
 
-    def __init__(
-        self,
-        mediator: Mediator,
-        mapper: Mapper,
-        cloud_event_bus: CloudEventBus,
-        cloud_event_publishing_options: CloudEventPublishingOptions,
-        user_session_repository: UserSessionRepository,
-    ):
-        super().__init__(mediator, mapper, cloud_event_bus, cloud_event_publishing_options)
+    def __init__(self, user_session_repository: UserSessionRepository):
         self._repository = user_session_repository
 
     async def handle_async(self, request: UpdateUserSessionStatusCommand) -> OperationResult[dict[str, Any]]:

@@ -274,6 +274,10 @@ export class WorkerDetailsModal extends BaseComponent {
                             <button type="button" class="btn btn-primary" id="refresh-worker-details">
                                 <i class="bi bi-arrow-clockwise"></i> Refresh
                             </button>
+                            <button type="button" class="btn btn-outline-warning" id="sync-worker-state-btn"
+                                title="Force full state reconciliation (EC2 + CML re-read, status alignment, lab recovery)">
+                                <i class="bi bi-arrow-repeat"></i> Sync
+                            </button>
                             <button type="button" class="btn btn-outline-info" id="discover-labs-btn"
                                 style="display: none;" title="Trigger targeted lab discovery for this worker">
                                 <i class="bi bi-search"></i> Discover Labs
@@ -308,6 +312,12 @@ export class WorkerDetailsModal extends BaseComponent {
         const refreshBtn = this.$('#refresh-worker-details');
         if (refreshBtn) {
             refreshBtn.addEventListener('click', () => this.refreshWorkerData());
+        }
+
+        // Sync button (AD-043)
+        const syncBtn = this.$('#sync-worker-state-btn');
+        if (syncBtn) {
+            syncBtn.addEventListener('click', () => this.handleSyncWorker());
         }
 
         // Discover Labs button
@@ -451,6 +461,28 @@ export class WorkerDetailsModal extends BaseComponent {
     async refreshWorkerData() {
         await this.loadWorkerData();
         showToast('Worker data refreshed', 'success');
+    }
+
+    async handleSyncWorker() {
+        const btn = this.$('#sync-worker-state-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Syncing...';
+        }
+        try {
+            const { requestWorkerSync } = await import('../api/workers.js');
+            await requestWorkerSync(this.currentRegion, this.currentWorkerId);
+            showToast('Sync requested — worker state will be reconciled shortly', 'success');
+            // Refresh data after a brief delay to reflect reconciled state
+            setTimeout(() => this.loadWorkerData(), 3000);
+        } catch (error) {
+            showToast(`Failed to request sync: ${error.message}`, 'error');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sync';
+            }
+        }
     }
 
     async handleDiscoverLabs() {
