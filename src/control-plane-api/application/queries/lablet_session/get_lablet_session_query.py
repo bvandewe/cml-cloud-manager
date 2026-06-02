@@ -106,7 +106,7 @@ class GetLabletSessionQueryHandler(QueryHandlerBase, QueryHandler[GetLabletSessi
                 except Exception:
                     logger.warning("Failed to fetch LabRecord %s for enrichment", session.state.lab_record_id)
 
-            # UserSession enrichment — LDS session ID and login URL
+            # UserSession enrichment — LDS session ID, login URL, device count
             user_session_enrichment = None
             if session.state.user_session_id:
                 try:
@@ -115,6 +115,7 @@ class GetLabletSessionQueryHandler(QueryHandlerBase, QueryHandler[GetLabletSessi
                         user_session_enrichment = {
                             "lds_session_id": user_session.lds_session_id,
                             "login_url": user_session.login_url,
+                            "device_count": len(user_session.devices) if user_session.devices else 0,
                         }
                 except Exception:
                     logger.warning(

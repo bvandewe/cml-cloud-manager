@@ -1012,6 +1012,7 @@ export class WorkerDetailsModal extends BaseComponent {
                         <p>No labs found on this worker</p>
                     </div>
                 `;
+                this.updateLabsTabBadge([]);
                 this.bindLabsTabActions();
                 return;
             }
@@ -1103,9 +1104,34 @@ export class WorkerDetailsModal extends BaseComponent {
             this.bindLabsTabActions();
             // Initialize tooltips for timestamp icons
             setTimeout(() => initializeDateTooltips(), 100);
+
+            // Update Labs tab badge with running/total count
+            this.updateLabsTabBadge(labs);
         } catch (error) {
             console.error('[WorkerDetailsModal] Failed to load labs:', error);
             container.innerHTML = `<div class="alert alert-danger">Failed to load labs: ${escapeHtml(error.message)}</div>`;
+        }
+    }
+
+    /**
+     * Update the Labs tab button with a badge showing running/total count.
+     * @param {Array} labs - Array of lab records
+     */
+    updateLabsTabBadge(labs) {
+        const tabBtn = this.$('#labs-tab-btn');
+        if (!tabBtn) return;
+
+        const total = labs.length;
+        const running = labs.filter(lab => {
+            const state = (lab.status || lab.state || '').toLowerCase();
+            return ['started', 'booted', 'queued', 'starting', 'paused'].includes(state);
+        }).length;
+
+        if (total === 0) {
+            tabBtn.innerHTML = `<i class="bi bi-folder2-open"></i> Labs`;
+        } else {
+            const badgeClass = running > 0 ? 'bg-success' : 'bg-secondary';
+            tabBtn.innerHTML = `<i class="bi bi-folder2-open"></i> Labs <span class="badge ${badgeClass} ms-1">${running}/${total}</span>`;
         }
     }
 

@@ -23,6 +23,7 @@
 import { StoreConnectedPage } from '../../bridge/StoreConnectedPage.js';
 import { store } from '../../app/store.js';
 import { selectAllSessions, selectSessionsListLoading, createSessionsActions, selectAllDefinitions, selectDefinitionsListLoading, createDefinitionsActions } from '../../app/index.js';
+import * as labletDefinitionsApi from '../../api/lablet-definitions.js';
 import { eventBus, LcmEventTypes } from '../../app/eventBus.js';
 import { showToast } from '../../ui/notifications.js';
 import { showConfirmAsync } from '../modals.js';
@@ -1497,8 +1498,8 @@ export class SessionsPageV2 extends StoreConnectedPage {
             return;
         }
 
-        // Populate definitions dropdown from store data
-        this._populateDefinitionDropdown(preselectedDefinitionId);
+        // Populate definitions dropdown (API call ensures only active definitions)
+        await this._populateDefinitionDropdown(preselectedDefinitionId);
 
         // Set default start time to now + 2 minutes
         const startInput = document.getElementById('instanceTimeslotStart');
@@ -1519,33 +1520,37 @@ export class SessionsPageV2 extends StoreConnectedPage {
     }
 
     /**
-     * Populate the definition dropdown in the create session modal
-     * using store data (no API call needed).
+     * Populate the definition dropdown in the create session modal.
+     * Only active definitions (successfully synced) are eligible for session creation.
      */
-    _populateDefinitionDropdown(preselectedId = null) {
+    async _populateDefinitionDropdown(preselectedId = null) {
         const select = document.getElementById('instanceDefinitionId');
         if (!select) return;
 
-        const allDefs = selectAllDefinitions(this.getStoreState());
-        const definitions = allDefs.filter(d => (d.status || '').toLowerCase() !== 'deprecated');
+        try {
+            const definitions = await labletDefinitionsApi.listLabletDefinitions({ status: 'active' });
 
-        select.innerHTML = '<option value="">Select a definition...</option>';
+            select.innerHTML = '<option value="">Select a definition...</option>';
 
-        definitions.forEach(def => {
-            const option = document.createElement('option');
-            option.value = def.id;
-            option.textContent = `${def.name} v${def.version || '?'} (${def.node_count || 0} nodes, ${def.cpu_cores || def.resource_requirements?.cpu_cores || 0} CPU, ${def.memory_gb || def.resource_requirements?.memory_gb || 0} GB RAM)`;
-            option.dataset.name = def.name;
-            option.dataset.version = def.version || '';
-            option.dataset.cpu = def.cpu_cores || def.resource_requirements?.cpu_cores || 0;
-            option.dataset.memory = def.memory_gb || def.resource_requirements?.memory_gb || 0;
-            option.dataset.nodes = def.node_count || 0;
-            select.appendChild(option);
-        });
+            definitions.forEach(def => {
+                const option = document.createElement('option');
+                option.value = def.id;
+                option.textContent = `${def.name} v${def.version || '?'} (${def.node_count || 0} nodes, ${def.cpu_cores || def.resource_requirements?.cpu_cores || 0} CPU, ${def.memory_gb || def.resource_requirements?.memory_gb || 0} GB RAM)`;
+                option.dataset.name = def.name;
+                option.dataset.version = def.version || '';
+                option.dataset.cpu = def.cpu_cores || def.resource_requirements?.cpu_cores || 0;
+                option.dataset.memory = def.memory_gb || def.resource_requirements?.memory_gb || 0;
+                option.dataset.nodes = def.node_count || 0;
+                select.appendChild(option);
+            });
 
-        if (preselectedId) {
-            select.value = preselectedId;
-            select.dispatchEvent(new Event('change'));
+            if (preselectedId) {
+                select.value = preselectedId;
+                select.dispatchEvent(new Event('change'));
+            }
+        } catch (error) {
+            console.error('[SessionsPageV2] Failed to load definitions:', error);
+            select.innerHTML = '<option value="">Failed to load definitions</option>';
         }
     }
 

@@ -185,9 +185,9 @@ export function selectDefinitionsByStatus(state, status) {
     return selectAllDefinitions(state).filter(d => d.status === status);
 }
 
-/** Select active (non-deprecated) definitions */
+/** Select definitions with ACTIVE status (successfully synced, eligible for sessions) */
 export function selectActiveDefinitions(state) {
-    return selectAllDefinitions(state).filter(d => d.status !== 'deprecated');
+    return selectAllDefinitions(state).filter(d => d.status === 'active');
 }
 
 /** Compute definition status summary */

@@ -629,8 +629,8 @@ export class SessionDetailsModal extends BaseComponent {
             }
         }
 
-        // Format observed_ports as "protocol:port" pairs
-        const portsDisplay = this._formatPorts(s.observed_ports);
+        // Format allocated_ports as "name:port" pairs with scrollable overflow
+        const portsDisplay = this._formatAllocatedPorts(s.allocated_ports);
 
         // Port warning: when session has a lab bound but no ports allocated
         const status = (s.status || '').toLowerCase();
@@ -644,6 +644,9 @@ export class SessionDetailsModal extends BaseComponent {
                    <i class="bi bi-exclamation-triangle-fill me-1"></i>No ports allocated
                </span>`
             : '';
+
+        // LDS device count
+        const deviceCountDisplay = s.lds_device_count != null ? `<span class="badge bg-secondary rounded-pill">${s.lds_device_count}</span>` : '<span class="text-muted">—</span>';
 
         return `
             <h6 class="text-muted mb-2"><i class="bi bi-diagram-3 me-1"></i>Assignment</h6>
@@ -662,6 +665,8 @@ export class SessionDetailsModal extends BaseComponent {
                             : `<code class="small">${escapeHtml(s.lds_session_id)}</code>`
                         : '—'
                 }</dd>
+                <dt class="col-sm-4">Devices</dt>
+                <dd class="col-sm-8">${deviceCountDisplay}</dd>
                 <dt class="col-sm-4">Ports</dt>
                 <dd class="col-sm-8">${portsDisplay}${portWarningInline}</dd>
             </dl>
@@ -982,6 +987,20 @@ export class SessionDetailsModal extends BaseComponent {
         if (entries.length === 0) return '<span class="text-muted">—</span>';
 
         return entries.map(([proto, port]) => `<code class="small">${escapeHtml(proto)}:${port}</code>`).join(' ');
+    }
+
+    /**
+     * Format allocated_ports as scrollable inline badges.
+     * allocated_ports: { "serial_1": 5041, "vnc_1": 5044, ... }
+     */
+    _formatAllocatedPorts(ports) {
+        if (!ports || typeof ports !== 'object') return '<span class="text-muted">—</span>';
+        const entries = Object.entries(ports);
+        if (entries.length === 0) return '<span class="text-muted">—</span>';
+
+        const badges = entries.map(([name, port]) => `<code class="small text-nowrap">${escapeHtml(name)}:${port}</code>`).join(' ');
+
+        return `<div class="d-flex flex-wrap gap-1 overflow-auto" style="max-width: 100%; max-height: 4.5em;">${badges}</div>`;
     }
 
     // =========================================================================

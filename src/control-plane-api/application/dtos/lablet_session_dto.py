@@ -111,6 +111,7 @@ class LabletSessionDto:
     # LDS session enrichment (from UserSession child entity)
     lds_session_id: str | None
     lds_login_url: str | None
+    lds_device_count: int | None
 
     # Timestamps
     created_at: str
@@ -226,8 +227,8 @@ def map_lablet_session_to_dto(
         worker_enrichment: Optional dict with keys name, aws_region from CMLWorker.
         lab_record_enrichment: Optional dict with keys status, node_count, link_count
             from the LabRecord aggregate.
-        user_session_enrichment: Optional dict with keys lds_session_id, login_url
-            from the UserSession child entity.
+        user_session_enrichment: Optional dict with keys lds_session_id, login_url,
+            device_count from the UserSession child entity.
     """
     state = entity.state
     defn = definition_enrichment or {}
@@ -265,6 +266,7 @@ def map_lablet_session_to_dto(
         # LDS session enrichment (from UserSession child entity)
         lds_session_id=usr.get("lds_session_id"),
         lds_login_url=usr.get("login_url"),
+        lds_device_count=usr.get("device_count"),
         # Timestamps
         created_at=state.created_at.isoformat(),
         scheduled_at=state.scheduled_at.isoformat() if state.scheduled_at else None,
