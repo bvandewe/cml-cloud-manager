@@ -12,7 +12,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from application.services.reconciler_helpers.lds_helpers import (
     DEFAULT_PROTOCOL_PRIORITY,
     build_device_access_from_allocated_ports,
@@ -517,7 +516,7 @@ class TestStepLdsProvisionFiltered:
 
     async def test_filters_by_visible_devices(self):
         """Only user-visible devices from allocated_ports are set on LDS."""
-        from application.services.step_handlers.binding_steps import step_lds_provision
+        from application.services.step_handlers.lds_provision_step import step_lds_provision
 
         definition = _FakeDefinition(
             user_visible_devices=[
@@ -552,7 +551,7 @@ class TestStepLdsProvisionFiltered:
 
     async def test_no_allocated_ports_uses_fallback(self):
         """When ports_alloc is absent, falls back to tag-based path."""
-        from application.services.step_handlers.binding_steps import step_lds_provision
+        from application.services.step_handlers.lds_provision_step import step_lds_provision
 
         @dataclass
         class FakeNode:
@@ -585,7 +584,7 @@ class TestStepLdsProvisionFiltered:
 
     async def test_backward_compat_no_user_visible_devices(self):
         """When user_visible_devices is None, all devices from allocated_ports are included."""
-        from application.services.step_handlers.binding_steps import step_lds_provision
+        from application.services.step_handlers.lds_provision_step import step_lds_provision
 
         definition = _FakeDefinition(user_visible_devices=None)
         context = _make_context(definition=definition)
@@ -608,7 +607,7 @@ class TestStepLdsProvisionFiltered:
 
     async def test_fallback_no_visible_devices_all_included(self):
         """Fallback path with no user_visible_devices includes all tagged nodes."""
-        from application.services.step_handlers.binding_steps import step_lds_provision
+        from application.services.step_handlers.lds_provision_step import step_lds_provision
 
         @dataclass
         class FakeNode:
@@ -636,7 +635,7 @@ class TestStepLdsProvisionFiltered:
 
     async def test_skipped_when_no_form_qualified_name(self):
         """Step is skipped when definition has no form_qualified_name."""
-        from application.services.step_handlers.binding_steps import step_lds_provision
+        from application.services.step_handlers.lds_provision_step import step_lds_provision
 
         definition = _FakeDefinition(form_qualified_name=None)
         context = _make_context(definition=definition)
@@ -652,7 +651,7 @@ class TestStepLdsProvisionFiltered:
 
     async def test_skipped_when_no_lds_client(self):
         """Step is skipped when LDS client is not configured."""
-        from application.services.step_handlers.binding_steps import step_lds_provision
+        from application.services.step_handlers.lds_provision_step import step_lds_provision
 
         context = _make_context()
         context.lds = None
@@ -741,7 +740,7 @@ class TestLdsProvisionIntegration:
         When a visible device has multiple ports (ubuntu-desktop-1: vnc + web),
         only the highest-priority protocol is sent (AD-LDS-002).
         """
-        from application.services.step_handlers.binding_steps import step_lds_provision
+        from application.services.step_handlers.lds_provision_step import step_lds_provision
 
         # Realistic content.xml extraction (what Phase 1 produces)
         user_visible_devices = [
@@ -792,7 +791,7 @@ class TestLdsProvisionIntegration:
         This is distinct from None (backward compat) — empty means
         the content.xml was parsed but had no <device> elements.
         """
-        from application.services.step_handlers.binding_steps import step_lds_provision
+        from application.services.step_handlers.lds_provision_step import step_lds_provision
 
         definition = _FakeDefinition(user_visible_devices=[])  # Empty, not None
         context = _make_context(definition=definition)

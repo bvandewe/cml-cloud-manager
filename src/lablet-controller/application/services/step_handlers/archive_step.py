@@ -1,11 +1,6 @@
 """Archive step handler — archive.
 
-ADR-038: Extracted from LabletReconciler._step_archive.
-
-T4. archive — record lab run completion and archive the session
-
-ADR-038 Task 1: Parity gap closed — handler now records lab run completion
-via ``context.record_lab_run_completed`` before transitioning to ARCHIVED.
+Records lab run completion and archives the session after teardown.
 """
 
 from __future__ import annotations
@@ -32,9 +27,8 @@ async def step_archive(
 ) -> StepResult:
     """Record lab run completion and archive the session.
 
-    ADR-038 Task 1 parity: Calls ``context.record_lab_run_completed``
-    (best-effort) before transitioning the session to ARCHIVED status.
-    This records a LabRunRecord documenting the start→stop execution cycle.
+    Calls ``context.record_lab_run_completed`` (best-effort) before
+    transitioning the session to ARCHIVED status.
     """
     # Record lab run completion (P9-7) — best-effort
     if context.record_lab_run_completed:

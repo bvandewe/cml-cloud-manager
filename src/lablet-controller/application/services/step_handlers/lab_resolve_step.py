@@ -1,16 +1,7 @@
-"""Instantiation step handlers — content_sync, variables, lab_resolve.
+"""Lab resolve step handler — lab_resolve.
 
-ADR-038: Extracted from LabletReconciler._step_content_sync/variables/lab_resolve.
-
-These steps handle the early phase of lab instantiation:
-1. content_sync — verify definition content is available
-2. variables — resolve session variables from definition defaults
-3. lab_resolve — import or reuse a CML lab on the assigned worker
-
-ADR-038 Task 1: Parity gaps closed — handlers now use enriched PipelineContext
-callables (resolve_lab_for_instance, find_lab_record_id, register_lab_record,
-request_content_sync) and shared tracking state (resolved_lab_ids,
-freshly_imported_sessions).
+Resolves a CML lab for the session: reuses existing or imports fresh.
+Returns cml_lab_id and lab_record_id for downstream steps.
 """
 
 from __future__ import annotations
@@ -26,69 +17,6 @@ from application.services.step_registry import StepResult, step_handler
 logger = logging.getLogger(__name__)
 
 
-@step_handler("content_sync")
-async def step_content_sync(
-    instance: LabletSessionReadModel,
-    progress: dict[str, Any],
-    context: PipelineContext,
-    params: dict[str, Any] | None = None,
-) -> StepResult:
-    """Verify definition content is synced and available (§6).
-
-    Fail-fast prerequisite — if content is not synced, there is no
-    point importing a lab (LDS provisioning requires the form and content).
-
-    ADR-038 Task 1 parity: If content is not synced, triggers a content
-    sync request via ``context.request_content_sync`` (mirrors reconciler's
-    ``_content_sync_service.request_sync()`` call).
-    """
-    definition = context.definition
-    if not definition:
-        return StepResult.failed("Definition not found")
-
-    if not getattr(definition, "content_sync_enabled", False):
-        return StepResult.skipped("Content sync not enabled")
-
-    sync_status = getattr(definition, "sync_status", None)
-    if sync_status == "synced":
-        return StepResult.completed(
-            {
-                "sync_status": sync_status,
-                "form_qualified_name": definition.form_qualified_name,
-            }
-        )
-
-    # Not synced — optionally trigger sync and fail (will retry on next reconcile)
-    if context.request_content_sync and sync_status in (None, "not_synced", "sync_failed"):
-        try:
-            await context.request_content_sync(definition.id)
-        except Exception as e:
-            logger.warning(f"Could not trigger content sync for {definition.id}: {e}")
-
-    return StepResult.failed(f"Content not synced (status: {sync_status}). Waiting for sync.")
-
-
-@step_handler("variables")
-async def step_variables(
-    instance: LabletSessionReadModel,
-    progress: dict[str, Any],
-    context: PipelineContext,
-    params: dict[str, Any] | None = None,
-) -> StepResult:
-    """Resolve session variables — placeholder (§5).
-
-    Currently a no-op. Future: call variable resolution service.
-    """
-    definition = context.definition
-    variables = getattr(definition, "variables", None) if definition else None
-    if not variables:
-        return StepResult.skipped("No variables defined")
-
-    # Future: resolve variables from definition defaults
-    resolved = {var.get("name"): var.get("default_value") for var in variables if var.get("default_value")}
-    return StepResult.completed({"resolved_variables": resolved})
-
-
 @step_handler("lab_resolve")
 async def step_lab_resolve(
     instance: LabletSessionReadModel,
@@ -100,7 +28,7 @@ async def step_lab_resolve(
 
     Returns ``cml_lab_id`` and ``lab_record_id`` in result_data.
 
-    ADR-038 Task 1 parity:
+    Resolution chain:
     - Uses ``context.resolve_lab_for_instance`` for lab resolution (includes
       lab reuse via ``_try_reuse_existing_lab``).
     - Tracks resolved labs in ``context.resolved_lab_ids`` (shared dict).
@@ -117,7 +45,7 @@ async def step_lab_resolve(
         if not topology_yaml:
             return StepResult.failed(f"No topology YAML found for definition {instance.definition_id}")
 
-    # Check if lab already resolved (from previous attempts, session state, or tracking dict
+    # Check if lab already resolved (from previous attempts, session state, or tracking dict)
     resolved_lab_ids = context.resolved_lab_ids or {}
     cml_lab_id = instance.cml_lab_id or resolved_lab_ids.get(instance.id)
     freshly_imported = False

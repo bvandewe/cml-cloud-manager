@@ -1,8 +1,6 @@
-"""LDS step handlers — deregister_lds.
+"""Deregister LDS step handler — deregister_lds.
 
-ADR-038: Extracted from LabletReconciler._step_deregister_lds.
-
-T2. deregister_lds — close the LDS session and release license
+Closes the LDS session and releases the license during teardown.
 """
 
 from __future__ import annotations

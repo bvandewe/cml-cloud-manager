@@ -1,15 +1,8 @@
-"""Binding step handlers — lab_binding, lds_provision, mark_ready.
+"""LDS provision step handler — lds_provision.
 
-ADR-038: Extracted from LabletReconciler._step_lab_binding/lds_provision/mark_ready.
+ADR-038: Extracted from binding_steps.py (one step per file refactor).
 
-These steps handle session binding and readiness:
-6. lab_binding — bind LabRecord to session and create LabRunRecord
-8. lds_provision — create LDS session, map devices, get launch URL
-9. mark_ready — atomic transition to READY status
-
-ADR-038 Task 1: Parity gaps closed — handlers now use enriched PipelineContext
-callables (find_lab_record_id, register_lab_record, build_device_access_list)
-and shared tracking state (resolved_lab_ids, freshly_imported_sessions).
+Provisions LDS session with device mapping.
 """
 
 from __future__ import annotations
@@ -22,18 +15,11 @@ from lcm_core.domain.entities import LabletSessionReadModel
 
 from application.models.pipeline_context import PipelineContext
 from application.services.reconciler_helpers.lds_helpers import build_device_access_from_allocated_ports
+from application.services.step_handlers._helpers import get_step_result_data
 from application.services.step_registry import StepResult, step_handler
 from integration.services.lds_spi import DeviceAccessInfo, LdsSpiError
 
 logger = logging.getLogger(__name__)
-
-
-def _get_step_result_data(progress: dict[str, Any], step_name: str) -> dict[str, Any] | None:
-    """Extract result_data from a completed step in the progress dict."""
-    step_info = progress.get(step_name)
-    if not step_info or not isinstance(step_info, dict):
-        return None
-    return step_info.get("result_data")
 
 
 def _build_device_access_list_simple(nodes: list, worker_ip: str) -> list[DeviceAccessInfo]:
@@ -72,72 +58,6 @@ def _build_device_access_list_simple(nodes: list, worker_ip: str) -> list[Device
     return devices
 
 
-@step_handler("lab_binding")
-async def step_lab_binding(
-    instance: LabletSessionReadModel,
-    progress: dict[str, Any],
-    context: PipelineContext,
-    params: dict[str, Any] | None = None,
-) -> StepResult:
-    """Bind LabRecord to session and create LabRunRecord (§4.3).
-
-    Calls CPA ``bind_lab_to_session()`` which:
-    1. Creates a LabRunRecord (runtime tracking)
-    2. Sets ``active_lablet_session_id`` on LabRecord
-    3. Denormalizes ``LabRecord.allocated_ports`` onto LabletSession
-
-    ADR-038 Task 1 parity: If ``lab_record_id`` is missing from lab_resolve
-    result data, attempts full fallback chain: find → register → fail.
-    Uses ``context.find_lab_record_id`` and ``context.register_lab_record``.
-    """
-    resolve_data = _get_step_result_data(progress, "lab_resolve")
-    cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
-    lab_record_id = resolve_data.get("lab_record_id") if resolve_data else None
-
-    if not cml_lab_id:
-        return StepResult.failed("No cml_lab_id from lab_resolve")
-
-    # Resilient fallback: resolve lab_record_id if missing from stale progress
-    if not lab_record_id:
-        logger.warning(f"lab_binding: lab_record_id missing from lab_resolve data for lab {cml_lab_id} — attempting to find or register LabRecord")
-        # Step 1: Try to find existing LabRecord
-        if context.find_lab_record_id:
-            lab_record_id = await context.find_lab_record_id(cml_lab_id, instance.worker_id or "")
-
-        # Step 2: Register if not found
-        if not lab_record_id and context.register_lab_record:
-            lab_record_id = await context.register_lab_record(cml_lab_id, instance)
-
-        # Step 3: Direct CPA fallback
-        if not lab_record_id:
-            try:
-                records = await context.api.get_lab_records_for_worker(worker_id=instance.worker_id or "")
-                for lr in records:
-                    if lr.get("lab_id") == cml_lab_id:
-                        lab_record_id = lr.get("id")
-                        break
-            except Exception as e:
-                logger.warning(f"lab_binding: fallback lookup failed: {e}")
-
-        if not lab_record_id:
-            return StepResult.failed(f"No lab_record_id for lab {cml_lab_id} — find and register both failed")
-        logger.info(f"lab_binding: resolved lab_record_id={lab_record_id} via fallback")
-
-    cml_lab_title = resolve_data.get("cml_lab_title") if resolve_data else None
-
-    try:
-        result = await context.api.bind_lab_to_session(
-            session_id=instance.id,
-            worker_id=instance.worker_id,
-            lab_record_id=lab_record_id,
-            cml_lab_id=cml_lab_id,
-            cml_lab_title=cml_lab_title,
-        )
-        return StepResult.completed(result)
-    except Exception as e:
-        return StepResult.failed(str(e))
-
-
 @step_handler("lds_provision")
 async def step_lds_provision(
     instance: LabletSessionReadModel,
@@ -154,7 +74,7 @@ async def step_lds_provision(
     4. Fallback: legacy tag-based path when no allocated_ports
     5. Create LDS session and set filtered devices
     """
-    resolve_data = _get_step_result_data(progress, "lab_resolve")
+    resolve_data = get_step_result_data(progress, "lab_resolve")
     cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
     if not cml_lab_id:
         return StepResult.failed("No cml_lab_id from lab_resolve")
@@ -177,7 +97,7 @@ async def step_lds_provision(
             visible_labels = {d["device_label"] for d in raw_visible}
 
         # ── Get allocated ports (source of truth for connectivity) ──
-        ports_data = _get_step_result_data(progress, "ports_alloc")
+        ports_data = get_step_result_data(progress, "ports_alloc")
         allocated_ports: dict[str, int] = {}
         if ports_data:
             allocated_ports = ports_data.get("allocated_ports", {})
@@ -260,54 +180,5 @@ async def step_lds_provision(
 
     except LdsSpiError as e:
         return StepResult.failed(f"LDS provisioning failed: {e}")
-    except Exception as e:
-        return StepResult.failed(str(e))
-
-
-@step_handler("mark_ready")
-async def step_mark_ready(
-    instance: LabletSessionReadModel,
-    progress: dict[str, Any],
-    context: PipelineContext,
-    params: dict[str, Any] | None = None,
-) -> StepResult:
-    """Atomic transition to READY status.
-
-    Calls ``mark_session_ready()`` with the resolved CML lab ID
-    and user session ID.
-
-    ADR-038 Task 1 parity: Cleans up shared tracking state
-    (resolved_lab_ids, freshly_imported_sessions) after successful
-    mark_ready — the lab ID is now persisted in CPA.
-    """
-    resolve_data = _get_step_result_data(progress, "lab_resolve")
-    cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
-    if not cml_lab_id:
-        return StepResult.failed("No cml_lab_id from lab_resolve")
-
-    # Get user_session_id from lds_provision (if it ran)
-    lds_data = _get_step_result_data(progress, "lds_provision")
-    user_session_id = (lds_data.get("user_session_id") if lds_data else None) or ""
-
-    try:
-        await context.api.mark_session_ready(
-            session_id=instance.id,
-            user_session_id=user_session_id,
-            cml_lab_id=cml_lab_id,
-        )
-
-        # Clean up local lab ID tracking (now persisted in CPA)
-        if context.resolved_lab_ids is not None:
-            context.resolved_lab_ids.pop(instance.id, None)
-        if context.freshly_imported_sessions is not None:
-            context.freshly_imported_sessions.discard(instance.id)
-
-        logger.info(f"✅ Session {instance.id} marked READY (pipeline complete)")
-        return StepResult.completed(
-            {
-                "cml_lab_id": cml_lab_id,
-                "user_session_id": user_session_id,
-            }
-        )
     except Exception as e:
         return StepResult.failed(str(e))

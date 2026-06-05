@@ -1,10 +1,6 @@
-"""Port step handlers — ports_alloc, tags_sync.
+"""Tags sync step handler — tags_sync.
 
-ADR-038: Extracted from LabletReconciler._step_ports_alloc/tags_sync.
-
-These steps handle port allocation and CML node tag synchronization:
-4. ports_alloc — allocate real ports from worker pool via CPA
-5. tags_sync — write protocol:port tags to CML nodes
+Writes allocated port numbers to CML node tags after port allocation.
 """
 
 from __future__ import annotations
@@ -16,47 +12,10 @@ from typing import Any
 from lcm_core.domain.entities import LabletSessionReadModel
 
 from application.models.pipeline_context import PipelineContext
+from application.services.step_handlers._helpers import get_step_result_data
 from application.services.step_registry import StepResult, step_handler
 
 logger = logging.getLogger(__name__)
-
-
-def _get_step_result_data(progress: dict[str, Any], step_name: str) -> dict[str, Any] | None:
-    """Extract result_data from a completed step in the progress dict."""
-    step_info = progress.get(step_name)
-    if not step_info or not isinstance(step_info, dict):
-        return None
-    return step_info.get("result_data")
-
-
-@step_handler("ports_alloc")
-async def step_ports_alloc(
-    instance: LabletSessionReadModel,
-    progress: dict[str, Any],
-    context: PipelineContext,
-    params: dict[str, Any] | None = None,
-) -> StepResult:
-    """Allocate real ports from worker pool via CPA (§3.6).
-
-    Ports are stored on the LabRecord, keyed by lab_record_id in etcd.
-    """
-    definition = context.definition
-    if not definition or not getattr(definition, "port_template", None):
-        return StepResult.skipped("No port template defined")
-
-    resolve_data = _get_step_result_data(progress, "lab_resolve")
-    lab_record_id = resolve_data.get("lab_record_id") if resolve_data else None
-    if not lab_record_id:
-        return StepResult.failed("No lab_record_id from lab_resolve")
-
-    try:
-        result = await context.api.allocate_lab_record_ports(
-            lab_record_id=lab_record_id,
-            worker_id=instance.worker_id,
-        )
-        return StepResult.completed(result)
-    except Exception as e:
-        return StepResult.failed(str(e))
 
 
 @step_handler("tags_sync")
@@ -72,7 +31,7 @@ async def step_tags_sync(
     PATCH /api/v0/labs/{lab_id}/nodes/{node_id}.
     Tags persist across start/stop/wipe — they are topology-level metadata.
     """
-    ports_data = _get_step_result_data(progress, "ports_alloc")
+    ports_data = get_step_result_data(progress, "ports_alloc")
     if not ports_data:
         return StepResult.skipped("No ports_alloc data")
 
@@ -80,7 +39,7 @@ async def step_tags_sync(
     if not allocated_ports:
         return StepResult.skipped("No allocated ports")
 
-    resolve_data = _get_step_result_data(progress, "lab_resolve")
+    resolve_data = get_step_result_data(progress, "lab_resolve")
     cml_lab_id = resolve_data.get("cml_lab_id") if resolve_data else None
     if not cml_lab_id:
         return StepResult.failed("No cml_lab_id from lab_resolve")

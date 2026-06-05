@@ -18,15 +18,14 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import yaml
-from lcm_core.domain.entities import LabletSessionReadModel
-from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
-from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
-
 from application.hosted_services.lablet_reconciler import LabletReconciler
 from application.models.pipeline_result import PipelineResult
 from application.services.lifecycle_phase_handler import LifecyclePhaseHandler
 from application.services.pipeline_executor import PipelineExecutor
 from application.services.step_registry import get_handler
+from lcm_core.domain.entities import LabletSessionReadModel
+from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
+from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
 
 # =============================================================================
 # Fixtures
@@ -763,27 +762,51 @@ class TestSeedFileHandlerValidation:
         import importlib
 
         from application.services.step_handlers import (
-            archive_steps,
-            binding_steps,
+            archive_step,
+            capture_configs_step,
+            capture_screenshots_step,
             cml_command_step,
-            evidence_steps,
-            grading_steps,
-            instantiation_steps,
-            lab_lifecycle_steps,
-            lds_steps,
-            port_steps,
+            content_sync_step,
+            deregister_lds_step,
+            evaluate_step,
+            export_pcaps_step,
+            lab_binding_step,
+            lab_resolve_step,
+            lab_start_step,
+            lds_provision_step,
+            load_rubric_step,
+            mark_ready_step,
+            package_evidence_step,
+            ports_alloc_step,
+            record_score_step,
+            stop_lab_step,
+            tags_sync_step,
+            variables_step,
+            wipe_lab_step,
         )
 
         for mod in [
-            archive_steps,
-            binding_steps,
+            archive_step,
+            capture_configs_step,
+            capture_screenshots_step,
             cml_command_step,
-            evidence_steps,
-            grading_steps,
-            instantiation_steps,
-            lab_lifecycle_steps,
-            lds_steps,
-            port_steps,
+            content_sync_step,
+            deregister_lds_step,
+            evaluate_step,
+            export_pcaps_step,
+            lab_binding_step,
+            lab_resolve_step,
+            lab_start_step,
+            lds_provision_step,
+            load_rubric_step,
+            mark_ready_step,
+            package_evidence_step,
+            ports_alloc_step,
+            record_score_step,
+            stop_lab_step,
+            tags_sync_step,
+            variables_step,
+            wipe_lab_step,
         ]:
             importlib.reload(mod)
 
