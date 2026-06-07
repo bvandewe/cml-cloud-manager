@@ -1,0 +1,80 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://lcm.local/schemas/pav1/lifecycle.schema.json",
+    "title": "PAv1 lifecycle.yaml",
+    "description": "Phase DAGs executed by CPA PipelineExecutor. See docs/architecture/content-format/PAv1.md §4.3.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["phases"],
+    "properties": {
+        "phases": {
+            "description": "Map of phase-name -> phase definition.",
+            "type": "object",
+            "minProperties": 1,
+            "patternProperties": {
+                "^[a-zA-Z0-9_-]+$": { "$ref": "#/$defs/phase" }
+            },
+            "additionalProperties": false
+        }
+    },
+    "$defs": {
+        "phase": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["steps"],
+            "properties": {
+                "description": { "type": "string" },
+                "steps": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/$defs/step" }
+                }
+            }
+        },
+        "step": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "handler"],
+            "properties": {
+                "name": {
+                    "description": "Unique step name within the phase.",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "handler": {
+                    "description": "Either 'scenario_engine/<scenario>@<version>' (Tier-B) or 'built_in/<handler>' (Tier-A).",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "depends_on": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                },
+                "skip_when": {
+                    "description": "simpleeval expression evaluated against pipeline context.",
+                    "type": "string"
+                },
+                "retry": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "attempts": { "type": "integer", "minimum": 0 },
+                        "backoff_seconds": { "type": "number", "minimum": 0 }
+                    }
+                },
+                "timeout": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["seconds"],
+                    "properties": {
+                        "seconds": { "type": "number", "exclusiveMinimum": 0 }
+                    }
+                },
+                "inputs": {
+                    "description": "Static or context-templated inputs forwarded to the handler.",
+                    "type": "object"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,59 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://lcm.local/schemas/pav1/manifest.schema.json",
+    "title": "PAv1 manifest.yaml",
+    "description": "Top-level manifest for a PAv1 pod artifact. See docs/architecture/content-format/PAv1.md §4.1.",
+    "type": "object",
+    "additionalProperties": true,
+    "required": ["format_version", "name", "version", "content_id"],
+    "properties": {
+        "format_version": {
+            "description": "Pod Artifact format version. Currently only 'PAv1' is supported.",
+            "const": "PAv1"
+        },
+        "name": {
+            "description": "Content package name (slug-like).",
+            "type": "string",
+            "minLength": 1
+        },
+        "version": {
+            "description": "Semantic version (e.g. '1.0.0'). Validator does not enforce semver shape, only non-empty string.",
+            "type": "string",
+            "minLength": 1
+        },
+        "content_id": {
+            "description": "Stable identifier for this content lineage (typically slugified form-qualified-name).",
+            "type": "string",
+            "minLength": 1
+        },
+        "pod_type": {
+            "description": "Pod type. Strongly recommended; if absent, PodTypeDetector falls back to topology signals.",
+            "type": "string",
+            "enum": ["cml_on_aws", "roc_radkit", "proxmox", "vmware"]
+        },
+        "description": {
+            "type": "string"
+        },
+        "authors": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "email": { "type": "string" }
+                }
+            }
+        },
+        "scenarios_used": {
+            "description": "Informational list of scenario references (name@version) used by lifecycle.yaml.",
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+        },
+        "lifecycle_ref": {
+            "description": "Relative path to lifecycle.yaml (default 'lifecycle.yaml').",
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}
