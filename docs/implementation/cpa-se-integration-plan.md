@@ -39,7 +39,7 @@ ADR-044 calls for a two-engine architecture:
 
 | Theme | Status |
 |---|---|
-| Content extraction → SE | � lablet-controller does not yet notify SE; SE's `SyncContentCommand` is now a full 10-step orchestrator (Phase 1, G-01 closed). Outbound notification remains Phase 2 (G-02). |
+| Content extraction → SE | 🟡 SE's `SyncContentCommand` is a full 10-step orchestrator (Phase 1, G-01 🟢 closed). lablet-controller still does **not** notify SE on content sync — outbound call remains Phase 2 (G-02 🔴 open). |
 | Pod type auto-discovery | 🟢 **Closed (Phase 0, G-04)** — `PodTypeDetector` enforces AD-CSI-002 priority chain (manifest > radkit > proxmox > vmware > cml.yaml > legacy) in `lcm_core.infrastructure.content_store`. |
 | `PodDefinition` entity | 🟢 **Closed (Phase 0, G-03)** — 8 typed PAv1 fields added (`content_hash`, `topology`, `devices`, `lifecycle_phases`, `scenarios`, `grading_rules`, `reports`, `restore_rules`) with safe defaults; event payload extended. |
 | `ScenarioEngineClient` call sites | 🔴 client is registered but **zero** call sites — nothing in lablet-controller submits jobs to SE. |
@@ -133,7 +133,7 @@ The remediation is **content-driven sync redesign + missing-call-site implementa
 > **Severity**: 🔥 Blocker (no end-to-end flow without it) · 🔴 High · 🟡 Medium · 🟢 Low
 > **Status**: 🔴 Open · 🟡 In progress · 🟢 Closed
 
-### G-01 — SE `SyncContentCommand` is a stub  🔥 Blocker — � Closed
+### G-01 — SE `SyncContentCommand` is a stub  🔥 Blocker — 🟢 Closed (Phase 1)
 
 **Closed:** Phase 1, multiple commits — `SyncContentCommandHandler` now executes the full 10-step pipeline (validate → load/create → SYNCHRONIZING → S3 download → SHA-256 → pod-type detection → PAv1 extract → JSON-schema validation → READY → supersede stale → emit `pod_definition.ready.v1`). Failures funnel through `mark_failed` + `pod_definition.sync_failed.v1`. Backed by:
 

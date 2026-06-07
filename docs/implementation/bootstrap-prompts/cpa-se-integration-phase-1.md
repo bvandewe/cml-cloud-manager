@@ -1,6 +1,6 @@
 # Bootstrap Prompt: CPA↔SE Integration — Phase 1 SE Content Sync Becomes Real
 
-> **🔴 Status: Not started.** Phase 0 foundations are in place (see [`cpa-se-integration-phase-0.md`](cpa-se-integration-phase-0.md) — closed in commits `d5600a1`, `7d760fe`, `820dcaf`, `c081eab`). This phase makes the one remaining 🔥 Blocker — **G-01** — go from stub to real.
+> **� Status: COMPLETE** — closed 2026-06-07 in commits `0624a6a` (S3ContentClient + ContentExtractor), `184398d` (FAILED state + supersede), `172d161` (SyncContentCommand orchestration), `08563ac` (docs). G-01 marked closed in the [master plan §3](../cpa-se-integration-plan.md#3-gap-catalog). New decisions **AD-CSI-011/012/013** stored. Tests: core 307 ✓ · scenario-engine 110 ✓. **Next phase**: [`cpa-se-integration-phase-2.md`](cpa-se-integration-phase-2.md).
 
 | Attribute | Value |
 |-----------|-------|
@@ -285,23 +285,23 @@ If you make a **new** architectural decision (not in AD-CSI-001..010), store it 
 
 ## Definition of Done — Phase 1
 
-- [ ] `lcm_core.infrastructure.content_store.S3ContentClient` shipped + `moto`-backed tests
-- [ ] `ContentExtractor.extract()` parses the full `PAv1/` tree into `ExtractedContent` (no `NotImplementedError`)
-- [ ] `ExtractedContent.detected_pod_type` field added (`PodType | None`)
-- [ ] `PodDefinitionRepository.expire_superseded_definitions_async()` shipped on interface + Mongo impl
-- [ ] `PodDefinition.supersede(...)` and `PodDefinition.mark_failed(...)` aggregate methods present (verified existing or newly added with @dispatch handlers + events)
-- [ ] `SyncContentCommand` rewritten end-to-end (DEFINED → SYNCHRONIZING → download → SHA → extract → validate → READY → supersede stale → emit CloudEvent)
-- [ ] `CloudEventCallbackService.emit_content_synced()` + `emit_sync_failed()` shipped
-- [ ] New SE Settings fields for S3 + DI registrations for S3ContentClient / ContentExtractor / PAv1Validator / PodTypeDetector
-- [ ] 4 test suites pass: end-to-end sync, supersession, failure path, CloudEvent emission spy
-- [ ] `cd src/scenario-engine && make lint && make test` green
-- [ ] `cd src/core && make lint && make test` green
-- [ ] `docs/implementation/cpa-se-integration-plan.md` §3 G-01 banner flipped 🔴 → 🟢 with `**Closed:** <SHA>` line
-- [ ] Plan §1 exec summary row for "Content extraction → SE" updated to reflect G-01 closed (G-02 still 🔴 Open)
-- [ ] Plan §6 Phase 1 bullets ticked
-- [ ] Task `Phase 1: SE Content Sync (G-01)` marked `completed` in Knowledge Manager
-- [ ] Commits atomic with `-s`, prefixed `feat:` / `test:` / `docs:`
-- [ ] Any new architectural decisions stored as `AD-CSI-011+` (both in KM and plan §7)
+- [x] `lcm_core.infrastructure.content_store.S3ContentClient` shipped + `moto`-backed tests (12 tests)
+- [x] `ContentExtractor.extract()` parses the full `PAv1/` tree into `ExtractedContent` (no `NotImplementedError`)
+- [x] `ExtractedContent.detected_pod_type` field added (`PodType | None`) — AD-CSI-012
+- [x] `PodDefinitionRepository.expire_superseded_definitions_async()` shipped on interface + Mongo impl + 4 integration tests
+- [x] `PodDefinition.mark_failed(...)` aggregate method + `PodDefinitionSyncFailedDomainEvent` + bidirectional `SYNCHRONIZING ↔ FAILED` transitions — AD-CSI-011. _Supersession is bulk via the repository helper (not a per-aggregate `supersede()` method)._
+- [x] `SyncContentCommand` rewritten end-to-end (DEFINED → SYNCHRONIZING → download → SHA → extract → validate → READY → supersede stale → emit CloudEvent)
+- [x] `CloudEventCallbackService.emit_content_synced()` + `emit_sync_failed()` shipped (`pod_definition.ready.v1` + `pod_definition.sync_failed.v1`); `ready.v1` payload carries `superseded_ids[]`
+- [x] New SE Settings fields for S3 (`s3_endpoint`, `s3_access_key`, `s3_secret_key`, `s3_region`, `s3_secure`) + DI singletons for `S3ContentClient` / `ContentExtractor` / `PAv1Validator` / `PodTypeDetector` in `main.py`
+- [x] 4 test suites pass: end-to-end sync (10 tests), supersession (4), failure path, CloudEvent emission spy
+- [x] `cd src/scenario-engine && make test` green — 110 passed
+- [x] `cd src/core && pytest -q` green — 307 passed
+- [x] `docs/implementation/cpa-se-integration-plan.md` §3 G-01 banner flipped 🔴 → 🟢 with `**Closed:** <commits>` line
+- [x] Plan §1 exec summary row for "Content extraction → SE" updated (G-01 🟢, G-02 still 🔴 Open)
+- [x] Plan §6 Phase 1 bullets ticked (`🟢 Complete` + verification line)
+- [x] Task `Phase 1: SE Content Sync (G-01)` marked `completed` in Knowledge Manager
+- [x] Commits atomic with `-s`, prefixed `feat:` / `docs:`
+- [x] New architectural decisions stored as AD-CSI-011 / AD-CSI-012 / AD-CSI-013 (both in KM and plan §7)
 
 ---
 
