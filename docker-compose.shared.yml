@@ -406,6 +406,60 @@ services:
             retries: 3
             start_period: 15s
 
+    # 🎭 Scenario Engine Service
+    # Handles pod automation execution (DSL, multi-adapter dispatch)
+    scenario-engine:
+        build:
+            context: ./src/scenario-engine
+            dockerfile: Dockerfile
+        command: ['sh', '-c', 'pip install debugpy watchfiles && python -m debugpy --listen 0.0.0.0:5678 main.py']
+        ports:
+            - '${SCENARIO_ENGINE_PORT:-8084}:8084'
+            - '5684:5678' # Debug port
+        environment:
+            # Core Application
+            APP_NAME: scenario-engine
+            APP_VERSION: ${IMAGE_TAG:-v0.1.0}
+            IMAGE_TAG: ${SCENARIO_ENGINE_IMAGE_TAG:-v0.1.0}
+            ENVIRONMENT: development
+            DEBUG: 'true'
+            LOG_LEVEL: DEBUG
+            LOG_TO_FILE: 'true'
+            LOG_FILE: logs/scenario-engine.log
+            LOG_FILE_TRUNCATE_ON_START: 'true'
+            APP_HOST: 0.0.0.0
+            APP_PORT: 8084
+            PYTHONPATH: '/app:/core'
+
+            # Database & Persistence (using shared MongoDB)
+            CONNECTION_STRINGS: '{"mongo": "mongodb://${MONGODB_ROOT_USERNAME:-root}:${MONGODB_ROOT_PASSWORD:-password123}@aix-mongodb:27017/?authSource=admin"}'
+            MONGODB_DATABASE: scenario_engine
+
+            # S3 / RustFS Object Storage (Content Sync)
+            S3_ENDPOINT: http://${S3_ENDPOINT:-aix-rustfs}:${S3_PORT:-9000}
+            S3_ACCESS_KEY: ${S3_ACCESS_KEY:-admin}
+            S3_SECRET_KEY: ${S3_SECRET_KEY:-admin123}
+            S3_REGION: ${S3_REGION:-us-east-1}
+            S3_BUCKET: ${S3_BUCKET:-lcm-content}
+
+            # Observability (using shared OTEL collector)
+            OTEL_SERVICE_NAME: scenario-engine
+            OTEL_EXPORTER_OTLP_ENDPOINT: http://aix-otel-collector:4317
+
+        volumes:
+            - ./src/scenario-engine:/app
+            - ./src/core:/core
+        networks:
+            - aix-net
+        depends_on:
+            - control-plane-api
+        healthcheck:
+            test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:8084/api/health")']
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 15s
+
     # =========================================================================
     # LCM-SPECIFIC INFRASTRUCTURE
     # =========================================================================

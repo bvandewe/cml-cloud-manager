@@ -9,6 +9,10 @@
             "path": "src/control-plane-api",
         },
         {
+            "name": "🎭 scenario-engine",
+            "path": "src/scenario-engine",
+        },
+        {
             "name": "📅 resource-scheduler",
             "path": "src/resource-scheduler",
         },

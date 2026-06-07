@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title | default('Scenario Engine') }}</title>
+</head>
+
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <span>{{ serviceEmoji | default('🎭') }}</span>
+                <span>{{ title | default('Scenario Engine') }}</span>
+            </a>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <h1>{{ title | default('Scenario Engine') }}</h1>
+        <p>Pod Automation Service — UI placeholder.</p>
+    </div>
+</body>
+
+</html>

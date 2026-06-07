@@ -44,12 +44,14 @@ CONTROL_PLANE_DIR := src/control-plane-api
 RESOURCE_SCHEDULER_DIR := src/resource-scheduler
 LABLET_CONTROLLER_DIR := src/lablet-controller
 WORKER_CONTROLLER_DIR := src/worker-controller
+SCENARIO_ENGINE_DIR := src/scenario-engine
 
 # Port settings with defaults (can be overridden in .env)
 APP_PORT ?= 8020
 RESOURCE_SCHEDULER_PORT ?= 8081
 LABLET_CONTROLLER_PORT ?= 8082
 WORKER_CONTROLLER_PORT ?= 8083
+SCENARIO_ENGINE_PORT ?= 8084
 KEYCLOAK_PORT ?= 8021
 MONGODB_PORT ?= 8022
 MONGODB_EXPRESS_PORT ?= 8023
@@ -168,11 +170,11 @@ rebuild: ## Rebuild services from scratch without cache
 	$(COMPOSE) up -d --force-recreate
 	@echo "$(GREEN)Rebuild complete!$(NC)"
 
-rebuild-services: ## Rebuild all microservices (control-plane-api, resource-scheduler, lablet-controller, worker-controller)
+rebuild-services: ## Rebuild all microservices (control-plane-api, resource-scheduler, lablet-controller, worker-controller, scenario-engine)
 	@echo "$(BLUE)Rebuilding all microservices...$(NC)"
-	$(COMPOSE) build --no-cache control-plane-api resource-scheduler lablet-controller worker-controller
+	$(COMPOSE) build --no-cache control-plane-api resource-scheduler lablet-controller worker-controller scenario-engine
 	@echo "$(BLUE)Restarting microservices...$(NC)"
-	$(COMPOSE) up -d --force-recreate control-plane-api resource-scheduler lablet-controller worker-controller
+	$(COMPOSE) up -d --force-recreate control-plane-api resource-scheduler lablet-controller worker-controller scenario-engine
 	@echo "$(GREEN)All microservices rebuilt and restarted!$(NC)"
 	@$(MAKE) urls
 
@@ -190,6 +192,9 @@ logs-lablet-controller: ## Show logs from the lablet-controller service
 
 logs-worker-controller: ## Show logs from the worker-controller service
 	$(COMPOSE) logs -f worker-controller
+
+logs-scenario-engine: ## Show logs from the scenario-engine service
+	$(COMPOSE) logs -f scenario-engine
 
 logs-worker: ## Show logs from the legacy worker service
 	$(COMPOSE) logs -f worker
@@ -264,6 +269,7 @@ urls: ## Display application and service URLs
 	@echo "  Resource Scheduler:    http://localhost:$(RESOURCE_SCHEDULER_PORT)"
 	@echo "  Lablet Controller:     http://localhost:$(LABLET_CONTROLLER_PORT)"
 	@echo "  Worker Controller:     http://localhost:$(WORKER_CONTROLLER_PORT)"
+	@echo "  Scenario Engine:       http://localhost:$(SCENARIO_ENGINE_PORT)"
 	@echo ""
 	@echo "$(YELLOW)Infrastructure:$(NC)"
 	@echo "  etcd:                  $(ETCD_URL)"
@@ -281,6 +287,7 @@ urls: ## Display application and service URLs
 	@echo "  Resource Scheduler:    5681"
 	@echo "  Lablet Controller:     5682"
 	@echo "  Worker Controller:     5683"
+	@echo "  Scenario Engine:       5684"
 	@echo ""
 	@echo "  Documentation:         http://127.0.0.1:8000/lablet-cloud-manager/"
 
@@ -327,6 +334,9 @@ logs-shared-lablet: ## Show logs from lablet-controller (shared mode)
 logs-shared-worker: ## Show logs from worker-controller (shared mode)
 	$(SHARED_COMPOSE) logs -f worker-controller
 
+logs-shared-scenario: ## Show logs from scenario-engine (shared mode)
+	$(SHARED_COMPOSE) logs -f scenario-engine
+
 ps-shared: ## Show running LCM containers (shared mode)
 	$(SHARED_COMPOSE) ps
 
@@ -367,6 +377,7 @@ urls-shared: ## Display URLs when running in shared mode
 	@echo "  Resource Scheduler:    http://localhost:$(RESOURCE_SCHEDULER_PORT)"
 	@echo "  Lablet Controller:     http://localhost:$(LABLET_CONTROLLER_PORT)"
 	@echo "  Worker Controller:     http://localhost:$(WORKER_CONTROLLER_PORT)"
+	@echo "  Scenario Engine:       http://localhost:$(SCENARIO_ENGINE_PORT)"
 	@echo ""
 	@echo "$(YELLOW)LCM-Specific Infrastructure:$(NC)"
 	@echo "  etcd:                  http://localhost:2379"
@@ -385,6 +396,7 @@ urls-shared: ## Display URLs when running in shared mode
 	@echo "  Resource Scheduler:    5681"
 	@echo "  Lablet Controller:     5682"
 	@echo "  Worker Controller:     5683"
+	@echo "  Scenario Engine:       5684"
 
 reset-etcd-shared: ## Reset LCM etcd data (shared mode)
 	@echo "$(RED)WARNING: This will delete all LCM etcd data!$(NC)"
@@ -494,15 +506,34 @@ worker-controller-lint: ## Run worker-controller linting
 	@echo "$(BLUE)Running worker-controller linting...$(NC)"
 	cd $(WORKER_CONTROLLER_DIR) && poetry run ruff check .
 
+##@ Scenario Engine Service
+
+scenario-engine-install: ## Install scenario-engine dependencies
+	@echo "$(BLUE)Installing scenario-engine dependencies...$(NC)"
+	cd $(SCENARIO_ENGINE_DIR) && poetry install
+	@echo "$(GREEN)Dependencies installed!$(NC)"
+
+scenario-engine-run: ## Run scenario-engine locally
+	@echo "$(BLUE)Starting Scenario Engine...$(NC)"
+	cd $(SCENARIO_ENGINE_DIR) && PYTHONPATH=. poetry run python main.py
+
+scenario-engine-test: ## Run scenario-engine tests
+	@echo "$(BLUE)Running scenario-engine tests...$(NC)"
+	cd $(SCENARIO_ENGINE_DIR) && poetry run pytest
+
+scenario-engine-lint: ## Run scenario-engine linting
+	@echo "$(BLUE)Running scenario-engine linting...$(NC)"
+	cd $(SCENARIO_ENGINE_DIR) && poetry run ruff check .
+
 ##@ All Services
 
-install-all: api-install resource-scheduler-install lablet-controller-install worker-controller-install ## Install dependencies for all services
+install-all: api-install resource-scheduler-install lablet-controller-install worker-controller-install scenario-engine-install ## Install dependencies for all services
 	@echo "$(GREEN)All dependencies installed!$(NC)"
 
-test-all: api-test resource-scheduler-test lablet-controller-test worker-controller-test ## Run tests for all services
+test-all: api-test resource-scheduler-test lablet-controller-test worker-controller-test scenario-engine-test ## Run tests for all services
 	@echo "$(GREEN)All tests complete!$(NC)"
 
-lint-all: api-lint resource-scheduler-lint lablet-controller-lint worker-controller-lint ## Run linting for all services
+lint-all: api-lint resource-scheduler-lint lablet-controller-lint worker-controller-lint scenario-engine-lint ## Run linting for all services
 	@echo "$(GREEN)All linting complete!$(NC)"
 
 ##@ Testing & Quality (Legacy - use api-test, resource-scheduler-test, lablet-controller-test)
@@ -608,7 +639,7 @@ docs-config: ## Show current documentation configuration
 
 ##@ Environment Setup
 
-setup: api-install api-install-ui api-build-ui install-hooks resource-scheduler-install lablet-controller-install worker-controller-install ## Complete setup for new developers
+setup: api-install api-install-ui api-build-ui install-hooks resource-scheduler-install lablet-controller-install worker-controller-install scenario-engine-install ## Complete setup for new developers
 	@echo "$(GREEN)✅ Setup complete!$(NC)"
 	@echo ""
 	@echo "$(YELLOW)Quick Start:$(NC)"
@@ -644,6 +675,7 @@ info: ## Show project information
 	@echo "  📅 Scheduler          - LabletInstance placement decisions"
 	@echo "  🎛️  Lablet Controller  - LabletInstance reconciliation + auto-scaling"
 	@echo "  🔧 Worker Controller  - CML Worker observation + monitoring"
+	@echo "  🎭 Scenario Engine    - Pod automation execution (DSL + adapters)"
 	@echo ""
 	@echo "$(YELLOW)Docker URLs:$(NC)"
 	@echo "  Control Plane API: http://localhost:8020"
@@ -651,6 +683,7 @@ info: ## Show project information
 	@echo "  Scheduler:         http://localhost:8081"
 	@echo "  Lablet Controller: http://localhost:8082"
 	@echo "  Worker Controller: http://localhost:8083"
+	@echo "  Scenario Engine:   http://localhost:8084"
 	@echo "  etcd:              http://localhost:2379"
 	@echo "  MongoDB Express:   http://localhost:8023"
 	@echo "  Keycloak Admin:    http://localhost:8021 (admin/admin)"

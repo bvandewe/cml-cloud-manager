@@ -1,0 +1,47 @@
+# Sample lifecycle.yaml — CCNP exam lab instantiation phase
+# Used for integration testing of the DSL executor against registered scenarios.
+document:
+    dsl: '1.0.0'
+    namespace: lcm
+    name: exam-ccnp-test-v1-lab-1.1
+    version: '1.0.0'
+
+# Instantiation phase tasks
+phases:
+    instantiate:
+        do:
+            - initContext:
+                  set:
+                      phase: instantiate
+                      started: true
+
+            - resolveTopology:
+                  call: lab_resolve@v1
+                  with:
+                      topology_yaml: ${ $context.topology_yaml }
+                      worker_ip: ${ $context.worker_ip }
+                      worker_cml_username: ${ $context.cml_username }
+                      worker_cml_password: ${ $context.cml_password }
+                      lab_reuse_enabled: ${ $context.lab_reuse_enabled }
+                  output:
+                      as: '${ { lab_id: .lab_id, lab_title: .lab_title, freshly_imported: .freshly_imported } }'
+                  export:
+                      as: '${ $context | .lab_id = $output.lab_id | .lab_title = $output.lab_title }'
+
+            - startLab:
+                  call: lab_start@v1
+                  with:
+                      lab_id: ${ $context.lab_id }
+                      worker_ip: ${ $context.worker_ip }
+                      worker_cml_username: ${ $context.cml_username }
+                      worker_cml_password: ${ $context.cml_password }
+                      poll_interval: 1
+                  output:
+                      as: '${ { lab_state: .lab_state, lab_id: .lab_id } }'
+                  export:
+                      as: '${ $context | .lab_state = $output.lab_state }'
+
+            - markReady:
+                  set:
+                      phase_complete: true
+                      status: ready
