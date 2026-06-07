@@ -76,6 +76,7 @@ LABLET_SESSION_VALID_TRANSITIONS: dict[LabletSessionStatus, list[LabletSessionSt
     ],
     LabletSessionStatus.STOPPING: [
         LabletSessionStatus.STOPPED,
+        LabletSessionStatus.ARCHIVED,  # Teardown pipeline: STOPPING → ARCHIVED (skip STOPPED)
         LabletSessionStatus.TERMINATED,
     ],
     LabletSessionStatus.STOPPED: [
@@ -87,6 +88,7 @@ LABLET_SESSION_VALID_TRANSITIONS: dict[LabletSessionStatus, list[LabletSessionSt
     ],
     LabletSessionStatus.TERMINATED: [],  # Terminal state
     LabletSessionStatus.EXPIRED: [
+        LabletSessionStatus.STOPPING,  # Teardown pipeline: expired sessions need infrastructure cleanup
         LabletSessionStatus.TERMINATED,  # ADR-031: force-terminate an expired session
     ],
 }
