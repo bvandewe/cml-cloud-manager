@@ -47,6 +47,9 @@ class LabletDefinitionCreatedDomainEvent(DomainEvent):
     # Pipeline definitions (ADR-034)
     pipelines: dict | None
 
+    # Pod definition reference (ADR-044 §2.6)
+    pod_definition_ref: dict[str, Any] | None
+
     def __init__(
         self,
         aggregate_id: str,
@@ -75,6 +78,7 @@ class LabletDefinitionCreatedDomainEvent(DomainEvent):
         boot_lead_time_minutes: int | None = None,
         pipelines: dict | None = None,
         lab_reuse_enabled: bool = False,
+        pod_definition_ref: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(aggregate_id)
         self.aggregate_id = aggregate_id
@@ -102,6 +106,7 @@ class LabletDefinitionCreatedDomainEvent(DomainEvent):
         self.boot_lead_time_minutes = boot_lead_time_minutes
         self.pipelines = pipelines
         self.lab_reuse_enabled = lab_reuse_enabled
+        self.pod_definition_ref = pod_definition_ref
 
 
 @cloudevent("lablet_definition.version_created.v1")
@@ -460,3 +465,36 @@ class LabletDefinitionContentSyncedDomainEvent(DomainEvent):
         self.node_count = node_count
         self.node_definitions_required = node_definitions_required
         self.port_conflicts = port_conflicts
+
+
+@cloudevent("lablet_definition.pod_definition_confirmed.v1")
+@dataclass
+class LabletDefinitionPodDefinitionConfirmedDomainEvent(DomainEvent):
+    """Emitted when the SE confirms a PodDefinition for this LabletDefinition.
+
+    Carries the link between the LCM's LabletDefinition and the SE's PodDefinition
+    that owns the synced content (AD-CSI-001, AD-CSI-004, G-07). Idempotent for the
+    same ``(pod_definition_id, pod_type)`` pair; emitting again with a new
+    ``content_hash`` simply refreshes the sync confirmation.
+    """
+
+    aggregate_id: str
+    pod_definition_id: str
+    pod_type: str  # PodType.value
+    content_hash: str | None
+    confirmed_at: datetime
+
+    def __init__(
+        self,
+        aggregate_id: str,
+        pod_definition_id: str,
+        pod_type: str,
+        content_hash: str | None,
+        confirmed_at: datetime,
+    ) -> None:
+        super().__init__(aggregate_id)
+        self.aggregate_id = aggregate_id
+        self.pod_definition_id = pod_definition_id
+        self.pod_type = pod_type
+        self.content_hash = content_hash
+        self.confirmed_at = confirmed_at

@@ -19,6 +19,7 @@ from domain.entities.lablet_definition import LabletDefinition
 from domain.enums import LabletDefinitionStatus
 from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
 from domain.value_objects.port_template import PortTemplate
+from lcm_core.domain.enums.pod_type import PodType
 from neuroglia.core import OperationResult
 from neuroglia.mediation import Command, CommandHandler
 
@@ -60,6 +61,12 @@ class RecordContentSyncResultCommand(Command[OperationResult[LabletDefinitionSyn
 
     # Multi-port device conflicts detected at sync time (AD-LDS-002)
     port_conflicts: list[dict[str, Any]] | None = None
+
+    # PodDefinition confirmation from SE (AD-CSI-001 / AD-CSI-004 / G-07).
+    # When both are supplied on a successful sync, the aggregate links to the
+    # confirmed SE PodDefinition and (when provided) records the content hash.
+    pod_definition_id: str | None = None
+    pod_type: str | None = None
 
 
 class RecordContentSyncResultCommandHandler(
@@ -103,6 +110,13 @@ class RecordContentSyncResultCommandHandler(
             if not definition:
                 return self.not_found(LabletDefinition, command.definition_id)
 
+            # 1a. Validate pod_type up front so a typo can't slip past version-bump.
+            if command.pod_type is not None:
+                try:
+                    PodType(command.pod_type)
+                except ValueError:
+                    return self.bad_request(f"Unknown pod_type: {command.pod_type}")
+
             # 2. Detect content change (hash comparison)
             content_changed = command.content_package_hash is not None and definition.state.content_package_hash is not None and command.content_package_hash != definition.state.content_package_hash
 
@@ -136,6 +150,19 @@ class RecordContentSyncResultCommandHandler(
                 node_definitions_required=command.node_definitions_required,
                 port_conflicts=command.port_conflicts,
             )
+
+            # Confirm PodDefinition link if SE supplied one (AD-CSI-001 / G-07).
+            # Only on successful sync; pod_type conflicts surface as bad_request.
+            if command.sync_status == "success" and command.pod_definition_id and command.pod_type:
+                try:
+                    definition.confirm_pod_definition(
+                        pod_definition_id=command.pod_definition_id,
+                        pod_type=command.pod_type,
+                        content_hash=command.content_package_hash,
+                    )
+                except ValueError as exc:
+                    return self.conflict(str(exc))
+
             await self._repository.update_async(definition)
 
             synced_at = datetime.now(timezone.utc)
@@ -225,6 +252,17 @@ class RecordContentSyncResultCommandHandler(
             node_count=command.node_count,
             node_definitions_required=command.node_definitions_required,
         )
+
+        # Confirm PodDefinition link on the bumped version too (AD-CSI-001 / G-07).
+        if command.sync_status == "success" and command.pod_definition_id and command.pod_type:
+            try:
+                new_definition.confirm_pod_definition(
+                    pod_definition_id=command.pod_definition_id,
+                    pod_type=command.pod_type,
+                    content_hash=command.content_package_hash,
+                )
+            except ValueError as exc:
+                return self.conflict(str(exc))
 
         await self._repository.add_async(new_definition)
 

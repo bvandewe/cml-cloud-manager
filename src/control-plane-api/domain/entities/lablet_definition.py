@@ -12,11 +12,6 @@ from datetime import datetime, timezone
 from typing import Any, cast
 from uuid import uuid4
 
-from lcm_core.domain.entities.timed_resource import TimedResourceState
-from lcm_core.domain.value_objects.state_transition import StateTransition
-from multipledispatch import dispatch
-from neuroglia.data.abstractions import AggregateRoot
-
 from domain.enums import LabletDefinitionStatus, LicenseType
 from domain.events.lablet_definition_events import (
     LabletDefinitionActivatedDomainEvent,
@@ -26,6 +21,7 @@ from domain.events.lablet_definition_events import (
     LabletDefinitionDeactivatedDomainEvent,
     LabletDefinitionDeletedDomainEvent,
     LabletDefinitionDeprecatedDomainEvent,
+    LabletDefinitionPodDefinitionConfirmedDomainEvent,
     LabletDefinitionSyncRequestedDomainEvent,
     LabletDefinitionUpdatedDomainEvent,
     LabletDefinitionVersionCreatedDomainEvent,
@@ -34,6 +30,12 @@ from domain.events.lablet_definition_events import (
 from domain.utils import slugify_fqn
 from domain.value_objects.port_template import PortTemplate
 from domain.value_objects.resource_requirements import ResourceRequirements
+from lcm_core.domain.entities.timed_resource import TimedResourceState
+from lcm_core.domain.enums.pod_type import PodType
+from lcm_core.domain.value_objects.pod_definition_ref import PodDefinitionRef
+from lcm_core.domain.value_objects.state_transition import StateTransition
+from multipledispatch import dispatch
+from neuroglia.data.abstractions import AggregateRoot
 
 
 class NotificationConfig:
@@ -178,6 +180,9 @@ class LabletDefinitionState(TimedResourceState):
     # Pipeline definitions (ADR-034)
     pipelines: dict | None  # Optional pipeline DAGs keyed by name (e.g., "instantiate", "teardown")
 
+    # Pod definition reference (ADR-044 §2.6) — links to ScenarioEngine's PodDefinition
+    pod_definition_ref: PodDefinitionRef | None  # Set at creation from pod_type, confirmed after content sync
+
     def __init__(self) -> None:
         super().__init__()
 
@@ -253,6 +258,9 @@ class LabletDefinitionState(TimedResourceState):
 
         # Pipeline definitions (ADR-034)
         self.pipelines: dict | None = None  # Optional pipeline DAGs from definition YAML
+
+        # Pod definition reference (ADR-044 §2.6)
+        self.pod_definition_ref: PodDefinitionRef | None = None
 
         # State history — audit trail (ADR-036 Batch I)
         # Explicit init required: Neuroglia bypasses __init__ on deserialization,
@@ -333,6 +341,10 @@ class LabletDefinitionState(TimedResourceState):
 
         # Pipeline definitions (ADR-034)
         self.pipelines = getattr(event, "pipelines", None)
+
+        # Pod definition reference (ADR-044 §2.6)
+        pod_ref_data = getattr(event, "pod_definition_ref", None)
+        self.pod_definition_ref = PodDefinitionRef.from_dict(pod_ref_data) if pod_ref_data else None
 
         # Lab binding options (Phase 7)
         self.lab_reuse_enabled = getattr(event, "lab_reuse_enabled", False)
@@ -472,6 +484,27 @@ class LabletDefinitionState(TimedResourceState):
                 reason="Content sync completed successfully",
             )
 
+        # Update pod_definition_ref content_hash on successful sync (ADR-044 §2.6)
+        if event.sync_status == "success" and self.pod_definition_ref is not None and event.content_package_hash:
+            self.pod_definition_ref = self.pod_definition_ref.with_sync_confirmation(event.content_package_hash)
+
+    @dispatch(LabletDefinitionPodDefinitionConfirmedDomainEvent)
+    def on(self, event: LabletDefinitionPodDefinitionConfirmedDomainEvent) -> None:  # type: ignore[override]
+        """Apply the PodDefinition confirmation event (AD-CSI-001 / G-07).
+
+        Establishes or refreshes ``pod_definition_ref`` after SE confirms which
+        PodDefinition owns the synced content. Conflict detection (mismatched
+        ``pod_type``) is enforced in the aggregate method, not the handler.
+        """
+        new_ref = PodDefinitionRef(
+            definition_id=event.pod_definition_id,
+            version=self.version,
+            pod_type=PodType(event.pod_type),
+            content_hash=event.content_hash,
+        )
+        self.pod_definition_ref = new_ref
+        self.updated_at = event.confirmed_at
+
     @dispatch(LabletDefinitionWarmPoolUpdatedDomainEvent)
     def on(self, event: LabletDefinitionWarmPoolUpdatedDomainEvent) -> None:  # type: ignore[override]
         """Apply the warm pool update event to the state."""
@@ -522,6 +555,9 @@ class LabletDefinitionState(TimedResourceState):
             self.lab_reuse_enabled = changes["lab_reuse_enabled"]
         if "lds_port_preferences" in changes:
             self.lds_port_preferences = changes["lds_port_preferences"]
+        if "pod_definition_ref" in changes:
+            ref_data = changes["pod_definition_ref"]
+            self.pod_definition_ref = PodDefinitionRef.from_dict(ref_data) if ref_data else None
         self.updated_at = event.updated_at
 
     @dispatch(LabletDefinitionActivatedDomainEvent)
@@ -606,6 +642,7 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
         boot_lead_time_minutes: int | None = None,
         pipelines: dict | None = None,
         lab_reuse_enabled: bool = False,
+        pod_type: PodType | None = None,
     ) -> "LabletDefinition":
         """Create a new LabletDefinition in PENDING_SYNC status (ADR-028).
 
@@ -639,6 +676,17 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
         bucket_name = slugify_fqn(form_qualified_name)
         lab_artifact_uri = f"s3://{bucket_name}/{user_session_package_name}"
 
+        # Build pod_definition_ref if pod_type is provided (ADR-044 §2.6)
+        # definition_id is derived from slugified FQN, content_hash populated after SE sync
+        pod_ref_dict: dict | None = None
+        if pod_type is not None:
+            pod_ref = PodDefinitionRef(
+                definition_id=bucket_name,
+                version=version,
+                pod_type=pod_type,
+            )
+            pod_ref_dict = pod_ref.to_dict()
+
         definition = LabletDefinition()
         definition.state.on(
             definition.register_event(  # type: ignore
@@ -668,6 +716,7 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
                     boot_lead_time_minutes=boot_lead_time_minutes,
                     pipelines=pipelines,
                     lab_reuse_enabled=lab_reuse_enabled,
+                    pod_definition_ref=pod_ref_dict,
                 )
             )
         )
@@ -876,6 +925,55 @@ class LabletDefinition(AggregateRoot[LabletDefinitionState, str]):
                     node_count=node_count,
                     node_definitions_required=node_definitions_required,
                     port_conflicts=port_conflicts,
+                )
+            )
+        )
+
+    def confirm_pod_definition(
+        self,
+        pod_definition_id: str,
+        pod_type: str | PodType,
+        content_hash: str | None = None,
+    ) -> None:
+        """Confirm the PodDefinition that owns the synced content (AD-CSI-001 / G-07).
+
+        Called by ``RecordContentSyncResultCommand`` once the SE has accepted
+        and validated the content package. Idempotent: invoking with the same
+        ``(pod_definition_id, pod_type)`` simply refreshes ``content_hash``.
+
+        Args:
+            pod_definition_id: Identifier of the SE PodDefinition.
+            pod_type: Infrastructure type required to run this content. Accepts
+                either a ``PodType`` enum value or its string value.
+            content_hash: Optional SHA256 of the synced package; carries the
+                AD-CSI-004 sync confirmation when supplied.
+
+        Raises:
+            ValueError: If ``pod_definition_id`` is empty, ``pod_type`` is not
+                a valid ``PodType``, or a confirmed ref already exists for a
+                different ``pod_type``.
+        """
+        if not pod_definition_id:
+            raise ValueError("pod_definition_id must not be empty")
+
+        # Normalise pod_type input (accept enum or string).
+        try:
+            resolved_pod_type = pod_type if isinstance(pod_type, PodType) else PodType(pod_type)
+        except ValueError as exc:
+            raise ValueError(f"Unknown pod_type: {pod_type}") from exc
+
+        existing_ref = self.state.pod_definition_ref
+        if existing_ref is not None and existing_ref.pod_type != resolved_pod_type:
+            raise ValueError(f"PodDefinition pod_type conflict: existing ref has " f"{existing_ref.pod_type.value}, but SE confirmed {resolved_pod_type.value}")
+
+        self.state.on(
+            self.register_event(  # type: ignore
+                LabletDefinitionPodDefinitionConfirmedDomainEvent(
+                    aggregate_id=self.id(),
+                    pod_definition_id=pod_definition_id,
+                    pod_type=resolved_pod_type.value,
+                    content_hash=content_hash,
+                    confirmed_at=datetime.now(timezone.utc),
                 )
             )
         )
