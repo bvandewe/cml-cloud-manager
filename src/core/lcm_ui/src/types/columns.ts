@@ -367,12 +367,28 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
+ * Parse an ISO date string ensuring UTC interpretation.
+ * Backend sends naive ISO timestamps without timezone suffix.
+ * JavaScript's `new Date()` treats those as local time, causing offset errors.
+ * This appends 'Z' if no timezone indicator is present.
+ */
+export function parseUTCDate(dateInput: string): Date {
+    const s = dateInput.trim();
+    // Already has timezone info (Z, +HH:MM, -HH:MM, +HHMM, -HHMM)
+    if (/Z$|[+-]\d{2}:\d{2}$|[+-]\d{4}$/.test(s)) {
+        return new Date(s);
+    }
+    // Naive ISO string — treat as UTC
+    return new Date(s + 'Z');
+}
+
+/**
  * Compute the current window phase of a timeslot
  */
 export function computeWindowPhase(start: string, end: string, leadTimeMinutes: number = 0, teardownBufferMinutes: number = 0): TimeslotWindowPhase {
     const now = Date.now();
-    const startMs = new Date(start).getTime();
-    const endMs = new Date(end).getTime();
+    const startMs = parseUTCDate(start).getTime();
+    const endMs = parseUTCDate(end).getTime();
 
     if (isNaN(startMs) || isNaN(endMs)) return 'before';
 

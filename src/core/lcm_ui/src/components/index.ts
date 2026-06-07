@@ -79,6 +79,9 @@ export { RevisionIndicator } from './RevisionIndicator.js';
 // ===================== Timeslot Badge (A6) =====================
 export { TimeslotBadge } from './TimeslotBadge.js';
 
+// ===================== Timeslot Progress (A6b) =====================
+export { TimeslotProgress } from './TimeslotProgress.js';
+
 // ===================== Resource Observation (A7) =====================
 export { ResourceObservation } from './ResourceObservation.js';
 
@@ -151,6 +154,7 @@ export function registerAllComponents(): void {
     import('./PipelineLog.js');
     import('./RevisionIndicator.js');
     import('./TimeslotBadge.js');
+    import('./TimeslotProgress.js');
     import('./ResourceObservation.js');
     import('./ColumnPicker.js');
 

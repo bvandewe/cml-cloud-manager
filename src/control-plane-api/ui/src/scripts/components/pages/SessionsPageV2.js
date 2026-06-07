@@ -27,7 +27,6 @@ import * as labletDefinitionsApi from '../../api/lablet-definitions.js';
 import { eventBus, LcmEventTypes } from '../../app/eventBus.js';
 import { showToast } from '../../ui/notifications.js';
 import { showConfirmAsync } from '../modals.js';
-import { getRelativeTime, parseUTCDate, formatDuration } from '../../utils/dates.js';
 import { escapeHtml } from '../escape.js';
 import { renderDefinitionDetailsHtml, mountDefinitionContentViewer, mountPortPreferenceHandlers } from '../shared/definition-details-renderer.js';
 import { populatePortDefinitions } from '../../ui/lablet-modals.js';
@@ -595,51 +594,17 @@ export class SessionsPageV2 extends StoreConnectedPage {
                     `;
                 },
             },
-            // 6. Timeslot — relative time with color coding + duration
+            // 6. Timeslot — progress bar showing consumption + countdown
             {
                 field: 'timeslot_start',
                 label: 'Timeslot',
                 sortable: true,
                 width: '150px',
                 render: (value, row) => {
-                    const start = value ? parseUTCDate(value) : null;
-                    const end = row.timeslot_end ? parseUTCDate(row.timeslot_end) : null;
-                    const now = new Date();
-
-                    if (!start) return '<span class="text-muted">—</span>';
-
-                    // Determine temporal context
-                    let colorClass = 'text-muted'; // past
-                    let icon = 'bi-clock-history';
-                    if (end && end > now && start <= now) {
-                        colorClass = 'text-success'; // current/active
-                        icon = 'bi-clock-fill';
-                    } else if (start > now) {
-                        colorClass = 'text-primary'; // future
-                        icon = 'bi-clock';
-                    } else if (end && end < now) {
-                        const minutesSinceEnd = (now - end) / 60000;
-                        if (minutesSinceEnd < 30) {
-                            colorClass = 'text-warning'; // recently ended
-                            icon = 'bi-clock-history';
-                        }
-                    }
-
-                    const relativeTime = getRelativeTime(value);
-                    const duration = start && end ? formatDuration(end - start) : '';
-                    const fullStart = this._formatDateTime(value);
-                    const fullEnd = row.timeslot_end ? this._formatDateTime(row.timeslot_end) : '—';
-
-                    return `
-                        <span class="${colorClass}"
-                              data-bs-toggle="tooltip" data-bs-placement="top"
-                              data-bs-html="true"
-                              title="${fullStart} → ${fullEnd}<br>Duration: ${duration || '—'}">
-                            <i class="bi ${icon} me-1" style="font-size: 0.75em;"></i>
-                            <span class="small">${relativeTime}</span>
-                            ${duration ? `<span class="text-muted small ms-1">(${duration})</span>` : ''}
-                        </span>
-                    `;
+                    if (!value) return '<span class="text-muted">—</span>';
+                    const end = row.timeslot_end || '';
+                    const status = row.status || '';
+                    return `<ui-timeslot-progress start="${value}" end="${end}" status="${status}"></ui-timeslot-progress>`;
                 },
             },
             // 7. Form — truncated FQN with tooltip

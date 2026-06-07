@@ -14,7 +14,7 @@
  */
 
 import { BaseComponent } from './BaseComponent.js';
-import { computeWindowPhase, TIMESLOT_PHASE_COLORS } from '../types/columns.js';
+import { computeWindowPhase, parseUTCDate, TIMESLOT_PHASE_COLORS } from '../types/columns.js';
 import type { TimeslotWindowPhase } from '../types/columns.js';
 
 /** Auto-refresh interval in milliseconds (10 seconds — SSE is primary, this is fallback) */
@@ -98,14 +98,14 @@ export class TimeslotBadge extends BaseComponent {
 
     private formatTime(iso: string): string {
         if (!iso) return '';
-        const d = new Date(iso);
+        const d = parseUTCDate(iso);
         if (isNaN(d.getTime())) return '';
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     private formatDate(iso: string): string {
         if (!iso) return '';
-        const d = new Date(iso);
+        const d = parseUTCDate(iso);
         if (isNaN(d.getTime())) return '';
         return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     }
@@ -115,19 +115,19 @@ export class TimeslotBadge extends BaseComponent {
 
         switch (phase) {
             case 'before': {
-                const startMs = new Date(this.start).getTime();
+                const startMs = parseUTCDate(this.start).getTime();
                 const diffMin = Math.round((startMs - now) / 60000);
                 if (diffMin > 1440) return `Starts in ${Math.round(diffMin / 1440)}d`;
                 if (diffMin > 60) return `Starts in ${Math.round(diffMin / 60)}h`;
                 return `Starts in ${diffMin}m`;
             }
             case 'approaching': {
-                const startMs = new Date(this.start).getTime();
+                const startMs = parseUTCDate(this.start).getTime();
                 const diffMin = Math.round((startMs - now) / 60000);
                 return `Starts in ${diffMin}m`;
             }
             case 'active': {
-                const endMs = new Date(this.end).getTime();
+                const endMs = parseUTCDate(this.end).getTime();
                 const remainMin = Math.round((endMs - now) / 60000);
                 return `${remainMin}m remaining`;
             }
@@ -135,7 +135,7 @@ export class TimeslotBadge extends BaseComponent {
                 return 'Teardown';
             }
             case 'expired': {
-                const endMs = new Date(this.end).getTime();
+                const endMs = parseUTCDate(this.end).getTime();
                 const agoMin = Math.round((now - endMs) / 60000);
                 if (agoMin > 1440) return `Ended ${Math.round(agoMin / 1440)}d ago`;
                 if (agoMin > 60) return `Ended ${Math.round(agoMin / 60)}h ago`;
