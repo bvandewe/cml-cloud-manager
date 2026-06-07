@@ -5,7 +5,7 @@
 >
 > **Owner**: Senior Architect (LCM)
 > **Authority**: [ADR-044 — Content-Driven Lifecycle Engine](../architecture/adr/ADR-044-content-driven-lifecycle-engine.md) (Rev 2)
-> **Status**: 🟡 Draft — Discovery & Gap Analysis complete
+> **Status**: � Phase 0 — Foundations complete (G-03/G-04/G-07/G-08 closed); Phase 1 next
 > **Last updated**: see git history
 
 ---
@@ -40,11 +40,11 @@ ADR-044 calls for a two-engine architecture:
 | Theme | Status |
 |---|---|
 | Content extraction → SE | 🔴 lablet-controller does not notify SE of new content; SE's `SyncContentCommand` is a stub. |
-| Pod type auto-discovery | � Phase 0 closes G-04: `PodTypeDetector` enforces AD-CSI-002 priority chain (manifest > radkit > proxmox > vmware > cml.yaml > legacy). |
-| `PodDefinition` entity | � Phase 0 closes G-03: 8 typed PAv1 fields added (`content_hash`, `topology`, `devices`, `lifecycle_phases`, `scenarios`, `grading_rules`, `reports`, `restore_rules`) with safe defaults; event payload extended. |
+| Pod type auto-discovery | 🟢 **Closed (Phase 0, G-04)** — `PodTypeDetector` enforces AD-CSI-002 priority chain (manifest > radkit > proxmox > vmware > cml.yaml > legacy) in `lcm_core.infrastructure.content_store`. |
+| `PodDefinition` entity | 🟢 **Closed (Phase 0, G-03)** — 8 typed PAv1 fields added (`content_hash`, `topology`, `devices`, `lifecycle_phases`, `scenarios`, `grading_rules`, `reports`, `restore_rules`) with safe defaults; event payload extended. |
 | `ScenarioEngineClient` call sites | 🔴 client is registered but **zero** call sites — nothing in lablet-controller submits jobs to SE. |
 | CloudEvent callbacks → CPA | 🔴 `events_controller.py` has TODO stubs in all 5 handlers. |
-| PAv1/ content layout | � Phase 0 closes G-08: spec at `docs/architecture/content-format/PAv1.md` + 3 JSON Schema Draft 2020-12 files. |
+| PAv1/ content layout | 🟢 **Closed (Phase 0, G-08)** — spec at `docs/architecture/content-format/PAv1.md` + 3 JSON Schema Draft 2020-12 files (vendored under `lcm_core/infrastructure/content_store/schemas/`). |
 | DSL boundary | 🟡 unclear in code base — see §4 for the canonical answer. |
 | Content-driven pipelines | 🔴 `PipelineTemplateResolver` is hardcoded Python; ADR-044 calls for content-loaded `lifecycle.yaml`. |
 | Reports & scoring scenarios | 🔴 no `collect-grade` / `score-report` scenarios exist. |
@@ -191,7 +191,9 @@ The remediation is **content-driven sync redesign + missing-call-site implementa
 
 ---
 
-### G-03 — `PodDefinition` entity missing content fields  🔴 — � Closed (Phase 0)
+### G-03 — `PodDefinition` entity missing content fields  🔴 — 🟢 Closed (Phase 0)
+
+**Closed:** commit [`7d760fe`](#) (feat(scenario-engine): expand PodDefinitionState with PAv1 typed fields).
 
 **Current.** `PodDefinitionState` has only `manifest: dict`. Everything is shoved into the opaque manifest blob.
 
@@ -233,7 +235,9 @@ class PodDefinitionState(AggregateState[str]):
 
 ---
 
-### G-04 — Pod-type auto-discovery missing  🔴 — � Closed (Phase 0)
+### G-04 — Pod-type auto-discovery missing  🔴 — 🟢 Closed (Phase 0)
+
+**Closed:** commit [`d5600a1`](#) (feat(content-store): PAv1 spec, schemas, PAv1Validator and PodTypeDetector). Phase 1/2 will invoke the detector from lablet-controller and SE.
 
 **Current.** `pod_type` is hand-authored in seed YAML. Real-world Lablet zips have no such annotation.
 
@@ -323,7 +327,9 @@ The pipeline executor already supports `existing_progress` resumability — exte
 
 ---
 
-### G-07 — `RecordContentSyncResultCommand` does not accept `pod_type`  🟡 — � Closed (Phase 0)
+### G-07 — `RecordContentSyncResultCommand` does not accept `pod_type`  🟡 — 🟢 Closed (Phase 0)
+
+**Closed:** commit [`820dcaf`](#) (feat(control-plane-api): confirm PodDefinition link on content sync). Aggregate method `LabletDefinition.confirm_pod_definition(...)` validates `pod_type` (400 unknown / 409 conflict) and emits `LabletDefinitionPodDefinitionConfirmedDomainEvent`. See AD-CSI-010.
 
 **Current.** The command finalises `LabletDefinition.pod_definition_ref.with_sync_confirmation(hash)` but cannot set the ref if it was `None` (i.e. `pod_type` was not in seed YAML).
 
@@ -339,7 +345,9 @@ The pipeline executor already supports `existing_progress` resumability — exte
 
 ---
 
-### G-08 — PAv1/ content layout not defined  🔴 — � Closed (Phase 0)
+### G-08 — PAv1/ content layout not defined  🔴 — 🟢 Closed (Phase 0)
+
+**Closed:** commit [`d5600a1`](#) (feat(content-store): PAv1 spec, schemas, PAv1Validator and PodTypeDetector).
 
 **Current.** No spec. Lablet zips contain `mosaic_meta.json`, `cml.yaml`, `grade.xml`, `devices.json`, `content.xml`, `node-definitions/`, `image-definitions/`. ADR-044 references `PAv1/` but doesn't pin the schema.
 
@@ -531,12 +539,15 @@ sequenceDiagram
 
 > Each phase is independently deployable. Feature flag `SE_INTEGRATION_ENABLED` defaults `false` until Phase 4.
 
-### Phase 0 — Foundations (no behaviour change)
+### Phase 0 — Foundations (no behaviour change) 🟢 Complete (commits d5600a1, 7d760fe, 820dcaf, c081eab)
 
-- **G-08** PAv1/ spec doc + JSON schemas + reference fixture.
-- **G-03** Expand `PodDefinitionState` fields & events.
-- **G-04** `PodTypeDetector` + unit tests.
-- **G-07** `RecordContentSyncResultCommand` accepts `pod_type` (still optional).
+- **G-08** PAv1/ spec doc + JSON schemas + reference fixture. ✅
+- **G-03** Expand `PodDefinitionState` fields & events. ✅
+- **G-04** `PodTypeDetector` + unit tests. ✅
+- **G-07** `RecordContentSyncResultCommand` accepts `pod_type` (still optional). ✅
+- Add `lcm_core.infrastructure.content_store` package skeleton. ✅
+
+**Verification:** core 293 ✓ · scenario-engine 99 ✓ · control-plane-api 1078 ✓ (7 new); content_store coverage 97%.
 - Add `lcm_core.infrastructure.content_store` package skeleton.
 
 ### Phase 1 — SE content sync becomes real
@@ -589,6 +600,7 @@ sequenceDiagram
 | **AD-CSI-007** | CPA's `pod_definitions` collection is a **read-only projection** of SE state | CPA never writes to it via commands; only the `PodDefinitionProjector` (HostedService listening to SE CloudEvents) writes. | `PodDefinition` is SE-owned business state. The projection is a read model, not a duplicate aggregate; satisfies "CPA owns its own write model" without forcing UI to call SE directly. |
 | **AD-CSI-008** | Tier-A vs Tier-B steps (§G-05) | Steps that touch external systems (`lab_resolve`, `lab_start`, `lab_stop`, `lab_wipe`, `collect_grade`, `score_report`) become Tier-B (SE-delegated). Steps that touch CPA state (`ports_alloc`, `tags_sync`, `lab_binding`, `mark_ready`, `deregister_lds`, `archive`) stay Tier-A (in-process Python). | Avoids splitting transactional CPA operations across services; concentrates "external system mess" in SE where adapters live. |
 | **AD-CSI-009** | Suspension/resumption uses `StepResult.suspended` + CloudEvent | Steps return `SUSPENDED`; `PipelineExecutor` persists state; a CloudEvent handler issues `ResumePipelineStepCommand` to re-enter the executor. | Reuses existing `existing_progress` resumability; no new long-poll or websocket needed. |
+| **AD-CSI-010** | PodDefinition confirmation: 400 unknown pod_type / 409 pod_type conflict (Phase 0, G-07) | `RecordContentSyncResultCommand` validates `pod_type` up-front (returns `bad_request` if not a `PodType` member) **before** any aggregate mutation. `LabletDefinition.confirm_pod_definition()` accepts either a `PodType` enum or its string value; it raises `ValueError` on `pod_type` mismatch against an existing `PodDefinitionRef`, which the handler maps to `conflict` (409). | Two-layer validation keeps the bad_request fast-path cheap (no aggregate construction) while still letting the domain invariant (`pod_type` immutability per definition version) live on the aggregate. Accepting enum-or-string at the aggregate boundary lets internal callers pass typed enums while wire callers pass the value string. |
 
 ---
 
