@@ -124,6 +124,7 @@ class WatchTriggeredHostedService(LeaderElectedHostedService[T], Generic[T]):
         # Watch state
         self._watch_task: asyncio.Task[None] | None = None
         self._startup_sweep_task: asyncio.Task[None] | None = None
+        self._startup_sweep_active: bool = False  # ADR-043: True during startup sweep
         self._pending_reconciles: set[str] = set()  # Resource IDs pending reconcile
         self._debounce_task: asyncio.Task[None] | None = None
         self._last_watch_event_time: float = 0
@@ -210,19 +211,26 @@ class WatchTriggeredHostedService(LeaderElectedHostedService[T], Generic[T]):
         full reconciliation cycle. This ensures resources in non-terminal
         states (e.g., INSTANTIATING, SCHEDULED, RUNNING) are picked up
         even when polling is disabled (watch-only mode).
+
+        ADR-043: Sets _startup_sweep_active=True so subclasses can broaden
+        their list_resources() filter to include terminal resources that need
+        EC2 state verification after a restart.
         """
         try:
             await asyncio.sleep(self._watch_config.startup_reconcile_delay_seconds)
             if self._stopping or not self._is_leader:
                 return
 
-            logger.info(f"{self._config.service_name}: 🔄 Running startup reconciliation sweep")
+            self._startup_sweep_active = True
+            logger.info(f"{self._config.service_name}: 🔄 Running startup reconciliation sweep (full-sync)")
             await self._reconcile_all()
             logger.info(f"{self._config.service_name}: ✅ Startup reconciliation sweep complete")
         except asyncio.CancelledError:
             logger.debug(f"{self._config.service_name}: Startup sweep cancelled")
         except Exception as e:
             logger.exception(f"{self._config.service_name}: Startup reconciliation sweep failed: {e}")
+        finally:
+            self._startup_sweep_active = False
 
     async def _step_down(self) -> None:
         """Handle stepping down from leadership (extends parent to stop watch)."""

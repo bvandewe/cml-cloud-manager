@@ -336,10 +336,9 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
     async def list_resources(self) -> list[CMLWorkerReadModel]:
         """Fetch all workers needing reconciliation from Control Plane API.
 
-        Returns all non-terminal workers. This ensures the startup
-        reconciliation sweep (AD-031) picks up ALL resources that the
-        watch stream would also react to. The reconcile() method
-        gracefully handles statuses without dedicated handlers.
+        During steady-state polling, returns non-terminal workers only.
+        During startup sweep (ADR-043), returns ALL workers including STOPPED
+        to verify EC2 state alignment after a controller restart.
 
         Returns:
             List of CMLWorkerReadModel objects to reconcile.
@@ -348,18 +347,26 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             workers_data = await self._api.get_workers()
             workers = [CMLWorkerReadModel.from_dict(data) for data in workers_data]
 
-            # Filter to non-terminal statuses — matches what on_watch_event()
-            # would trigger reconciliation for. Terminal statuses (STOPPED,
-            # TERMINATED, FAILED, UNKNOWN) don't need active reconciliation
-            # unless a desired_state change arrives via the watch stream.
-            terminal_statuses = {
-                CMLWorkerStatus.STOPPED,
-                CMLWorkerStatus.TERMINATED,
-                CMLWorkerStatus.SHUTTING_DOWN,
-                CMLWorkerStatus.FAILED,
-                CMLWorkerStatus.UNKNOWN,
-            }
-            needs_reconcile = [w for w in workers if w.status and w.status not in terminal_statuses]
+            # ADR-043: During startup sweep, include ALL workers to verify
+            # EC2 state against stored status (external stops/terminates while
+            # controller was down). Only TERMINATED is excluded (final state).
+            if self._startup_sweep_active:
+                needs_reconcile = [w for w in workers if w.status != CMLWorkerStatus.TERMINATED]
+                logger.info(f"Startup full-sync: {len(needs_reconcile)} workers to verify (of {len(workers)} total, including stopped)")
+            else:
+                # Steady-state: filter to non-terminal statuses — matches what
+                # on_watch_event() would trigger reconciliation for. Terminal
+                # statuses (STOPPED, TERMINATED, FAILED, UNKNOWN) don't need
+                # active reconciliation unless a desired_state change arrives
+                # via the watch stream.
+                terminal_statuses = {
+                    CMLWorkerStatus.STOPPED,
+                    CMLWorkerStatus.TERMINATED,
+                    CMLWorkerStatus.SHUTTING_DOWN,
+                    CMLWorkerStatus.FAILED,
+                    CMLWorkerStatus.UNKNOWN,
+                }
+                needs_reconcile = [w for w in workers if w.status and w.status not in terminal_statuses]
 
             # Track running worker count for scale-down decisions (Phase 3)
             self._running_worker_count = sum(1 for w in workers if w.status == CMLWorkerStatus.RUNNING)
@@ -763,18 +770,56 @@ class WorkerReconciler(WatchTriggeredHostedService[CMLWorkerReadModel]):
             return ReconciliationResult.failed(f"Cannot stop EC2 instance in state: {state.state}")
 
     async def _handle_stopped(self, worker: CMLWorkerReadModel) -> ReconciliationResult:
-        """Handle STOPPED worker - start or terminate based on desired state.
+        """Handle STOPPED worker - verify EC2 state and align desired state.
 
-        A stopped worker is at rest. If the desired state differs, initiate
-        the appropriate transition:
-        - desired=running  → transition to STARTING (EC2 StartInstances via _handle_starting)
-        - desired=terminated → transition to TERMINATING (EC2 TerminateInstances via _handle_terminating)
+        ADR-043: During startup sweep, STOPPED workers are included to verify
+        EC2 state hasn't diverged while the controller was down (e.g., instance
+        terminated externally, or unexpectedly restarted).
+
+        Transitions:
+        - EC2 terminated   → transition to TERMINATED
+        - EC2 running      → transition to RUNNING (unexpected external start)
+        - desired=running  → transition to STARTING
+        - desired=terminated → transition to TERMINATING
         - otherwise        → no-op (worker is at desired state)
         """
         # Ensure WebSocket monitor is stopped (idempotent) (ADR-041)
         if self._ws_registry and self._settings.cml_websocket_enabled:
             await self._ws_registry.stop_monitoring(worker.id)
 
+        # ADR-043: Verify EC2 state for stopped workers (especially at startup)
+        if worker.ec2_instance_id:
+            state = await self._ec2.get_instance_state(worker.ec2_instance_id)
+            if state is None:
+                # EC2 instance not found — terminated externally
+                logger.info(f"Worker {worker.id}: EC2 instance {worker.ec2_instance_id} not found. Marking TERMINATED.")
+                await self._api.update_worker_status(
+                    worker_id=worker.id,
+                    status=CMLWorkerStatus.TERMINATED,
+                )
+                self._terminated_count += 1
+                return ReconciliationResult.success()
+
+            if state.state == "terminated":
+                logger.info(f"Worker {worker.id}: EC2 instance terminated externally. Marking TERMINATED.")
+                await self._api.update_worker_status(
+                    worker_id=worker.id,
+                    status=CMLWorkerStatus.TERMINATED,
+                )
+                self._terminated_count += 1
+                return ReconciliationResult.success()
+
+            if state.state == "running":
+                # Unexpected: EC2 is running but we think it's stopped
+                logger.warning(f"Worker {worker.id}: EC2 instance is running but status is STOPPED. Correcting to RUNNING.")
+                await self._report_ec2_details(worker.id, state)
+                await self._api.update_worker_status(
+                    worker_id=worker.id,
+                    status=CMLWorkerStatus.RUNNING,
+                )
+                return ReconciliationResult.requeue("EC2 running detected, corrected STOPPED → RUNNING")
+
+        # Desired state transitions
         if worker.desired_status == CMLWorkerStatus.RUNNING:
             logger.info(f"Starting stopped worker {worker.id} (desired=running)")
             await self._api.update_worker_status(

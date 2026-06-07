@@ -584,8 +584,8 @@ class TestHandleRunning:
     @pytest.mark.asyncio
     async def test_idle_detection_called_when_enabled(self):
         """Activity detection is called when is_idle_detection_enabled=True."""
-        reconciler = make_reconciler()
-        worker = make_worker(status=CMLWorkerStatus.RUNNING, is_idle_detection_enabled=True)
+        reconciler = make_reconciler()  # noqa: F841 (pre-existing test stub)
+        worker = make_worker(status=CMLWorkerStatus.RUNNING, is_idle_detection_enabled=True)  # noqa: F841
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -727,13 +727,14 @@ class TestHandleStopping:
 
 
 class TestHandleStopped:
-    """Tests for WorkerReconciler._handle_stopped — start or terminate stopped worker."""
+    """Tests for WorkerReconciler._handle_stopped — EC2 verification + desired state alignment."""
 
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_desired_running_transitions_to_starting(self):
-        """desired_status=running → transition to STARTING and requeue."""
+        """EC2 stopped + desired_status=running → transition to STARTING and requeue."""
         reconciler = make_reconciler()
+        reconciler._ec2.get_instance_state = AsyncMock(return_value=make_ec2_state(state="stopped"))
         worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="running")
 
         result = await reconciler._handle_stopped(worker)
@@ -747,8 +748,9 @@ class TestHandleStopped:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_desired_terminated_transitions_to_terminating(self):
-        """desired_status=terminated → transition to TERMINATING and requeue."""
+        """EC2 stopped + desired_status=terminated → transition to TERMINATING and requeue."""
         reconciler = make_reconciler()
+        reconciler._ec2.get_instance_state = AsyncMock(return_value=make_ec2_state(state="stopped"))
         worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="terminated")
 
         result = await reconciler._handle_stopped(worker)
@@ -762,14 +764,80 @@ class TestHandleStopped:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_desired_stopped_is_noop(self):
-        """desired_status=stopped → no action needed, worker is at rest."""
+        """EC2 stopped + desired_status=stopped → no action needed, worker is at rest."""
         reconciler = make_reconciler()
+        reconciler._ec2.get_instance_state = AsyncMock(return_value=make_ec2_state(state="stopped"))
         worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="stopped")
 
         result = await reconciler._handle_stopped(worker)
 
         assert result.status == ReconciliationStatus.SUCCESS
         reconciler._api.update_worker_status.assert_not_called()
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_ec2_terminated_externally(self):
+        """ADR-043: EC2 terminated externally → transition to TERMINATED."""
+        reconciler = make_reconciler()
+        reconciler._ec2.get_instance_state = AsyncMock(return_value=make_ec2_state(state="terminated"))
+        worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="stopped")
+
+        result = await reconciler._handle_stopped(worker)
+
+        assert result.status == ReconciliationStatus.SUCCESS
+        reconciler._api.update_worker_status.assert_called_once_with(
+            worker_id="worker-001",
+            status=CMLWorkerStatus.TERMINATED,
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_ec2_not_found(self):
+        """ADR-043: EC2 instance not found → transition to TERMINATED."""
+        reconciler = make_reconciler()
+        reconciler._ec2.get_instance_state = AsyncMock(return_value=None)
+        worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="stopped")
+
+        result = await reconciler._handle_stopped(worker)
+
+        assert result.status == ReconciliationStatus.SUCCESS
+        reconciler._api.update_worker_status.assert_called_once_with(
+            worker_id="worker-001",
+            status=CMLWorkerStatus.TERMINATED,
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_ec2_running_unexpectedly(self):
+        """ADR-043: EC2 running but status=STOPPED → correct to RUNNING."""
+        reconciler = make_reconciler()
+        reconciler._ec2.get_instance_state = AsyncMock(return_value=make_ec2_state(state="running"))
+        reconciler._api.update_worker_ec2_details = AsyncMock()
+        worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="stopped")
+
+        result = await reconciler._handle_stopped(worker)
+
+        assert result.status == ReconciliationStatus.REQUEUE
+        reconciler._api.update_worker_status.assert_called_once_with(
+            worker_id="worker-001",
+            status=CMLWorkerStatus.RUNNING,
+        )
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_no_ec2_instance_id_checks_desired_state(self):
+        """ADR-043: No EC2 instance ID → skip EC2 check, handle desired state."""
+        reconciler = make_reconciler()
+        worker = make_worker(status=CMLWorkerStatus.STOPPED, desired_status="running", ec2_instance_id=None)
+
+        result = await reconciler._handle_stopped(worker)
+
+        assert result.status == ReconciliationStatus.REQUEUE
+        reconciler._ec2.get_instance_state.assert_not_called()
+        reconciler._api.update_worker_status.assert_called_once_with(
+            worker_id="worker-001",
+            status=CMLWorkerStatus.STARTING,
+        )
 
 
 # =============================================================================
