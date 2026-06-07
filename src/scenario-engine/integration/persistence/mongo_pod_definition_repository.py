@@ -9,6 +9,8 @@ from typing import cast
 
 from domain.entities.pod_definition import PodDefinition
 from domain.repositories.pod_definition_repository import PodDefinitionRepository
+from lcm_core.domain.enums.pod_definition_status import PodDefinitionStatus
+from lcm_core.domain.enums.pod_type import PodType
 from motor.motor_asyncio import AsyncIOMotorClient
 from neuroglia.data.infrastructure.mongo import MotorRepository
 from neuroglia.data.infrastructure.tracing_mixin import TracedRepositoryMixin
@@ -62,3 +64,43 @@ class MongoPodDefinitionRepository(TracedRepositoryMixin, MotorRepository[PodDef
         if document:
             return self._deserialize_entity(document)
         return None
+
+    async def expire_superseded_definitions_async(
+        self,
+        name: str,
+        pod_type: PodType,
+        current_definition_id: str,
+        current_content_hash: str,
+    ) -> list[str]:
+        """Transition stale READY PodDefinitions matching (name, pod_type) to SUPERSEDED.
+
+        Idempotent. Skips the current definition and any READY definitions that
+        already share ``current_content_hash``. Each superseded aggregate is
+        persisted via ``update_async`` so its ``PodDefinitionSupersededDomainEvent``
+        is published through the standard pipeline.
+        """
+        query = {
+            "name": name,
+            "pod_type": pod_type.value,
+            "status": PodDefinitionStatus.READY.value,
+            "content_hash": {"$ne": current_content_hash},
+            "_id": {"$ne": current_definition_id},
+        }
+        superseded_ids: list[str] = []
+        cursor = self.collection.find(query)
+        async for document in cursor:
+            stale = self._deserialize_entity(document)
+            if stale is None:
+                continue
+            stale.supersede(superseded_by=current_definition_id)
+            await self.update_async(stale)
+            superseded_ids.append(stale.state.id)
+        if superseded_ids:
+            log.info(
+                "Superseded %d stale PodDefinitions for (name=%s, pod_type=%s) by %s",
+                len(superseded_ids),
+                name,
+                pod_type.value,
+                current_definition_id,
+            )
+        return superseded_ids

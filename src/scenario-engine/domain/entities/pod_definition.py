@@ -23,6 +23,7 @@ from domain.events.pod_definition_events import (
     PodDefinitionExpiredDomainEvent,
     PodDefinitionReadyDomainEvent,
     PodDefinitionSupersededDomainEvent,
+    PodDefinitionSyncFailedDomainEvent,
     PodDefinitionSyncStartedDomainEvent,
 )
 
@@ -64,6 +65,11 @@ class PodDefinitionState(AggregateState[str]):
     reports: dict[str, Any] | None
     restore_rules: dict[str, Any] | None
 
+    # Failure diagnostics (AD-CSI-011 / Phase 1 G-01).
+    error_message: str | None
+    error_detail: str | None
+    failed_at: datetime | None
+
     def __init__(self) -> None:
         super().__init__()
         self.id = ""
@@ -85,6 +91,10 @@ class PodDefinitionState(AggregateState[str]):
         self.grading_rules = None
         self.reports = None
         self.restore_rules = None
+        # Failure diagnostics (AD-CSI-011)
+        self.error_message = None
+        self.error_detail = None
+        self.failed_at = None
 
     # -------------------------------------------------------------------------
     # Event Handlers
@@ -103,6 +113,10 @@ class PodDefinitionState(AggregateState[str]):
     @dispatch(PodDefinitionSyncStartedDomainEvent)
     def on(self, event: PodDefinitionSyncStartedDomainEvent) -> None:  # type: ignore[override]
         self.status = PodDefinitionStatus.SYNCHRONIZING
+        # Clear stale failure diagnostics on retry / force re-sync.
+        self.error_message = None
+        self.error_detail = None
+        self.failed_at = None
 
     @dispatch(PodDefinitionReadyDomainEvent)
     def on(self, event: PodDefinitionReadyDomainEvent) -> None:  # type: ignore[override]
@@ -128,6 +142,13 @@ class PodDefinitionState(AggregateState[str]):
     @dispatch(PodDefinitionSupersededDomainEvent)
     def on(self, event: PodDefinitionSupersededDomainEvent) -> None:  # type: ignore[override]
         self.status = PodDefinitionStatus.SUPERSEDED
+
+    @dispatch(PodDefinitionSyncFailedDomainEvent)
+    def on(self, event: PodDefinitionSyncFailedDomainEvent) -> None:  # type: ignore[override]
+        self.status = PodDefinitionStatus.FAILED
+        self.error_message = event.reason
+        self.error_detail = event.error_detail
+        self.failed_at = event.failed_at
 
 
 # -------------------------------------------------------------------------
@@ -248,4 +269,18 @@ class PodDefinition(AggregateRoot[PodDefinitionState, str]):
             superseded_by: ID of the newer PodDefinition that replaces this one.
         """
         event = PodDefinitionSupersededDomainEvent(aggregate_id=self.state.id, superseded_by=superseded_by)
+        self.state.on(self.register_event(event))
+
+    def mark_failed(self, reason: str, error_detail: str | None = None) -> None:
+        """Transition to FAILED after a sync error (AD-CSI-011 / Phase 1 G-01).
+
+        Args:
+            reason: Short, human-readable failure summary (e.g. ``"S3 download failed"``).
+            error_detail: Optional detailed payload (e.g. traceback or schema errors).
+        """
+        event = PodDefinitionSyncFailedDomainEvent(
+            aggregate_id=self.state.id,
+            reason=reason,
+            error_detail=error_detail,
+        )
         self.state.on(self.register_event(event))
