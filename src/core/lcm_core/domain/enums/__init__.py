@@ -26,6 +26,8 @@ from lcm_core.domain.enums.lablet_session_status import (
     LabletSessionStatus,
 )
 from lcm_core.domain.enums.license import LicenseStatus, LicenseType
+from lcm_core.domain.enums.pod_definition_status import POD_DEFINITION_VALID_TRANSITIONS, PodDefinitionStatus
+from lcm_core.domain.enums.pod_type import PodType
 from lcm_core.domain.enums.runtime_environment_type import RuntimeEnvironmentType
 from lcm_core.domain.enums.user_session_status import UserSessionStatus
 from lcm_core.domain.enums.worker_origin import WorkerOrigin
@@ -46,6 +48,9 @@ __all__ = [
     "LabRecordStatus",
     "LicenseStatus",
     "LicenseType",
+    "POD_DEFINITION_VALID_TRANSITIONS",
+    "PodDefinitionStatus",
+    "PodType",
     "RuntimeEnvironmentType",
     "UserSessionStatus",
     "WorkerOrigin",
