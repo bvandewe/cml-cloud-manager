@@ -5,7 +5,7 @@
 >
 > **Owner**: Senior Architect (LCM)
 > **Authority**: [ADR-044 — Content-Driven Lifecycle Engine](../architecture/adr/ADR-044-content-driven-lifecycle-engine.md) (Rev 2)
-> **Status**: � Phase 0 — Foundations complete (G-03/G-04/G-07/G-08 closed); Phase 1 next
+> **Status**: 🟢 Phase 1 — SE content sync becomes real (G-01 closed); Phase 2 next
 > **Last updated**: see git history
 
 ---
@@ -39,7 +39,7 @@ ADR-044 calls for a two-engine architecture:
 
 | Theme | Status |
 |---|---|
-| Content extraction → SE | 🔴 lablet-controller does not notify SE of new content; SE's `SyncContentCommand` is a stub. |
+| Content extraction → SE | � lablet-controller does not yet notify SE; SE's `SyncContentCommand` is now a full 10-step orchestrator (Phase 1, G-01 closed). Outbound notification remains Phase 2 (G-02). |
 | Pod type auto-discovery | 🟢 **Closed (Phase 0, G-04)** — `PodTypeDetector` enforces AD-CSI-002 priority chain (manifest > radkit > proxmox > vmware > cml.yaml > legacy) in `lcm_core.infrastructure.content_store`. |
 | `PodDefinition` entity | 🟢 **Closed (Phase 0, G-03)** — 8 typed PAv1 fields added (`content_hash`, `topology`, `devices`, `lifecycle_phases`, `scenarios`, `grading_rules`, `reports`, `restore_rules`) with safe defaults; event payload extended. |
 | `ScenarioEngineClient` call sites | 🔴 client is registered but **zero** call sites — nothing in lablet-controller submits jobs to SE. |
@@ -64,7 +64,7 @@ The remediation is **content-driven sync redesign + missing-call-site implementa
 |---|---|---|
 | `main.py` | App composition: `Job` + `PodDefinition` MotorRepositories, `JobExecutionService` HostedService, `CloudEventCallbackService` singleton, auto-discovers `@scenario`. | ✅ Complete |
 | `application/commands/submit_job_command.py` | Validates `scenario_name@version`, creates `Job`, persists, enqueues. Accepts `pod_definition_id`, `callback_url`. | ✅ Complete |
-| `application/commands/sync_content_command.py` | Creates/looks up `PodDefinition`, transitions to `SYNCHRONIZING`. **No S3 fetch, no PAv1/ extraction, no manifest parsing, no transition to `READY`.** | 🔴 **Stub** |
+| `application/commands/sync_content_command.py` | End-to-end 10-step orchestration: validate → load/create aggregate → `SYNCHRONIZING` → S3 download → SHA-256 → pod-type detection → PAv1 extract → JSON-schema validation → `mark_ready` → supersede stale READY definitions → emit `pod_definition.ready.v1`. Failures funnel to `mark_failed` + `pod_definition.sync_failed.v1`. _Phase 1 closed G-01._ | 🟢 |
 | `application/commands/cancel_job_command.py` | Cancellation. | ✅ |
 | `application/services/job_execution_service.py` | HostedService — asyncio.Queue + semaphore, startup sweep (`SUBMITTED→re-enqueue`, `RUNNING→FAILED`), `_dispatch_loop`, `_execute_job` (builds `ScenarioContext` with `AdapterRegistry`, `report_progress`, `cancellation_event`). | ✅ |
 | `application/services/dsl_executor.py` | `call` / `do` / `set` / `try`; `input.from` / `output.as` / `export.as` / `if` / `timeout` / `retry`; jq vars `$context`, `$input`, `$output`. | ✅ Phase 2 |
@@ -89,7 +89,7 @@ The remediation is **content-driven sync redesign + missing-call-site implementa
 | `domain/value_objects/pod_definition_ref.py` | `PodDefinitionRef(definition_id, version, pod_type, content_hash=None)` + `with_sync_confirmation(hash)` + `is_compatible_with(worker_pod_type)` + `to_dict/from_dict`. | ✅ |
 | `domain/value_objects/managed_lifecycle.py` | `ManagedLifecycle` VO referencing `PipelineExecutor` or `ScenarioEngine` per phase. | 🟡 partial |
 | `domain/dsl/` package | **MISSING** — ADR-044 §4.1 calls for shared `task_types`, `expressions`, `lifecycle_definition`. | 🔴 |
-| `infrastructure/content_store/` package | Ships in `lcm_core.infrastructure.content_store` (Phase 0 — closes G-04, G-08): `PAv1Validator`, `PodTypeDetector` (AD-CSI-002 priority chain), `ExtractedContent`, `ContentExtractor` skeleton. S3 fetch + extract remain Phase 1 (G-01). | 🟡 |
+| `infrastructure/content_store/` package | Ships in `lcm_core.infrastructure.content_store`: `PAv1Validator`, `PodTypeDetector` (AD-CSI-002), `ExtractedContent`, full `ContentExtractor`, and `S3ContentClient` (Phase 1, G-01). | 🟢 |
 | `integration/clients/control_plane_api_client.py` | HTTP client for CPA `record_content_sync_result` etc. | ✅ |
 | `integration/clients/etcd_client.py` | etcd watch primitives. | ✅ |
 
@@ -133,7 +133,17 @@ The remediation is **content-driven sync redesign + missing-call-site implementa
 > **Severity**: 🔥 Blocker (no end-to-end flow without it) · 🔴 High · 🟡 Medium · 🟢 Low
 > **Status**: 🔴 Open · 🟡 In progress · 🟢 Closed
 
-### G-01 — SE `SyncContentCommand` is a stub  🔥 Blocker — 🔴 Open
+### G-01 — SE `SyncContentCommand` is a stub  🔥 Blocker — � Closed
+
+**Closed:** Phase 1, multiple commits — `SyncContentCommandHandler` now executes the full 10-step pipeline (validate → load/create → SYNCHRONIZING → S3 download → SHA-256 → pod-type detection → PAv1 extract → JSON-schema validation → READY → supersede stale → emit `pod_definition.ready.v1`). Failures funnel through `mark_failed` + `pod_definition.sync_failed.v1`. Backed by:
+
+- `lcm_core.infrastructure.content_store.S3ContentClient` (boto3, async-wrapped, moto-tested).
+- `lcm_core.infrastructure.content_store.ContentExtractor` (full PAv1 walker; optional `detected_pod_type` hint per AD-CSI-012).
+- `PodDefinitionRepository.expire_superseded_definitions_async()` on interface + Mongo impl.
+- `PodDefinitionStatus.FAILED` lifecycle state + `mark_failed()` + `PodDefinitionSyncFailedDomainEvent` (AD-CSI-011).
+- `CloudEventCallbackService.emit_content_synced()` + `emit_sync_failed()` (AD-CSI-013).
+
+**Verification:** core 307 ✓ · scenario-engine 110 ✓ (10 new command tests + 4 new supersede tests).
 
 **Current state.** `application/commands/sync_content_command.py` finds-or-creates a `PodDefinition` and transitions to `SYNCHRONIZING`. It never downloads from S3, never extracts `PAv1/`, never transitions to `READY`, never records the manifest.
 
@@ -193,7 +203,7 @@ The remediation is **content-driven sync redesign + missing-call-site implementa
 
 ### G-03 — `PodDefinition` entity missing content fields  🔴 — 🟢 Closed (Phase 0)
 
-**Closed:** commit [`7d760fe`](#) (feat(scenario-engine): expand PodDefinitionState with PAv1 typed fields).
+**Closed:** commit `7d760fe` (feat(scenario-engine): expand PodDefinitionState with PAv1 typed fields).
 
 **Current.** `PodDefinitionState` has only `manifest: dict`. Everything is shoved into the opaque manifest blob.
 
@@ -237,7 +247,7 @@ class PodDefinitionState(AggregateState[str]):
 
 ### G-04 — Pod-type auto-discovery missing  🔴 — 🟢 Closed (Phase 0)
 
-**Closed:** commit [`d5600a1`](#) (feat(content-store): PAv1 spec, schemas, PAv1Validator and PodTypeDetector). Phase 1/2 will invoke the detector from lablet-controller and SE.
+**Closed:** commit `d5600a1` (feat(content-store): PAv1 spec, schemas, PAv1Validator and PodTypeDetector). Phase 1/2 will invoke the detector from lablet-controller and SE.
 
 **Current.** `pod_type` is hand-authored in seed YAML. Real-world Lablet zips have no such annotation.
 
@@ -329,7 +339,7 @@ The pipeline executor already supports `existing_progress` resumability — exte
 
 ### G-07 — `RecordContentSyncResultCommand` does not accept `pod_type`  🟡 — 🟢 Closed (Phase 0)
 
-**Closed:** commit [`820dcaf`](#) (feat(control-plane-api): confirm PodDefinition link on content sync). Aggregate method `LabletDefinition.confirm_pod_definition(...)` validates `pod_type` (400 unknown / 409 conflict) and emits `LabletDefinitionPodDefinitionConfirmedDomainEvent`. See AD-CSI-010.
+**Closed:** commit `820dcaf` (feat(control-plane-api): confirm PodDefinition link on content sync). Aggregate method `LabletDefinition.confirm_pod_definition(...)` validates `pod_type` (400 unknown / 409 conflict) and emits `LabletDefinitionPodDefinitionConfirmedDomainEvent`. See AD-CSI-010.
 
 **Current.** The command finalises `LabletDefinition.pod_definition_ref.with_sync_confirmation(hash)` but cannot set the ref if it was `None` (i.e. `pod_type` was not in seed YAML).
 
@@ -347,7 +357,7 @@ The pipeline executor already supports `existing_progress` resumability — exte
 
 ### G-08 — PAv1/ content layout not defined  🔴 — 🟢 Closed (Phase 0)
 
-**Closed:** commit [`d5600a1`](#) (feat(content-store): PAv1 spec, schemas, PAv1Validator and PodTypeDetector).
+**Closed:** commit `d5600a1` (feat(content-store): PAv1 spec, schemas, PAv1Validator and PodTypeDetector).
 
 **Current.** No spec. Lablet zips contain `mosaic_meta.json`, `cml.yaml`, `grade.xml`, `devices.json`, `content.xml`, `node-definitions/`, `image-definitions/`. ADR-044 references `PAv1/` but doesn't pin the schema.
 
@@ -548,12 +558,15 @@ sequenceDiagram
 - Add `lcm_core.infrastructure.content_store` package skeleton. ✅
 
 **Verification:** core 293 ✓ · scenario-engine 99 ✓ · control-plane-api 1078 ✓ (7 new); content_store coverage 97%.
+
 - Add `lcm_core.infrastructure.content_store` package skeleton.
 
-### Phase 1 — SE content sync becomes real
+### Phase 1 — SE content sync becomes real 🟢 Complete
 
-- **G-01** Implement `SyncContentCommand` end-to-end (download, extract, validate, persist, supersede).
-- Update `tests/scenario-engine/` to cover the new flow with the reference fixture.
+- **G-01** Implement `SyncContentCommand` end-to-end (download, extract, validate, persist, supersede). ✅
+- Update `tests/scenario-engine/` to cover the new flow with the reference fixture. ✅
+
+**Verification:** core 307 ✓ (added 6 extractor + 12 S3 client tests) · scenario-engine 110 ✓ (added 10 command + 4 supersede tests). New decisions: AD-CSI-011, AD-CSI-012, AD-CSI-013.
 
 ### Phase 2 — `lablet-controller` calls SE
 
@@ -601,6 +614,9 @@ sequenceDiagram
 | **AD-CSI-008** | Tier-A vs Tier-B steps (§G-05) | Steps that touch external systems (`lab_resolve`, `lab_start`, `lab_stop`, `lab_wipe`, `collect_grade`, `score_report`) become Tier-B (SE-delegated). Steps that touch CPA state (`ports_alloc`, `tags_sync`, `lab_binding`, `mark_ready`, `deregister_lds`, `archive`) stay Tier-A (in-process Python). | Avoids splitting transactional CPA operations across services; concentrates "external system mess" in SE where adapters live. |
 | **AD-CSI-009** | Suspension/resumption uses `StepResult.suspended` + CloudEvent | Steps return `SUSPENDED`; `PipelineExecutor` persists state; a CloudEvent handler issues `ResumePipelineStepCommand` to re-enter the executor. | Reuses existing `existing_progress` resumability; no new long-poll or websocket needed. |
 | **AD-CSI-010** | PodDefinition confirmation: 400 unknown pod_type / 409 pod_type conflict (Phase 0, G-07) | `RecordContentSyncResultCommand` validates `pod_type` up-front (returns `bad_request` if not a `PodType` member) **before** any aggregate mutation. `LabletDefinition.confirm_pod_definition()` accepts either a `PodType` enum or its string value; it raises `ValueError` on `pod_type` mismatch against an existing `PodDefinitionRef`, which the handler maps to `conflict` (409). | Two-layer validation keeps the bad_request fast-path cheap (no aggregate construction) while still letting the domain invariant (`pod_type` immutability per definition version) live on the aggregate. Accepting enum-or-string at the aggregate boundary lets internal callers pass typed enums while wire callers pass the value string. |
+| **AD-CSI-011** | `PodDefinition.FAILED` is a first-class lifecycle state (Phase 1, G-01) | Added `PodDefinitionStatus.FAILED`, `PodDefinitionSyncFailedDomainEvent`, `mark_failed(reason, error_detail)` and bidirectional `SYNCHRONIZING ↔ FAILED` transitions so force re-syncs of a previously failed definition are legal. State fields `error_message`, `error_detail`, `failed_at` carry diagnostics; cleared on `SyncStarted`. | Surfacing failures as durable aggregate state (rather than transient log lines) is required for UI display, retries, and supersession bookkeeping. Bidirectional transition keeps recovery a single command rather than aggregate replacement. |
+| **AD-CSI-012** | `ExtractedContent.detected_pod_type` is optional (Phase 1, G-01) | `ContentExtractor` runs `PodTypeDetector` defensively and stores the result as `Optional[PodType]`. If detection raises `PodTypeIndeterminate`, the extractor still raises `PAv1ValidationError` for the missing manifest but propagates `detected_pod_type=None` so callers see why detection failed. | Detection is informational at extraction time — manifest validity is the authoritative signal. Treating detection as a fail-open hint keeps the extractor's contract narrow (PAv1 conformance) while still surfacing topology hints for failure diagnostics. |
+| **AD-CSI-013** | CloudEvent callback URL is per-request, not per-PodDefinition (Phase 1, G-01) | `SyncContentCommand.callback_url` is optional and resolved at emit time via `CloudEventCallbackService._resolve_target_url`: per-request URL > `settings.cloud_event_sink` > skip. Applies to both `pod_definition.ready.v1` and `pod_definition.sync_failed.v1`. | Per-request URLs keep the PodDefinition aggregate free of caller-specific transport metadata, defer transport policy to the orchestrator (CPA / lablet-controller), and stay consistent with `SubmitJobCommand`'s existing `callback_url` model (Q-03). |
 
 ---
 
