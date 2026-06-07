@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.infrastructure.content_store.fixtures import (
+    build_pav1_full_bytes,
     build_pav1_minimal_bytes,
     build_pav1_radkit_topology_no_manifest_bytes,
     write_fixture,
@@ -24,6 +25,11 @@ def pav1_minimal_bytes() -> bytes:
 @pytest.fixture
 def pav1_radkit_no_manifest_bytes() -> bytes:
     return build_pav1_radkit_topology_no_manifest_bytes()
+
+
+@pytest.fixture
+def pav1_full_bytes() -> bytes:
+    return build_pav1_full_bytes()
 
 
 @pytest.fixture
