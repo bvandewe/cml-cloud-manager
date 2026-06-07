@@ -37,6 +37,10 @@ from integration.persistence.mongo_job_repository import MongoJobRepository
 from integration.persistence.mongo_pod_definition_repository import MongoPodDefinitionRepository
 from integration.services.cloud_event_client import CloudEventCallbackService
 from lcm_core.infrastructure import configure_logging
+from lcm_core.infrastructure.content_store.content_extractor import ContentExtractor
+from lcm_core.infrastructure.content_store.pav1_validator import PAv1Validator
+from lcm_core.infrastructure.content_store.pod_type_detector import PodTypeDetector
+from lcm_core.infrastructure.content_store.s3_content_client import S3ContentClient
 from lcm_core.infrastructure.mixins import ServiceInfo, StandardEndpointsMixin
 from neuroglia.data.infrastructure.mongo import MotorRepository
 from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
@@ -116,6 +120,21 @@ def create_app() -> FastAPI:
         CloudEventCallbackService,
         implementation_factory=lambda _: CloudEventCallbackService(settings),
     )
+
+    # Configure Content Store singletons (Phase 1 G-01 — SyncContentCommand pipeline)
+    builder.services.add_singleton(
+        S3ContentClient,
+        implementation_factory=lambda _: S3ContentClient(
+            endpoint_url=settings.s3_endpoint,
+            access_key=settings.s3_access_key,
+            secret_key=settings.s3_secret_key,
+            region=settings.s3_region,
+            secure=settings.s3_secure,
+        ),
+    )
+    builder.services.add_singleton(ContentExtractor)
+    builder.services.add_singleton(PAv1Validator)
+    builder.services.add_singleton(PodTypeDetector)
 
     # Configure JobExecutionService as singleton + HostedService
     JobExecutionService.configure(builder.services, settings)

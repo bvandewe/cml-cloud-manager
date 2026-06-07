@@ -229,51 +229,24 @@ class TestCancelJobCommandHandler:
 
 
 class TestSyncContentCommandHandler:
-    """Tests for SyncContentCommandHandler."""
+    """Early-exit tests for SyncContentCommandHandler.
 
-    @pytest.mark.unit
-    async def test_sync_new_pod_definition(self, mock_pod_definition_repository):
-        handler = SyncContentCommandHandler(pod_definition_repository=mock_pod_definition_repository)
-        command = SyncContentCommand(
-            name="my-content",
-            version="v1",
-            source_uri="s3://bucket/content.zip",
+    Happy paths (download/extract/validate/READY/supersede/emit) live in
+    :mod:`tests.unit.test_sync_content_command` so we can mock the full
+    S3 + extractor + CloudEvent pipeline with intent.
+    """
+
+    @staticmethod
+    def _make_handler(pod_definition_repository) -> SyncContentCommandHandler:
+        return SyncContentCommandHandler(
+            pod_definition_repository=pod_definition_repository,
+            s3_content_client=MagicMock(),
+            content_extractor=MagicMock(),
+            pav1_validator=MagicMock(),
+            pod_type_detector=MagicMock(),
+            cloud_event_service=MagicMock(),
+            settings=MagicMock(),
         )
-
-        result = await handler.handle_async(command)
-
-        assert result.is_success
-        assert result.status_code == 202
-        assert result.data["status"] == "synchronizing"
-        assert result.data["definition_id"] != ""
-        mock_pod_definition_repository.add_async.assert_called_once()
-        mock_pod_definition_repository.update_async.assert_called_once()
-
-    @pytest.mark.unit
-    async def test_sync_existing_pod_definition(self, mock_pod_definition_repository):
-        # Create an existing PodDefinition in DEFINED state
-        pod_def = PodDefinition.create(
-            name="existing-content",
-            version="v1",
-            pod_type=PodType.CML_ON_AWS,
-            source_uri="s3://bucket/old.zip",
-            definition_id="pd-existing",
-        )
-        mock_pod_definition_repository.get_by_id_async = AsyncMock(return_value=pod_def)
-
-        handler = SyncContentCommandHandler(pod_definition_repository=mock_pod_definition_repository)
-        command = SyncContentCommand(
-            definition_id="pd-existing",
-            source_uri="s3://bucket/new.zip",
-        )
-
-        result = await handler.handle_async(command)
-
-        assert result.is_success
-        assert result.status_code == 202
-        assert result.data["definition_id"] == "pd-existing"
-        mock_pod_definition_repository.add_async.assert_not_called()
-        mock_pod_definition_repository.update_async.assert_called_once()
 
     @pytest.mark.unit
     async def test_sync_ready_without_force_conflict(self, mock_pod_definition_repository):
@@ -290,7 +263,7 @@ class TestSyncContentCommandHandler:
         assert pod_def.state.status == PodDefinitionStatus.READY
         mock_pod_definition_repository.get_by_id_async = AsyncMock(return_value=pod_def)
 
-        handler = SyncContentCommandHandler(pod_definition_repository=mock_pod_definition_repository)
+        handler = self._make_handler(mock_pod_definition_repository)
         command = SyncContentCommand(
             definition_id="pd-ready",
             source_uri="s3://bucket/ready.zip",
@@ -304,36 +277,8 @@ class TestSyncContentCommandHandler:
         mock_pod_definition_repository.update_async.assert_not_called()
 
     @pytest.mark.unit
-    async def test_sync_ready_with_force(self, mock_pod_definition_repository):
-        # Create a READY PodDefinition
-        pod_def = PodDefinition.create(
-            name="ready-content",
-            version="v1",
-            pod_type=PodType.CML_ON_AWS,
-            source_uri="s3://bucket/ready.zip",
-            definition_id="pd-ready",
-        )
-        pod_def.start_sync()
-        pod_def.mark_ready(local_path="/data/ready", manifest={"files": ["a.yaml"]})
-        assert pod_def.state.status == PodDefinitionStatus.READY
-        mock_pod_definition_repository.get_by_id_async = AsyncMock(return_value=pod_def)
-
-        handler = SyncContentCommandHandler(pod_definition_repository=mock_pod_definition_repository)
-        command = SyncContentCommand(
-            definition_id="pd-ready",
-            source_uri="s3://bucket/ready.zip",
-            force=True,
-        )
-
-        result = await handler.handle_async(command)
-
-        assert result.is_success
-        assert result.status_code == 202
-        mock_pod_definition_repository.update_async.assert_called_once()
-
-    @pytest.mark.unit
     async def test_sync_missing_source_uri(self, mock_pod_definition_repository):
-        handler = SyncContentCommandHandler(pod_definition_repository=mock_pod_definition_repository)
+        handler = self._make_handler(mock_pod_definition_repository)
         command = SyncContentCommand(source_uri="")
 
         result = await handler.handle_async(command)
@@ -343,7 +288,7 @@ class TestSyncContentCommandHandler:
 
     @pytest.mark.unit
     async def test_sync_new_missing_name(self, mock_pod_definition_repository):
-        handler = SyncContentCommandHandler(pod_definition_repository=mock_pod_definition_repository)
+        handler = self._make_handler(mock_pod_definition_repository)
         command = SyncContentCommand(
             name="",
             source_uri="s3://bucket/content.zip",

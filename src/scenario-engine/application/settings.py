@@ -47,6 +47,7 @@ class Settings(ApplicationSettings):
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_region: str = "us-east-1"
+    s3_secure: bool = False  # Set true for HTTPS S3 endpoints (AD-CSI-013).
 
     # ============================================================================
     # CloudEvents Sink (for job completion callbacks)

@@ -36,6 +36,9 @@ class CloudEventCallbackService:
     EVENT_COMPLETED = "scenario_engine.job.completed.v1"
     EVENT_FAILED = "scenario_engine.job.failed.v1"
     EVENT_CANCELLED = "scenario_engine.job.cancelled.v1"
+    # PodDefinition content sync events (AD-CSI-013 / Phase 1 G-01).
+    EVENT_POD_DEFINITION_READY = "scenario_engine.pod_definition.ready.v1"
+    EVENT_POD_DEFINITION_SYNC_FAILED = "scenario_engine.pod_definition.sync_failed.v1"
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -129,6 +132,57 @@ class CloudEventCallbackService:
     def _cleanup_progress_tracking(self, job_id: str) -> None:
         """Remove progress throttle tracking for a completed/failed/cancelled job."""
         self._last_progress_time.pop(job_id, None)
+
+    async def emit_content_synced(
+        self,
+        *,
+        pod_definition_id: str,
+        name: str,
+        version: str,
+        pod_type: str,
+        content_hash: str,
+        callback_url: str | None = None,
+    ) -> None:
+        """Emit a ``scenario_engine.pod_definition.ready.v1`` CloudEvent.
+
+        Fired by :class:`SyncContentCommandHandler` after a PodDefinition has
+        been downloaded, extracted, validated and persisted as READY
+        (Phase 1 G-01 / AD-CSI-013).
+        """
+        await self._emit(
+            event_type=self.EVENT_POD_DEFINITION_READY,
+            job_id=pod_definition_id,
+            data={
+                "pod_definition_id": pod_definition_id,
+                "name": name,
+                "version": version,
+                "pod_type": pod_type,
+                "content_hash": content_hash,
+            },
+            callback_url=callback_url,
+        )
+
+    async def emit_sync_failed(
+        self,
+        *,
+        pod_definition_id: str,
+        reason: str,
+        error_detail: str | None = None,
+        callback_url: str | None = None,
+    ) -> None:
+        """Emit a ``scenario_engine.pod_definition.sync_failed.v1`` CloudEvent
+        when a PodDefinition sync transitions the aggregate to FAILED
+        (Phase 1 G-01 / AD-CSI-013)."""
+        await self._emit(
+            event_type=self.EVENT_POD_DEFINITION_SYNC_FAILED,
+            job_id=pod_definition_id,
+            data={
+                "pod_definition_id": pod_definition_id,
+                "reason": reason,
+                "error_detail": error_detail,
+            },
+            callback_url=callback_url,
+        )
 
     async def _emit(self, event_type: str, job_id: str, data: dict[str, Any], callback_url: str | None = None) -> None:
         """Emit a CloudEvent with retry logic. Fire-and-forget."""
