@@ -6,6 +6,10 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 ## [Unreleased]
 
+### Added — CPA↔SE Integration Phase 3 (lcm-core client methods)
+
+- **lcm-core `ControlPlaneApiClient`**: new `resume_pipeline_step(...)` and `fail_pipeline_step(...)` methods enabling external step orchestrators (scenario-engine callbacks, lablet-controller watchdog) to drive CPA's pipeline state machine via internal API endpoints.
+
 ### Added — Session Termination Lab Wipe (AD-WIPE-001)
 
 - **Terminate/Expire → wipe integration** (control-plane-api): `TerminateLabletSessionCommand` and `ExpireLabletSessionCommand` now unbind the linked LabRecord and dispatch `WipeLabRecordCommand` on session end. Guards skip wipe for terminal labs or those with pending actions. Wipe failure does not block session termination.

@@ -446,6 +446,92 @@ class ControlPlaneApiClient:
         )
         return dict(result) if result else {}
 
+    async def resume_pipeline_step(
+        self,
+        session_id: str,
+        pipeline_name: str,
+        step_correlation_id: str,
+        output_data: dict[str, Any] | None = None,
+        completed_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Resume a suspended pipeline step after an external job completes.
+
+        Phase 3 / AD-CSI-009: Used by lablet-controller's ``events_controller``
+        to flip a SUSPENDED pipeline step to COMPLETED when a Scenario Engine
+        ``job.completed`` CloudEvent arrives. The returned dict carries the
+        refreshed ``pipeline_progress`` so the caller can hand it to the
+        in-process ``LifecyclePhaseHandler`` for resumption.
+
+        Args:
+            session_id: ID of the session whose pipeline is suspended.
+            pipeline_name: Name of the pipeline (e.g., ``"instantiate"``).
+            step_correlation_id: Correlation token issued when the step was
+                suspended (round-tripped via SE CloudEvent metadata).
+            output_data: Output payload from the external job.
+            completed_at: Optional ISO 8601 external completion timestamp.
+
+        Returns:
+            Dict containing ``session_id``, ``pipeline_name``, ``step_name``,
+            ``pipeline_progress`` (refreshed), and ``idempotent`` flag.
+        """
+        body: dict[str, Any] = {
+            "pipeline_name": pipeline_name,
+            "step_correlation_id": step_correlation_id,
+            "output_data": output_data or {},
+        }
+        if completed_at is not None:
+            body["completed_at"] = completed_at
+
+        result = await self._request(
+            "POST",
+            f"/api/internal/lablet-sessions/{session_id}/pipeline-steps/resume",
+            json=body,
+        )
+        return dict(result) if result else {}
+
+    async def fail_pipeline_step(
+        self,
+        session_id: str,
+        pipeline_name: str,
+        step_correlation_id: str,
+        error: str,
+        details: dict[str, Any] | None = None,
+        failed_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Mark a suspended pipeline step as failed after an external job fails.
+
+        Phase 3 / AD-CSI-009: Mirror of :meth:`resume_pipeline_step` for the
+        SE ``job.failed`` / ``job.cancelled`` CloudEvent paths.
+
+        Args:
+            session_id: ID of the session.
+            pipeline_name: Name of the pipeline.
+            step_correlation_id: Correlation token issued when suspended.
+            error: Human-readable failure message.
+            details: Optional structured error payload.
+            failed_at: Optional ISO 8601 external failure timestamp.
+
+        Returns:
+            Dict with ``session_id``, ``pipeline_name``, ``step_name``, and
+            refreshed ``pipeline_progress``.
+        """
+        body: dict[str, Any] = {
+            "pipeline_name": pipeline_name,
+            "step_correlation_id": step_correlation_id,
+            "error": error,
+        }
+        if details is not None:
+            body["details"] = details
+        if failed_at is not None:
+            body["failed_at"] = failed_at
+
+        result = await self._request(
+            "POST",
+            f"/api/internal/lablet-sessions/{session_id}/pipeline-steps/fail",
+            json=body,
+        )
+        return dict(result) if result else {}
+
     async def set_session_desired_status(
         self,
         session_id: str,
