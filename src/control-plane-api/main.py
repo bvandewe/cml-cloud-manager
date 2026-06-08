@@ -262,10 +262,25 @@ def create_app() -> FastAPI:
             serializer = sp.get_required_service(JsonSerializer)
             return MongoPipelineExecutionRepository(client, "lablet_cloud_manager", "pipeline_executions", serializer)
 
+        # Phase 2 / G-12 — PodDefinition read-model repository (SE projection).
+        from domain.repositories.pod_definition_read_repository import PodDefinitionReadRepository
+        from integration.repositories.motor_pod_definition_read_repository import (
+            MotorPodDefinitionReadRepository,
+        )
+
+        def pod_definition_read_factory(sp: Any) -> MotorPodDefinitionReadRepository:
+            client = sp.get_required_service(AsyncIOMotorClient)
+            return MotorPodDefinitionReadRepository(
+                client,
+                database_name="lablet_cloud_manager",
+                collection_name="pod_definitions_read",
+            )
+
         b.services.add_scoped(UserSessionRepository, implementation_factory=user_session_factory)
         b.services.add_scoped(GradingSessionRepository, implementation_factory=grading_session_factory)
         b.services.add_scoped(ScoreReportRepository, implementation_factory=score_report_factory)
         b.services.add_scoped(PipelineExecutionRepository, implementation_factory=pipeline_execution_factory)
+        b.services.add_scoped(PodDefinitionReadRepository, implementation_factory=pod_definition_read_factory)
 
     _register_child_repos(builder)
 

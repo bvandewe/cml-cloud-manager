@@ -443,6 +443,16 @@ class RecordContentSyncResultRequest(BaseModel):
     # Multi-port device conflicts detected at sync time (AD-LDS-002)
     port_conflicts: list[dict[str, Any]] | None = Field(default=None, description="Multi-port device conflicts with resolved ports")
 
+    # Scenario Engine integration (Phase 2 / G-02 / AD-CSI-003)
+    pod_definition_id: str | None = Field(
+        default=None,
+        description="PodDefinition aggregate id returned by SE's POST /api/v1/content/sync. " "Used to finalise LabletDefinition.pod_definition_ref (AD-CSI-010).",
+    )
+    pod_type: str | None = Field(
+        default=None,
+        description="Detected pod type string (e.g. 'cml_on_aws') from SE or local PodTypeDetector.",
+    )
+
 
 # ==============================================================================
 # ADR-041: WebSocket-Based Monitoring Request Models
@@ -1986,6 +1996,9 @@ class InternalController(ControllerBase):
             node_count=request.node_count,
             node_definitions_required=request.node_definitions_required,
             port_conflicts=request.port_conflicts,
+            # Phase 2 / G-02 — PodDefinition link finalisation (AD-CSI-010).
+            pod_definition_id=request.pod_definition_id,
+            pod_type=request.pod_type,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)

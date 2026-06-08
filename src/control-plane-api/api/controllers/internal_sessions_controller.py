@@ -11,24 +11,16 @@ All other services request mutations via these internal endpoints.
 import logging
 from typing import Annotated, Any
 
-from classy_fastapi.decorators import get, post
-from classy_fastapi.routable import Routable
-from fastapi import Depends, HTTPException, Path, Query, status
-from fastapi.security import APIKeyHeader
-from neuroglia.dependency_injection import ServiceProviderBase
-from neuroglia.mapping.mapper import Mapper
-from neuroglia.mediation.mediator import Mediator
-from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
-from pydantic import BaseModel, Field
-
 from application.commands.lab import (
     AllocateLabRecordPortsCommand,
 )
 from application.commands.lablet_session import (
     BindLabToSessionCommand,
     ExpireLabletSessionCommand,
+    FailPipelineStepCommand,
     MarkSessionReadyCommand,
     RecordResourceObservationCommand,
+    ResumePipelineStepCommand,
     ScheduleLabletSessionCommand,
     SetDesiredStatusCommand,
     StartInstantiationCommand,
@@ -45,6 +37,15 @@ from application.queries.lablet_session import (
     ListPipelineExecutionsQuery,
 )
 from application.settings import Settings
+from classy_fastapi.decorators import get, post
+from classy_fastapi.routable import Routable
+from fastapi import Depends, HTTPException, Path, Query, status
+from fastapi.security import APIKeyHeader
+from neuroglia.dependency_injection import ServiceProviderBase
+from neuroglia.mapping.mapper import Mapper
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.mvc.controller_base import ControllerBase, generate_unique_id_function
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -149,9 +150,28 @@ class UpdatePipelineProgressRequest(BaseModel):
 
     pipeline_name: str = Field(..., description="Pipeline type: 'instantiate', 'teardown', 'collect_evidence', 'compute_grading'")
     step_name: str = Field(..., description="Pipeline step name (e.g., 'stop_lab', 'wipe_lab')")
-    step_status: str = Field(..., description="Step outcome: 'completed', 'failed', or 'skipped'")
-    result_data: dict | None = Field(default=None, description="Optional result payload for completed steps")
+    step_status: str = Field(..., description="Step outcome: 'completed', 'failed', 'skipped', or 'suspended'")
+    result_data: dict | None = Field(default=None, description="Optional result payload for completed/suspended steps")
     error: str | None = Field(default=None, description="Optional error message for failed steps")
+
+
+class ResumePipelineStepRequest(BaseModel):
+    """Request to resume a suspended pipeline step (Phase 3 / AD-CSI-009)."""
+
+    pipeline_name: str = Field(..., description="Pipeline holding the suspended step")
+    step_correlation_id: str = Field(..., description="Correlation token issued when the step was suspended")
+    output_data: dict = Field(default_factory=dict, description="Output payload from the external job")
+    completed_at: str | None = Field(default=None, description="ISO 8601 external completion timestamp")
+
+
+class FailPipelineStepRequest(BaseModel):
+    """Request to mark a suspended pipeline step as failed (Phase 3 / AD-CSI-009)."""
+
+    pipeline_name: str = Field(..., description="Pipeline holding the suspended step")
+    step_correlation_id: str = Field(..., description="Correlation token issued when the step was suspended")
+    error: str = Field(..., description="Human-readable failure message")
+    details: dict | None = Field(default=None, description="Optional structured error payload")
+    failed_at: str | None = Field(default=None, description="ISO 8601 external failure timestamp")
 
 
 class BindLabToSessionRequest(BaseModel):
@@ -533,6 +553,81 @@ class InternalSessionsController(ControllerBase):
             step_status=request.step_status,
             result_data=request.result_data,
             error=request.error,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    # --------------------------------------------------------------------------
+    # Phase 3 / AD-CSI-009: SE-suspended step resume/fail (Scenario Engine bridge)
+    # --------------------------------------------------------------------------
+
+    @post(
+        "/{session_id}/pipeline-steps/resume",
+        summary="Resume Suspended Pipeline Step (Internal)",
+        tags=["Internal - Sessions"],
+        status_code=200,
+    )
+    async def resume_pipeline_step(
+        self,
+        session_id: session_id_annotation,
+        request: ResumePipelineStepRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Resume a suspended pipeline step after an external job completes.
+
+        Phase 3 / AD-CSI-009: Called by lablet-controller's events_controller
+        when a Scenario Engine ``job.completed`` CloudEvent arrives. Flips the
+        suspended step to ``"completed"`` and merges ``output_data`` into the
+        step's ``result_data``. Returns the refreshed ``pipeline_progress`` so
+        the in-process ``LifecyclePhaseHandler`` can resume executor execution.
+        """
+        logger.info(
+            "[Internal] Resuming suspended step for session %s (pipeline=%s, correlation=%s)",
+            session_id,
+            request.pipeline_name,
+            request.step_correlation_id,
+        )
+        command = ResumePipelineStepCommand(
+            session_id=session_id,
+            pipeline_name=request.pipeline_name,
+            step_correlation_id=request.step_correlation_id,
+            output_data=request.output_data,
+            completed_at=request.completed_at,
+        )
+        result = await self.mediator.execute_async(command)
+        return self.process(result)
+
+    @post(
+        "/{session_id}/pipeline-steps/fail",
+        summary="Fail Suspended Pipeline Step (Internal)",
+        tags=["Internal - Sessions"],
+        status_code=200,
+    )
+    async def fail_pipeline_step(
+        self,
+        session_id: session_id_annotation,
+        request: FailPipelineStepRequest,
+        api_key: str = Depends(verify_internal_api_key),
+    ) -> dict[str, Any]:
+        """Mark a suspended pipeline step as failed after an external job fails.
+
+        Phase 3 / AD-CSI-009: Called by lablet-controller's events_controller
+        on Scenario Engine ``job.failed`` or ``job.cancelled`` CloudEvents.
+        Flips the suspended step to ``"failed"`` and records the error.
+        """
+        logger.info(
+            "[Internal] Failing suspended step for session %s (pipeline=%s, correlation=%s)",
+            session_id,
+            request.pipeline_name,
+            request.step_correlation_id,
+        )
+        command = FailPipelineStepCommand(
+            session_id=session_id,
+            pipeline_name=request.pipeline_name,
+            step_correlation_id=request.step_correlation_id,
+            error=request.error,
+            details=request.details,
+            failed_at=request.failed_at,
         )
         result = await self.mediator.execute_async(command)
         return self.process(result)

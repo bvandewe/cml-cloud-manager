@@ -64,6 +64,12 @@ class LabletDefinitionReadModel:
     # Maps device_label → preferred port_name (e.g., {"ubuntu-desktop": "ubuntu-desktop_serial"})
     lds_port_preferences: dict[str, str] | None = None
 
+    # SE PodDefinition reference (AD-CSI-010, Phase 1+ / Phase 3 G-05)
+    # Serialized PodDefinitionRef dict: {definition_id, version, pod_type, content_hash}.
+    # Required for Tier-B step handlers (`_scenario_engine_step`) to submit SE Jobs against
+    # the correct PodDefinition aggregate id (not the LCM-side LabletDefinition.id).
+    pod_definition_ref: dict[str, Any] | None = None
+
     @property
     def has_port_template(self) -> bool:
         """Whether this definition has a non-empty port template with defined ports."""
@@ -114,4 +120,5 @@ class LabletDefinitionReadModel:
             pipelines=data.get("pipelines"),
             port_template=port_template,
             lds_port_preferences=data.get("lds_port_preferences"),
+            pod_definition_ref=data.get("pod_definition_ref"),
         )

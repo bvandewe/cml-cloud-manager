@@ -14,6 +14,12 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 - **scenario-engine `metadata` round-trip**: SE accepts an opaque `metadata: dict | None` on `SubmitJobCommand` and echoes it back on every job lifecycle CloudEvent payload as `data.metadata`. Persisted on the `Job` aggregate via `JobMetadataAttachedDomainEvent`. Lablet-controller can now populate `{lablet_session_id, step_correlation_id, step_name, pipeline_name}` so callbacks can be routed without consulting SE's job table — preserving SE's stateless event-emission contract.
 
+### Added — CPA↔SE Integration Phase 3 (control-plane-api: pipeline-step commands + pod_definition_ref)
+
+- **CPA pipeline-step resume/fail commands**: `ResumePipelineStepCommand` and `FailPipelineStepCommand` (mediator handlers + REST endpoints `POST /api/internal/lablet-sessions/{id}/pipeline-steps/{resume|fail}`, internal API key required) drive the pipeline state machine when an external step orchestrator (scenario-engine, watchdog) reports completion or failure. Idempotent on duplicate delivery (404 vs no-op handled by caller). Updated `update_pipeline_progress_command` to accept `step_status="suspended"`.
+- **CPA `LabletDefinitionDto.pod_definition_ref`**: previously the SE-confirmed PodDefinition reference was set on the aggregate but never exposed through the public DTO — `lcm-core`'s read model would always observe `pod_definition_ref = None` in production. Now serialized via `PodDefinitionRef.to_dict()` and added to `LabletDefinitionReadModel`.
+- **CPA PodDefinition read model + scaffolding**: New `PodDefinitionReadModel` + `PodDefinitionReadRepository` (Motor) + `ProjectPodDefinitionReadyCommand` + `ProjectPodDefinitionSyncFailedCommand` + `GetPodDefinitionQuery` enabling Tier-B step handlers to look up PodDefinition aggregate ids without querying SE.
+
 ### Added — Session Termination Lab Wipe (AD-WIPE-001)
 
 - **Terminate/Expire → wipe integration** (control-plane-api): `TerminateLabletSessionCommand` and `ExpireLabletSessionCommand` now unbind the linked LabRecord and dispatch `WipeLabRecordCommand` on session end. Guards skip wipe for terminal labs or those with pending actions. Wipe failure does not block session termination.

@@ -34,7 +34,7 @@ from neuroglia.mediation import Command, CommandHandler
 
 log = logging.getLogger(__name__)
 
-VALID_STEP_STATUSES = ("pending", "completed", "failed", "skipped")
+VALID_STEP_STATUSES = ("pending", "completed", "failed", "skipped", "suspended")
 VALID_PIPELINE_NAMES = ("instantiate", "teardown", "collect_evidence", "compute_grading")
 
 
@@ -150,6 +150,19 @@ class UpdatePipelineProgressCommandHandler(
             step["status"] = "skipped"
             if request.error:
                 step["skip_reason"] = request.error
+        elif request.step_status == "suspended":
+            # Phase 3 / AD-CSI-009: Step delegated to an external worker
+            # (Scenario Engine). Carries external_job_id +
+            # step_correlation_id for downstream resume/fail correlation.
+            step["status"] = "suspended"
+            if request.result_data:
+                step["result_data"] = request.result_data
+                if "external_job_id" in request.result_data:
+                    step["external_job_id"] = request.result_data["external_job_id"]
+                if "step_correlation_id" in request.result_data:
+                    step["step_correlation_id"] = request.result_data["step_correlation_id"]
+                if "suspended_at" in request.result_data:
+                    step["suspended_at"] = request.result_data["suspended_at"]
 
         current_progress[request.step_name] = step
 

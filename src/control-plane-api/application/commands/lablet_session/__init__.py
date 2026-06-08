@@ -16,6 +16,10 @@ from application.commands.lablet_session.extend_timeslot_command import (
     ExtendTimeslotCommand,
     ExtendTimeslotCommandHandler,
 )
+from application.commands.lablet_session.fail_pipeline_step_command import (
+    FailPipelineStepCommand,
+    FailPipelineStepCommandHandler,
+)
 from application.commands.lablet_session.mark_session_ready_command import (
     MarkSessionReadyCommand,
     MarkSessionReadyCommandHandler,
@@ -37,6 +41,10 @@ from application.commands.lablet_session.requeue_lablet_session_command import (
     BulkRequeueLabletSessionsCommandHandler,
     RequeueLabletSessionCommand,
     RequeueLabletSessionCommandHandler,
+)
+from application.commands.lablet_session.resume_pipeline_step_command import (
+    ResumePipelineStepCommand,
+    ResumePipelineStepCommandHandler,
 )
 from application.commands.lablet_session.schedule_lablet_session_command import (
     ScheduleLabletSessionCommand,
@@ -74,6 +82,8 @@ __all__ = [
     "ExpireLabletSessionCommandHandler",
     "ExtendTimeslotCommand",
     "ExtendTimeslotCommandHandler",
+    "FailPipelineStepCommand",
+    "FailPipelineStepCommandHandler",
     "MarkSessionReadyCommand",
     "MarkSessionReadyCommandHandler",
     "RecordResourceObservationCommand",
@@ -84,6 +94,8 @@ __all__ = [
     "RequeueLabletSessionCommandHandler",
     "RequestResourceObservationCommand",
     "RequestResourceObservationCommandHandler",
+    "ResumePipelineStepCommand",
+    "ResumePipelineStepCommandHandler",
     "ScheduleLabletSessionCommand",
     "ScheduleLabletSessionCommandHandler",
     "SetDesiredStatusCommand",

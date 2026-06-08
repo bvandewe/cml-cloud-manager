@@ -4,9 +4,28 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
+from typing import Any
 
+from api.dependencies import get_current_user
+from api.services import DualAuthService
+from application.commands.pod_definition_read.project_pod_definition_ready_command import (
+    ProjectPodDefinitionReadyCommand,
+)
+from application.commands.pod_definition_read.project_pod_definition_sync_failed_command import (
+    ProjectPodDefinitionSyncFailedCommand,
+)
+from application.dtos.lablet_definition_dto import map_lablet_definition_to_summary_dto
+from application.dtos.lablet_session_dto import map_lablet_session_to_summary_dto
+from application.events.domain.cml_worker_events import _broadcast_worker_snapshot
+from application.services.sse_event_relay import SSEEventRelay
 from classy_fastapi.decorators import get as get_route
-from fastapi import Depends, Query, Request
+from classy_fastapi.decorators import post
+from domain.repositories.cml_worker_repository import CMLWorkerRepository
+from domain.repositories.lab_record_repository import LabRecordRepository
+from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
+from domain.repositories.lablet_session_repository import LabletSessionRepository
+from fastapi import Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from neuroglia.dependency_injection import ServiceProviderBase
 from neuroglia.mapping import Mapper
@@ -14,18 +33,11 @@ from neuroglia.mediation import Mediator
 from neuroglia.mvc import ControllerBase
 from neuroglia.serialization.json import JsonSerializer
 
-from api.dependencies import get_current_user
-from api.services import DualAuthService
-from application.dtos.lablet_definition_dto import map_lablet_definition_to_summary_dto
-from application.dtos.lablet_session_dto import map_lablet_session_to_summary_dto
-from application.events.domain.cml_worker_events import _broadcast_worker_snapshot
-from application.services.sse_event_relay import SSEEventRelay
-from domain.repositories.cml_worker_repository import CMLWorkerRepository
-from domain.repositories.lab_record_repository import LabRecordRepository
-from domain.repositories.lablet_definition_repository import LabletDefinitionRepository
-from domain.repositories.lablet_session_repository import LabletSessionRepository
-
 logger = logging.getLogger(__name__)
+
+# CloudEvent types emitted by Scenario Engine (G-12 / Phase 2)
+CE_POD_DEFINITION_READY = "scenario_engine.pod_definition.ready.v1"
+CE_POD_DEFINITION_SYNC_FAILED = "scenario_engine.pod_definition.sync_failed.v1"
 
 
 def _lab_record_to_snapshot_dict(record) -> dict:
@@ -331,3 +343,172 @@ class EventsController(ControllerBase):
                 "X-Accel-Buffering": "no",  # Disable nginx buffering
             },
         )
+
+    # ==========================================================================
+    # CloudEvent ingestion (Phase 2 / G-12) — Scenario Engine → CPA projection
+    # ==========================================================================
+
+    @post(
+        "/",
+        summary="Ingest CloudEvent",
+        status_code=202,
+        tags=["Events"],
+        responses={
+            202: {"description": "CloudEvent accepted (processed or known-unknown type)"},
+            400: {"description": "Malformed CloudEvent (missing required fields)"},
+            500: {"description": "Internal error projecting CloudEvent"},
+        },
+    )
+    async def ingest_cloud_event(self, request: Request) -> Response:
+        """Receive a CloudEvent from the Scenario Engine.
+
+        Supports both structured-mode (``application/cloudevents+json``) and
+        binary content-mode (``ce-*`` headers). Returns 202 even for unknown
+        event types (forward compatibility — SE may emit new types ahead of
+        CPA catching up). Returns 400 only when the envelope itself is
+        malformed.
+        """
+        event = await _parse_cloud_event(request)
+        if event is None:
+            return Response(status_code=400, content="Invalid CloudEvent")
+
+        event_type = event.get("type", "")
+        subject = event.get("subject", "")
+        data = event.get("data") or {}
+        event_time = event.get("time")
+        source = event.get("source", "")
+        event_id = event.get("id", "")
+
+        logger.info(
+            "Received CloudEvent: type=%s id=%s subject=%s source=%s",
+            event_type,
+            event_id,
+            subject,
+            source,
+        )
+
+        try:
+            if event_type == CE_POD_DEFINITION_READY:
+                command = ProjectPodDefinitionReadyCommand(
+                    pod_definition_id=data.get("pod_definition_id") or subject,
+                    name=data.get("name", ""),
+                    version=data.get("version", "v1"),
+                    pod_type=data.get("pod_type", ""),
+                    content_hash=data.get("content_hash", ""),
+                    source_uri=data.get("source_uri"),
+                    superseded_ids=list(data.get("superseded_ids", []) or []),
+                    event_time=event_time,
+                    raw_event=dict(data),
+                )
+                result = await self.mediator.execute_async(command)
+                if not result.is_success:
+                    logger.error(
+                        "Failed to project pod_definition.ready event id=%s: %s",
+                        event_id,
+                        result.error_message,
+                    )
+                    return Response(status_code=500, content=result.error_message or "projection failed")
+                return Response(status_code=202)
+
+            if event_type == CE_POD_DEFINITION_SYNC_FAILED:
+                command = ProjectPodDefinitionSyncFailedCommand(
+                    pod_definition_id=data.get("pod_definition_id") or subject,
+                    reason=data.get("reason", ""),
+                    error_detail=data.get("error_detail"),
+                    name=data.get("name", ""),
+                    pod_type=data.get("pod_type", ""),
+                    version=data.get("version", "v1"),
+                    content_hash=data.get("content_hash", ""),
+                    source_uri=data.get("source_uri"),
+                    event_time=event_time,
+                    raw_event=dict(data),
+                )
+                result = await self.mediator.execute_async(command)
+                if not result.is_success:
+                    logger.error(
+                        "Failed to project pod_definition.sync_failed event id=%s: %s",
+                        event_id,
+                        result.error_message,
+                    )
+                    return Response(status_code=500, content=result.error_message or "projection failed")
+                return Response(status_code=202)
+
+            # Unknown / not-yet-handled event type — accept for forward
+            # compatibility but log a warning so we notice.
+            logger.warning("Unhandled CloudEvent type: %s id=%s", event_type, event_id)
+            return Response(status_code=202)
+
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.exception("Error projecting CloudEvent %s: %s", event_type, exc)
+            return Response(status_code=500, content=str(exc))
+
+
+# ==============================================================================
+# CloudEvent parsing helpers (module-level — mirror lablet-controller)
+# ==============================================================================
+
+
+async def _parse_cloud_event(request: Request) -> dict[str, Any] | None:
+    """Parse a CloudEvent from the request (structured or binary mode).
+
+    Structured mode: ``Content-Type: application/cloudevents+json`` — full
+    envelope is in the JSON body.
+
+    Binary mode: ``ce-*`` headers carry the envelope; body is the ``data``
+    payload.
+
+    Returns:
+        Dict with ``type``, ``source``, ``subject``, ``id``, ``time``, ``data``.
+        ``time`` is parsed into a timezone-aware ``datetime`` when present;
+        otherwise ``None`` (handlers fall back to the server clock).
+        Returns ``None`` if the envelope cannot be parsed.
+    """
+    content_type = request.headers.get("content-type", "")
+
+    try:
+        if "cloudevents+json" in content_type:
+            body = await request.json()
+            return {
+                "type": body.get("type", ""),
+                "source": body.get("source", ""),
+                "subject": body.get("subject", ""),
+                "id": body.get("id", ""),
+                "time": _parse_event_time(body.get("time")),
+                "data": body.get("data", {}),
+            }
+        # Binary content mode — metadata in ce-* headers.
+        try:
+            body = await request.json()
+        except Exception:  # nosec B110 — body may be empty
+            body = {}
+        return {
+            "type": request.headers.get("ce-type", ""),
+            "source": request.headers.get("ce-source", ""),
+            "subject": request.headers.get("ce-subject", ""),
+            "id": request.headers.get("ce-id", ""),
+            "time": _parse_event_time(request.headers.get("ce-time")),
+            "data": body if body else {},
+        }
+    except Exception as exc:
+        logger.error("Failed to parse CloudEvent: %s", exc)
+        return None
+
+
+def _parse_event_time(raw: Any) -> datetime | None:
+    """Parse a CloudEvent ``time`` attribute (RFC 3339 string) to datetime.
+
+    Returns ``None`` for missing or unparseable values. Always coerces to
+    timezone-aware UTC.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        # Accept both "Z" and explicit offsets.
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None

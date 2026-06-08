@@ -138,6 +138,12 @@ class LabletDefinitionDto:
     # Pipeline definitions (ADR-034)
     pipelines: dict | None  # Optional pipeline DAGs from definition YAML
 
+    # Scenario Engine PodDefinition reference (AD-CSI-010, Phase 3)
+    # Serialized PodDefinitionRef value object: {definition_id, version,
+    # pod_type, content_hash}. Required by Tier-B step handlers in
+    # lablet-controller to submit SE Jobs against the correct aggregate id.
+    pod_definition_ref: dict | None
+
     # Ownership
     created_by: str
     created_at: str
@@ -236,6 +242,7 @@ def map_lablet_definition_to_dto(entity) -> LabletDefinitionDto:
         multi_lab_enabled=getattr(state, "multi_lab_enabled", False),
         boot_lead_time_minutes=getattr(state, "boot_lead_time_minutes", None),
         pipelines=getattr(state, "pipelines", None),
+        pod_definition_ref=(state.pod_definition_ref.to_dict() if getattr(state, "pod_definition_ref", None) is not None else None),
         created_by=state.created_by,
         created_at=state.created_at.isoformat(),
         updated_at=state.updated_at.isoformat(),
