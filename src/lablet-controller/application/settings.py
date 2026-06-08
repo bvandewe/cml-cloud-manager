@@ -163,6 +163,35 @@ class Settings(ApplicationSettings):
     content_sync_poll_interval: int = 300  # Seconds between polls (only if poll_enabled)
 
     # ============================================================================
+    # Scenario Engine Integration (ADR-044 / G-02, Phase 2)
+    # ============================================================================
+    # Base URL of the Scenario Engine REST API (jobs + content sync).
+    scenario_engine_url: str = "http://localhost:8084"
+    # CloudEvent callback URL SE uses to deliver job lifecycle events back
+    # to this service (e.g. http://lablet-controller:8082/events).
+    scenario_engine_callback_url: str | None = None
+    # Master switch — when False, lablet-controller skips the SE.sync_content
+    # call (best-effort path, AD-CSI-014). Default off until Phase 4.
+    scenario_engine_integration_enabled: bool = False
+    # Phase 3 / Q-10 (watchdog hook): default per-step timeout for SE-suspended
+    # pipeline steps. When the controller restarts mid-suspension, the recovery
+    # reconciler will use this to detect orphaned external jobs that never
+    # received a CloudEvent callback (e.g. SE crash, network partition).
+    # 1800 seconds = 30 minutes.
+    pipeline_external_step_default_timeout_seconds: int = 1800
+    # Phase 3 / Q-10 — SuspendedStepWatchdogService scan interval (seconds).
+    # Watchdog runs leader-only and lists active sessions, flagging any
+    # pipeline step in status="suspended" whose suspended_at exceeded the
+    # per-step timeout. Setting to 0 disables the scan loop entirely.
+    suspended_step_watchdog_enabled: bool = True
+    suspended_step_watchdog_interval_seconds: int = 60
+    # Phase 3 / Q-11 — CloudEvent ingest source allow-list. EventsController
+    # rejects CloudEvents whose ``source`` (structured mode) or ``ce-source``
+    # header (binary mode) is not in this list. Empty list disables the check
+    # (NOT recommended in production). Lower-cased for comparison.
+    scenario_engine_allowed_sources: list[str] = ["scenario-engine"]
+
+    # ============================================================================
     # Resource Observation (ADR-030)
     # ============================================================================
     resource_observation_enabled: bool = True  # Enable automatic observation at COLLECTING

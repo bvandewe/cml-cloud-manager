@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from application.models.pipeline_context import PipelineContext
@@ -51,7 +51,48 @@ class LifecyclePhaseHandler:
     Attributes:
         session_id: The session being processed.
         pipeline_name: Name of the pipeline (e.g. "instantiate", "teardown").
+
+    Class attributes:
+        _registry: AD-CSI-016 — in-process registry keyed by ``session_id`` so
+            the ``events_controller`` can route CloudEvent callbacks back to the
+            handler whose pipeline has a suspended step. Only one active handler
+            per session is supported today (a session participates in at most
+            one pipeline at a time).
     """
+
+    _registry: ClassVar[dict[str, LifecyclePhaseHandler]] = {}
+
+    # ------------------------------------------------------------------
+    # Class-level registry (AD-CSI-016)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def lookup(cls, session_id: str) -> LifecyclePhaseHandler | None:
+        """Return the registered handler for ``session_id`` (or None).
+
+        Used by ``events_controller`` to route SE CloudEvent callbacks to the
+        correct in-process handler when its pipeline is suspended.
+        """
+        return cls._registry.get(session_id)
+
+    @classmethod
+    def _register(cls, handler: LifecyclePhaseHandler) -> None:
+        cls._registry[handler.session_id] = handler
+        logger.debug(
+            "LifecyclePhaseHandler registered for session=%s pipeline=%s (registry_size=%d)",
+            handler.session_id,
+            handler.pipeline_name,
+            len(cls._registry),
+        )
+
+    @classmethod
+    def _unregister(cls, session_id: str) -> None:
+        if cls._registry.pop(session_id, None) is not None:
+            logger.debug(
+                "LifecyclePhaseHandler unregistered for session=%s (registry_size=%d)",
+                session_id,
+                len(cls._registry),
+            )
 
     def __init__(
         self,
@@ -100,13 +141,16 @@ class LifecyclePhaseHandler:
         """Start the handler as a background asyncio.Task.
 
         Idempotent — if a task is already running, this is a no-op.
-        Increments the pipeline_attempt counter on each start.
+        Increments the pipeline_attempt counter on each start. Also registers
+        the handler in the class-level registry (AD-CSI-016) so SE CloudEvent
+        callbacks can route resumption signals back to this instance.
         """
         if self._task and not self._task.done():
             return  # Already running — idempotent
         self._pipeline_attempt += 1
         self._result = None
         self._error = None
+        self._register(self)
         self._task = asyncio.create_task(
             self._run(),
             name=f"pipeline:{self.pipeline_name}:{self.session_id}",
@@ -125,6 +169,7 @@ class LifecyclePhaseHandler:
             except asyncio.CancelledError:
                 pass
         self._task = None
+        self._unregister(self.session_id)
 
     @property
     def is_running(self) -> bool:
@@ -175,13 +220,37 @@ class LifecyclePhaseHandler:
             await self._on_error(e)
 
     async def _on_complete(self, result: PipelineResult) -> None:
-        """Handle pipeline completion — success, partial, or failure.
+        """Handle pipeline completion — success, partial, suspended, or failure.
 
         - completed/partial → trigger status transition (e.g. mark_session_ready)
+        - suspended (Phase 3 / AD-CSI-009) → graceful pause, KEEP registration
         - failed → log and let reconciler handle on next cycle
 
         AD-PIPELINE-007: No auto-terminate on failure.
+        AD-CSI-016: SUSPENDED keeps the handler registered so the
+        events_controller can resume it on the next CloudEvent.
         """
+        if result.status == "suspended":
+            # Persist suspension state for resumption. Handler exits Task
+            # gracefully but remains in the registry until either
+            # ``resume_after_external_completion`` or ``stop()`` is called.
+            logger.info(
+                "Pipeline '%s' suspended for session %s — %d step(s) awaiting external completion (%s)",
+                self.pipeline_name,
+                self.session_id,
+                result.steps_suspended,
+                [j.get("external_job_id") for j in result.external_jobs],
+            )
+            # Invoke external callback if provided (best-effort)
+            if self._on_complete_cb:
+                try:
+                    cb_result = self._on_complete_cb(result)
+                    if asyncio.iscoroutine(cb_result):
+                        await cb_result
+                except Exception as e:
+                    logger.error("on_complete callback failed for session %s: %s", self.session_id, e)
+            return  # Do NOT unregister; events_controller needs to find us
+
         if result.status in ("completed", "partial"):
             if self.pipeline_name == "instantiate":
                 try:
@@ -223,6 +292,9 @@ class LifecyclePhaseHandler:
             except Exception as e:
                 logger.error("on_complete callback failed for session %s: %s", self.session_id, e)
 
+        # Terminal completion (not suspended) — remove from registry
+        self._unregister(self.session_id)
+
     async def _on_error(self, exc: Exception) -> None:
         """Handle unhandled exception in executor.
 
@@ -244,3 +316,68 @@ class LifecyclePhaseHandler:
                     await cb_result
             except Exception as e:
                 logger.error("on_error callback failed for session %s: %s", self.session_id, e)
+
+        # Terminal error path — remove from registry
+        self._unregister(self.session_id)
+
+    # ------------------------------------------------------------------
+    # Phase 3 / AD-CSI-016: Resumption signal from CloudEvent callbacks
+    # ------------------------------------------------------------------
+
+    async def resume_after_external_completion(
+        self,
+        updated_progress: dict[str, Any],
+    ) -> None:
+        """Resume the pipeline after a SE CloudEvent flipped a suspended step to completed.
+
+        Called by ``events_controller`` after it has successfully posted
+        ``ResumePipelineStepCommand`` to CPA and received back the refreshed
+        ``pipeline_progress`` dict.
+
+        Replaces ``self._existing_progress`` and re-invokes ``start()`` — the
+        executor's resumability logic will skip already-completed steps and
+        dispatch the previously-blocked downstream steps.
+
+        Args:
+            updated_progress: Fresh per-step progress dict from CPA, with the
+                resumed step's status flipped to "completed".
+        """
+        if self.is_running:
+            logger.warning(
+                "resume_after_external_completion called while handler still running for session %s — ignoring",
+                self.session_id,
+            )
+            return
+        self._existing_progress = updated_progress
+        logger.info(
+            "Resuming pipeline '%s' for session %s after external completion",
+            self.pipeline_name,
+            self.session_id,
+        )
+        await self.start()
+
+    async def fail_after_external_completion(
+        self,
+        updated_progress: dict[str, Any],
+    ) -> None:
+        """Resume after a SE CloudEvent flipped a suspended step to failed.
+
+        Identical mechanism to ``resume_after_external_completion`` — the
+        executor will see the step as "failed" in existing_progress (depending
+        on resumability semantics, it may either re-run or treat it as a
+        terminal failure based on retry config). The pipeline outcome is then
+        determined by ``pipeline_failure_strategy`` on the session.
+        """
+        if self.is_running:
+            logger.warning(
+                "fail_after_external_completion called while handler still running for session %s — ignoring",
+                self.session_id,
+            )
+            return
+        self._existing_progress = updated_progress
+        logger.info(
+            "Resuming pipeline '%s' for session %s after external failure",
+            self.pipeline_name,
+            self.session_id,
+        )
+        await self.start()

@@ -15,7 +15,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-
 from application.models.pipeline_context import PipelineContext
 from application.services.step_registry import (
     StepResult,
@@ -77,6 +76,43 @@ class TestStepResult:
         result = StepResult.skipped("Not applicable")
         d = result.to_dict()
         assert d == {"status": "skipped", "reason": "Not applicable"}
+
+    # ── Phase 3 / AD-CSI-009: suspended results ─────────────
+
+    def test_suspended_basic(self):
+        result = StepResult.suspended(
+            external_job_id="job-123",
+            step_correlation_id="sess-1:lab_resolve:abcd1234",
+        )
+        assert result.status == "suspended"
+        assert result.external_job_id == "job-123"
+        assert result.step_correlation_id == "sess-1:lab_resolve:abcd1234"
+        assert result.reason == "awaiting external job job-123"
+        assert result.result_data == {}
+        assert result.error is None
+
+    def test_suspended_custom_reason(self):
+        result = StepResult.suspended(
+            external_job_id="job-456",
+            step_correlation_id="sess-2:lab_start:deadbeef",
+            reason="awaiting SE job job-456 (scenario=lab_start@v1)",
+        )
+        assert result.status == "suspended"
+        assert result.reason == "awaiting SE job job-456 (scenario=lab_start@v1)"
+
+    def test_to_dict_suspended_round_trip(self):
+        result = StepResult.suspended(
+            external_job_id="job-789",
+            step_correlation_id="sess-3:lab_resolve:cafe",
+            reason="awaiting external job job-789",
+        )
+        d = result.to_dict()
+        assert d == {
+            "status": "suspended",
+            "reason": "awaiting external job job-789",
+            "external_job_id": "job-789",
+            "step_correlation_id": "sess-3:lab_resolve:cafe",
+        }
 
 
 # ── Registry tests ──────────────────────────────────

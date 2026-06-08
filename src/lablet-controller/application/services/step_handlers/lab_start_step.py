@@ -9,12 +9,16 @@ import asyncio
 import logging
 from typing import Any
 
+from integration.services.cml_labs_spi import LabState
 from lcm_core.domain.entities import LabletSessionReadModel
 
 from application.models.pipeline_context import PipelineContext
 from application.services.step_handlers._helpers import get_step_result_data
+from application.services.step_handlers._scenario_engine_step import (
+    ScenarioBinding,
+    submit_scenario_engine_job,
+)
 from application.services.step_registry import StepResult, step_handler
-from integration.services.cml_labs_spi import LabState
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +39,12 @@ async def step_lab_start(
     Polls every ``_LAB_BOOT_POLL_INTERVAL`` seconds. The executor's
     ``timeout_seconds`` (typically 300s) bounds the total wait via
     ``asyncio.wait_for()``, so this loop is safe from hanging.
+
+    Phase 3 / AD-CSI-008 (Tier-B branch): when
+    ``context.scenario_engine_enabled`` is true, this step delegates to the
+    Scenario Engine and returns ``StepResult.suspended``. The
+    :class:`PipelineExecutor` (Phase 3 Step 4) persists progress and pauses
+    the pipeline until a matching CloudEvent arrives.
     """
     _LAB_BOOT_POLL_INTERVAL = 20  # seconds between state checks
     _NODE_DIAG_EVERY_N_POLLS = 3  # fetch node states every Nth poll (~60s)
@@ -44,6 +54,25 @@ async def step_lab_start(
     if not cml_lab_id:
         return StepResult.failed("No cml_lab_id from lab_resolve")
 
+    # ── Phase 3 / AD-CSI-008: Tier-B delegation ─────────────────────────
+    if context.scenario_engine_enabled:
+        logger.info(
+            "lab_start: delegating to Scenario Engine (session=%s, cml_lab_id=%s)",
+            instance.id,
+            cml_lab_id,
+        )
+        return await submit_scenario_engine_job(
+            binding=ScenarioBinding(scenario_name="lab_start", scenario_version="v1"),
+            step_name="lab_start",
+            instance=instance,
+            context=context,
+            input_data={
+                "session_id": instance.id,
+                "cml_lab_id": cml_lab_id,
+            },
+        )
+
+    # ── Legacy in-process path (Tier-A) ─────────────────────────────────
     try:
         lab_state = await context.cml.get_lab_state(
             host=context.worker_ip,

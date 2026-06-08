@@ -15,13 +15,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from integration.services.cml_labs_spi import CmlLabsSpiClient
+    from integration.services.lds_spi import LdsSpiClient
+    from integration.services.scenario_engine_client import ScenarioEngineClient
     from lcm_core.domain.entities import LabletSessionReadModel
     from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
     from lcm_core.integration.clients.control_plane_client import ControlPlaneApiClient
 
     from application.services.reconciler_helpers.lab_resolution import LabResolutionResult
-    from integration.services.cml_labs_spi import CmlLabsSpiClient
-    from integration.services.lds_spi import LdsSpiClient
 
 
 @dataclass
@@ -106,3 +107,22 @@ class PipelineContext:
     lds_port_preferences: dict[str, str] | None = None
     """Protocol priority for resolving multi-port devices.
     When a device has multiple ports, highest-priority protocol wins."""
+
+    # ── Phase 3 / AD-CSI-008: Tier-B step delegation to Scenario Engine ──
+    # These are populated by ``LifecyclePhaseHandler`` from DI + settings when
+    # ``scenario_engine_integration_enabled`` is true. Tier-B step handlers
+    # (``_scenario_engine_step.submit_scenario_engine_job``) consult
+    # ``scenario_engine_enabled`` to decide whether to delegate or fall back
+    # to the legacy in-process path (preserved through Phase 4 — AD-CSI-008).
+
+    scenario_engine_client: ScenarioEngineClient | None = None
+    """SE client used by Tier-B step handlers to submit jobs."""
+
+    cloud_event_callback_url: str | None = None
+    """URL SE should POST CloudEvents to (this service's ingest endpoint)."""
+
+    scenario_engine_enabled: bool = False
+    """Feature-flag mirror of ``Settings.scenario_engine_integration_enabled``.
+    When False, Tier-B step handlers must fall back to the legacy in-process
+    behaviour (preserves backward compatibility until Phase 4 flips the
+    default)."""

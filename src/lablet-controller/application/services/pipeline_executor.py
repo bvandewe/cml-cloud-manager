@@ -20,6 +20,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from graphlib import CycleError, TopologicalSorter
 from typing import Any
 
@@ -146,8 +147,11 @@ class PipelineExecutor:
         completed = 0
         failed = 0
         skipped = 0
-        step_statuses: dict[str, str] = {}  # step_name → "completed"|"failed"|"skipped"
+        suspended_count = 0
+        step_statuses: dict[str, str] = {}  # step_name → "completed"|"failed"|"skipped"|"suspended"
         error_message: str | None = None
+        external_jobs: list[dict[str, Any]] = []  # Phase 3 / AD-CSI-009
+        pipeline_suspended: bool = False  # set when a Tier-B step delegates to SE
 
         # Build the progress dict for CPA persistence
         progress = self._build_initial_progress(ordered_steps)
@@ -179,6 +183,29 @@ class PipelineExecutor:
                     progress[step_name] = {"status": "skipped", "reason": "previously skipped"}
                     logger.info("Pipeline step '%s' already skipped (resumed) — skipping", step_name)
                     continue
+                elif prev_status == "suspended":
+                    # Phase 3 / AD-CSI-009: a previous run suspended on this step
+                    # awaiting an external (SE) job. The events_controller is responsible
+                    # for converting this entry to "completed" (via ResumePipelineStepCommand)
+                    # BEFORE re-invoking execute(). If we see it still here, halt again —
+                    # do not re-dispatch (would create duplicate SE jobs).
+                    step_statuses[step_name] = "suspended"
+                    suspended_count += 1
+                    progress[step_name] = prev  # preserve full suspension payload
+                    external_jobs.append(
+                        {
+                            "step_name": step_name,
+                            "external_job_id": prev.get("external_job_id") or prev.get("result_data", {}).get("external_job_id"),
+                            "step_correlation_id": prev.get("step_correlation_id") or prev.get("result_data", {}).get("step_correlation_id"),
+                            "suspended_at": prev.get("suspended_at"),
+                        }
+                    )
+                    pipeline_suspended = True
+                    logger.info(
+                        "Pipeline step '%s' is still suspended (resumed) — halting pipeline",
+                        step_name,
+                    )
+                    break
                 # "failed", "pending", "in_progress" → re-execute below
 
             # ----------------------------------------------------------
@@ -246,6 +273,57 @@ class PipelineExecutor:
                     await self._persist_progress(context, step_name, "skipped", pipeline_name=pipeline_name)
                     logger.info("Pipeline step '%s' skipped by handler: %s", step_name, reason)
 
+                elif handler_status == "suspended":
+                    # Phase 3 / AD-CSI-009: Tier-B step delegated to Scenario Engine.
+                    # Persist suspension marker, append to external_jobs registry,
+                    # halt the pipeline. Downstream steps remain "pending" so that
+                    # a subsequent call to execute(existing_progress=...) (after the
+                    # CloudEvent callback flips this step to "completed") will resume
+                    # naturally.
+                    external_job_id = result_data.get("external_job_id")
+                    step_correlation_id = result_data.get("step_correlation_id")
+                    suspended_at = datetime.now(timezone.utc).isoformat()
+                    reason = result_data.get("reason", f"awaiting external job {external_job_id}")
+
+                    step_statuses[step_name] = "suspended"
+                    suspended_count += 1
+                    progress[step_name] = {
+                        "status": "suspended",
+                        "external_job_id": external_job_id,
+                        "step_correlation_id": step_correlation_id,
+                        "suspended_at": suspended_at,
+                        "reason": reason,
+                        "result_data": result_data,
+                    }
+                    external_jobs.append(
+                        {
+                            "step_name": step_name,
+                            "external_job_id": external_job_id,
+                            "step_correlation_id": step_correlation_id,
+                            "suspended_at": suspended_at,
+                        }
+                    )
+                    await self._persist_progress(
+                        context,
+                        step_name,
+                        "suspended",
+                        result_data={
+                            "external_job_id": external_job_id,
+                            "step_correlation_id": step_correlation_id,
+                            "suspended_at": suspended_at,
+                            "reason": reason,
+                        },
+                        pipeline_name=pipeline_name,
+                    )
+                    pipeline_suspended = True
+                    logger.info(
+                        "Pipeline step '%s' suspended — external job=%s correlation=%s",
+                        step_name,
+                        external_job_id,
+                        step_correlation_id,
+                    )
+                    break  # Halt downstream dispatch
+
                 elif handler_status == "failed":
                     # Step handler reports failure via return value (not exception)
                     handler_error = result_data.get("error", "step handler returned failed")
@@ -302,14 +380,16 @@ class PipelineExecutor:
         elapsed = time.monotonic() - t0
 
         # Determine terminal status
-        if error_message:
+        if pipeline_suspended:
+            status = "suspended"
+        elif error_message:
             status = "failed"
         elif failed > 0:
             status = "partial"  # Some optional steps failed
         else:
             status = "completed"
 
-        # Resolve outputs
+        # Resolve outputs (best-effort — may be partial when suspended)
         outputs = self._resolve_outputs(output_defs, context.steps_data)
 
         return PipelineResult(
@@ -318,10 +398,12 @@ class PipelineExecutor:
             steps_completed=completed,
             steps_failed=failed,
             steps_skipped=skipped,
+            steps_suspended=suspended_count,
             duration_seconds=round(elapsed, 3),
             outputs=outputs,
             error=error_message,
             max_retries=max_retries,
+            external_jobs=external_jobs,
         )
 
     # ------------------------------------------------------------------

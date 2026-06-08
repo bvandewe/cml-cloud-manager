@@ -18,14 +18,13 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from lcm_core.domain.entities import LabletSessionReadModel
-from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
-from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
-
 from application.hosted_services.lablet_reconciler import LabletReconciler
 from application.models.pipeline_result import PipelineResult
 from application.services.lifecycle_phase_handler import LifecyclePhaseHandler
 from application.services.pipeline_executor import PipelineExecutor
+from lcm_core.domain.entities import LabletSessionReadModel
+from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
+from lcm_core.infrastructure.hosted_services.reconciliation_hosted_service import ReconciliationStatus
 
 # =============================================================================
 # Fixtures
@@ -110,6 +109,8 @@ def make_reconciler() -> LabletReconciler:
     from application.services.pipeline_template_resolver import PipelineTemplateResolver
 
     r._template_resolver = PipelineTemplateResolver()
+    # Phase 3 / AD-CSI-008: SE client used by _build_pipeline_context.
+    r._scenario_engine_client = None
     return r
 
 

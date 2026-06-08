@@ -35,6 +35,9 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState, NodeInfo
+from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
+from integration.services.scenario_engine_client import ScenarioEngineClient
 from lcm_core.domain.entities import LabletSessionReadModel
 from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
 from lcm_core.domain.enums import LabletSessionStatus
@@ -51,8 +54,6 @@ from lcm_core.integration.clients.etcd_client import EtcdEvent
 
 from application.services.resource_observer import ResourceObserver
 from application.settings import Settings
-from integration.services.cml_labs_spi import CmlLabsSpiClient, LabState, NodeInfo
-from integration.services.lds_spi import DeviceAccessInfo, LdsSpiClient, LdsSpiError
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -60,6 +61,7 @@ if TYPE_CHECKING:
     from application.hosted_services.content_sync_service import ContentSyncService
     from application.hosted_services.lab_discovery_service import LabDiscoveryService
     from application.hosted_services.lab_record_reconciler import LabRecordReconciler
+    from application.hosted_services.suspended_step_watchdog_service import SuspendedStepWatchdogService
     from application.hosted_services.timeslot_watcher_service import TimeslotWatcherService
 
 # Sprint C (ADR-034) — pipeline execution imports
@@ -125,6 +127,8 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
         lab_record_reconciler: "LabRecordReconciler | None" = None,
         content_sync_service: "ContentSyncService | None" = None,
         timeslot_watcher_service: "TimeslotWatcherService | None" = None,
+        suspended_step_watchdog_service: "SuspendedStepWatchdogService | None" = None,
+        scenario_engine_client: ScenarioEngineClient | None = None,
     ) -> None:
         """Initialize the lablet reconciler.
 
@@ -139,6 +143,8 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
             lab_record_reconciler: Optional lab record reconciler (AD-023, started on leader election).
             content_sync_service: Optional content sync service (AD-CS-001, started on leader election).
             timeslot_watcher_service: Optional timeslot watcher (AD-TIMESLOT-001, started on leader election).
+            suspended_step_watchdog_service: Optional Q-10 watchdog that fails orphaned SE-suspended steps
+                (started on leader election, stopped on step-down).
         """
         # Configure reconciliation (polling fallback)
         # ADR-015: polling_enabled can be set to False for watch-only mode
@@ -225,6 +231,16 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
         # Timeslot watcher service (AD-TIMESLOT-001: proactive deadline detection)
         self._timeslot_watcher_service: TimeslotWatcherService | None = timeslot_watcher_service
 
+        # Phase 3 / Q-10: SuspendedStepWatchdog — fails orphaned SE-suspended steps
+        # (e.g. SE crashed, callback dropped). Lifecycle managed in _become_leader/_step_down.
+        self._suspended_step_watchdog_service: SuspendedStepWatchdogService | None = suspended_step_watchdog_service
+
+        # Phase 3 / AD-CSI-008: Scenario Engine client for Tier-B step delegation.
+        # When None or scenario_engine_integration_enabled is False, Tier-B
+        # step handlers (lab_resolve / lab_start) fall back to the legacy
+        # in-process path.
+        self._scenario_engine_client: ScenarioEngineClient | None = scenario_engine_client
+
         # Sprint C (ADR-034): Pipeline execution infrastructure
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._active_handlers: dict[str, LifecyclePhaseHandler] = {}
@@ -272,6 +288,13 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
         else:
             logger.info(f"{self._config.service_name}: Timeslot watcher service not configured")
 
+        # Start suspended-step watchdog (Phase 3 / Q-10) — detects orphaned SE-suspended steps.
+        if self._suspended_step_watchdog_service:
+            await self._suspended_step_watchdog_service.start_async()
+            logger.info(f"{self._config.service_name}: Started suspended-step watchdog (leader-only)")
+        else:
+            logger.info(f"{self._config.service_name}: Suspended-step watchdog not configured")
+
     async def _step_down(self) -> None:
         """Handle stepping down from leadership.
 
@@ -288,6 +311,11 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
         self._active_handlers.clear()
         self._session_locks.clear()
         self._pipeline_retry_counts.clear()
+
+        # Stop suspended-step watchdog (Phase 3 / Q-10) — reverse start order.
+        if self._suspended_step_watchdog_service:
+            await self._suspended_step_watchdog_service.stop_async()
+            logger.info(f"{self._config.service_name}: Stopped suspended-step watchdog")
 
         # Stop timeslot watcher service (AD-TIMESLOT-001) — reverse start order
         if self._timeslot_watcher_service:
@@ -1056,6 +1084,10 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
             lds_protocol_priority=self._settings.lds_protocol_priority,
             # AD-LDS-002 Phase 3: User-configurable per-device port preferences
             lds_port_preferences=getattr(definition, "lds_port_preferences", None),
+            # Phase 3 / AD-CSI-008: Tier-B step delegation to Scenario Engine
+            scenario_engine_client=self._scenario_engine_client,
+            cloud_event_callback_url=self._settings.scenario_engine_callback_url,
+            scenario_engine_enabled=(self._settings.scenario_engine_integration_enabled and self._scenario_engine_client is not None),
         )
 
     def _build_step_dispatcher(self) -> StepDispatcher:
@@ -1414,6 +1446,7 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
         from application.hosted_services.content_sync_service import ContentSyncService
         from application.hosted_services.lab_discovery_service import LabDiscoveryService
         from application.hosted_services.lab_record_reconciler import LabRecordReconciler
+        from application.hosted_services.suspended_step_watchdog_service import SuspendedStepWatchdogService
         from application.hosted_services.timeslot_watcher_service import TimeslotWatcherService
 
         # Register ResourceObserver as singleton (ADR-030, lifecycle managed by reconciler)
@@ -1430,6 +1463,9 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
 
         # Register TimeslotWatcherService as singleton (AD-TIMESLOT-001, lifecycle managed by reconciler)
         TimeslotWatcherService.configure(services)
+
+        # Register SuspendedStepWatchdogService as singleton (Phase 3 / Q-10, lifecycle managed by reconciler)
+        SuspendedStepWatchdogService.configure(services)
 
         def factory(sp) -> LabletReconciler:
             # Resolve optional resource observer (ADR-030)
@@ -1467,6 +1503,23 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
                 timeslot_watcher = None
                 logger.warning("TimeslotWatcherService not available — proactive timeslot detection disabled")
 
+            # Resolve optional suspended-step watchdog (Phase 3 / Q-10)
+            try:
+                suspended_step_watchdog = sp.get_required_service(SuspendedStepWatchdogService)
+            except Exception:
+                suspended_step_watchdog = None
+                logger.warning("SuspendedStepWatchdogService not available — orphaned SE step detection disabled")
+
+            # Phase 3 / AD-CSI-008: Resolve optional Scenario Engine client.
+            # Required for Tier-B step delegation (lab_resolve / lab_start).
+            # When unavailable or settings.scenario_engine_integration_enabled
+            # is False, Tier-B step handlers fall back to legacy in-process path.
+            try:
+                scenario_engine = sp.get_required_service(ScenarioEngineClient)
+            except Exception:
+                scenario_engine = None
+                logger.warning("ScenarioEngineClient not available — Tier-B SE delegation disabled")
+
             return cls(
                 api_client=sp.get_required_service(ControlPlaneApiClient),
                 etcd_client=sp.get_required_service(EtcdClient),
@@ -1478,6 +1531,8 @@ class LabletReconciler(WatchTriggeredHostedService[LabletSessionReadModel]):
                 lab_record_reconciler=lab_record_reconciler,
                 content_sync_service=content_sync,
                 timeslot_watcher_service=timeslot_watcher,
+                suspended_step_watchdog_service=suspended_step_watchdog,
+                scenario_engine_client=scenario_engine,
             )
 
         def hosted_service_factory(sp) -> LabletReconciler:

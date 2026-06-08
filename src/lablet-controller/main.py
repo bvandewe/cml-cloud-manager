@@ -29,23 +29,25 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI
-from lcm_core.infrastructure import configure_logging
-from lcm_core.infrastructure.mixins import ServiceInfo, StandardEndpointsMixin
-from lcm_core.integration.clients import ControlPlaneApiClient, EtcdClient
-from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
-from neuroglia.serialization.json import JsonSerializer
-
 from api.controllers import AdminController
 from api.services import DualAuthService
 from application.hosted_services import LabletReconciler
 from application.settings import Settings, app_settings
+from fastapi import FastAPI
 from integration.services.cml_labs_spi import CmlLabsSpiClient
 from integration.services.environment_resolver_client import EnvironmentResolverClient
 from integration.services.lds_spi import LdsSpiClient
 from integration.services.mosaic_client import MosaicClient
 from integration.services.oauth2_token_manager import TokenConfig
 from integration.services.s3_client import S3Client
+from integration.services.scenario_engine_client import ScenarioEngineClient
+from lcm_core.infrastructure import configure_logging
+from lcm_core.infrastructure.mixins import ServiceInfo, StandardEndpointsMixin
+from lcm_core.integration.clients import ControlPlaneApiClient, EtcdClient
+from neuroglia.eventing.cloud_events.infrastructure.cloud_event_ingestor import CloudEventIngestor
+from neuroglia.hosting.web import SubAppConfig, WebApplicationBuilder
+from neuroglia.mediation.mediator import Mediator
+from neuroglia.serialization.json import JsonSerializer
 
 # Configure logging
 configure_logging(log_level=app_settings.log_level)
@@ -83,8 +85,17 @@ def create_app() -> FastAPI:
     # Configure settings as singleton
     builder.services.add_singleton(Settings, implementation_factory=lambda _: settings)
 
-    # Configure JsonSerializer (required by Neuroglia exception middleware)
+    # Configure JsonSerializer (required by Neuroglia exception middleware and
+    # by CloudEventMiddleware for envelope deserialisation).
     JsonSerializer.configure(builder, [])
+
+    # Configure Mediator + CloudEventIngestor so SE CloudEvent callbacks
+    # delivered via CloudEventMiddleware (registered on the outer app below)
+    # are routed to the IntegrationEventHandlers in
+    # ``application.events.integration``. Mirrors the pattern used by
+    # ``control-plane-api`` and ``knowledge-manager``.
+    Mediator.configure(builder, ["application.events.integration"])
+    CloudEventIngestor.configure(builder, ["application.events.integration"])
 
     # Configure integration clients (from lcm-core)
     ControlPlaneApiClient.configure(
@@ -154,6 +165,16 @@ def create_app() -> FastAPI:
         token_config=mosaic_token_config,
     )
 
+    # Configure Scenario Engine client (ADR-044 / G-02, Phase 2).
+    # Always registered so call sites can depend on it; the integration is
+    # gated by settings.scenario_engine_integration_enabled at the call site
+    # (best-effort, AD-CSI-014).
+    ScenarioEngineClient.configure(
+        builder.services,
+        base_url=settings.scenario_engine_url,
+        callback_url=settings.scenario_engine_callback_url,
+    )
+
     # Configure DualAuth service
     DualAuthService.configure(builder)
 
@@ -181,6 +202,14 @@ def create_app() -> FastAPI:
         # Create and include admin controller
         admin_controller = AdminController(reconciler)
         app.include_router(admin_controller.router)
+
+        # Phase 3 / AD-CSI-009: Scenario Engine CloudEvent callbacks are
+        # ingested by Neuroglia's CloudEventMiddleware (registered on the
+        # outer app below) and dispatched via the Mediator to the
+        # IntegrationEventHandlers in ``application.events.integration``.
+        # No explicit controller / route is required — the middleware
+        # intercepts every request whose Content-Type is
+        # ``application/cloudevents+json``.
 
         # Configure OAuth2 security for Swagger UI
         configure_openapi_security(app)
@@ -250,6 +279,13 @@ def create_app() -> FastAPI:
 
     # Configure authentication middleware
     DualAuthService.configure_middleware(app)
+
+    # Note: CloudEventMiddleware is automatically added to the outer app by
+    # neuroglia.hosting.web.WebApplicationBuilder.build_app_with_lifespan()
+    # because CloudEventIngestor is configured above. It intercepts any
+    # request with Content-Type: application/cloudevents+json on any path
+    # (including the SE callback URL) and routes the envelope through the
+    # CloudEventBus → CloudEventIngestor → Mediator pipeline.
 
     logger.info(f"✅ Lablet Controller application created (version {settings.app_version})")
 

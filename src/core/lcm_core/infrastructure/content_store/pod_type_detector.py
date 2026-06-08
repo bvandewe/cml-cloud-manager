@@ -73,6 +73,28 @@ class PodTypeDetector:
 
         raise PodTypeIndeterminate(signals)
 
+    @classmethod
+    def detect_from_bytes(cls, data: bytes) -> tuple[PodType, list[str]]:
+        """Detect pod type from raw zip bytes.
+
+        Convenience helper for callers that have the package in memory (e.g.
+        ``lablet-controller``'s ``ContentSyncService`` which holds the
+        downloaded Mosaic stream before uploading to RustFS). Wraps the bytes
+        in a :class:`ZipFile` and delegates to :meth:`detect`.
+
+        Args:
+            data: Raw bytes of a zip archive.
+
+        Returns:
+            Same shape as :meth:`detect` — ``(pod_type, signals)``.
+
+        Raises:
+            PodTypeIndeterminate: If no signal matches.
+            zipfile.BadZipFile: If ``data`` is not a valid zip.
+        """
+        with ZipFile(io.BytesIO(data)) as zf:
+            return cls.detect(zf)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

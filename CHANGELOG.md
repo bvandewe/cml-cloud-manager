@@ -20,6 +20,32 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 - **CPA `LabletDefinitionDto.pod_definition_ref`**: previously the SE-confirmed PodDefinition reference was set on the aggregate but never exposed through the public DTO — `lcm-core`'s read model would always observe `pod_definition_ref = None` in production. Now serialized via `PodDefinitionRef.to_dict()` and added to `LabletDefinitionReadModel`.
 - **CPA PodDefinition read model + scaffolding**: New `PodDefinitionReadModel` + `PodDefinitionReadRepository` (Motor) + `ProjectPodDefinitionReadyCommand` + `ProjectPodDefinitionSyncFailedCommand` + `GetPodDefinitionQuery` enabling Tier-B step handlers to look up PodDefinition aggregate ids without querying SE.
 
+### Added — CPA↔SE Integration Phase 3 (lablet-controller: Tier-B delegation + suspension/resume + Q-10 watchdog)
+
+- **Tier-B step delegation** (lablet-controller, AD-CSI-008): `submit_scenario_engine_job` shared helper (`_scenario_engine_step.py`) + rewritten `lab_resolve_step` / `lab_start_step` flag-gate on `context.scenario_engine_enabled`. When the flag is off (default), the legacy in-process path is preserved.
+- **Pipeline suspension/resume** (lablet-controller):
+  - `PipelineExecutor` recognises `StepResult.suspended` and halts the run with `status="suspended"`, surfacing `external_jobs` for caller bookkeeping.
+  - `LifecyclePhaseHandler` maintains an in-process registry of running handlers (AD-CSI-016); `resume_after_external_completion(progress)` / `fail_after_external_completion(progress)` replace `self._existing_progress` and re-enter `start()` after an external callback lands.
+- **`SuspendedStepWatchdogService`** (lablet-controller, closes Q-10 — AD-CSI-018): leader-gated periodic asyncio loop.
+  - Scans active sessions via `ControlPlaneApiClient.get_lablet_sessions`, walks `pipeline_progress`, and on any suspended step whose `suspended_at + pipeline_external_step_default_timeout_seconds` is past now, calls `ControlPlaneApiClient.fail_pipeline_step` with a `timeout:` error.
+  - After CPA confirms, signals the in-process `LifecyclePhaseHandler` (AD-CSI-016) for fast resumption when registered.
+  - Idempotency: in-memory `_failed_step_keys` per leader term + 404-swallow. Wired into `LabletReconciler._become_leader()` / `_step_down()`.
+  - New settings: `suspended_step_watchdog_enabled: bool = True`, `suspended_step_watchdog_interval_seconds: int = 60`. 16 new tests.
+- **Settings** (lablet-controller): new `pipeline_external_step_default_timeout_seconds: int = 1800`, `scenario_engine_integration_enabled: bool = False`, `scenario_engine_url`, `scenario_engine_callback_url`, `scenario_engine_allowed_sources: list[str]` (Q-11 hook, enforcement TBD).
+- **Scenario Engine client** (lablet-controller): `ScenarioEngineClient` configured at app bootstrap; submits jobs with AD-CSI-017 metadata round-trip and observes responses for callback orchestration. Always registered so Tier-B call sites can depend on it; the integration is gated by `settings.scenario_engine_integration_enabled` at the call site (best-effort, AD-CSI-014).
+- **Content sync helper** (lcm-core): `PodTypeDetector.detect_from_bytes()` lets `ContentSyncService` detect pod type from in-memory zip bytes before uploading to RustFS.
+
+### Refactored — SE CloudEvent ingestion via Neuroglia framework (AD-CSI-020)
+
+- **Replace hand-rolled `EventsController` with `CloudEventIngestor`** (lablet-controller): SE callbacks are now consumed by Neuroglia's framework-native pipeline (`CloudEventMiddleware` → `CloudEventBus` → `CloudEventIngestor` → `Mediator` → `IntegrationEventHandler`) instead of a bespoke FastAPI controller. Mirrors the convention already in use by `control-plane-api` (`lds_events.py` / `lds_events_handler.py`) and `knowledge-manager`.
+  - Five `@cloudevent`-decorated `IntegrationEvent[str]` dataclasses (`ScenarioEngineJob{Started|Progress|Completed|Failed|Cancelled}IntegrationEventV1`) in `application/events/integration/scenario_engine_events.py` map to SE's emit shapes (`scenario_engine.job.*.v1`).
+  - Five `IntegrationEventHandler` classes in `scenario_engine_handler.py` are auto-discovered/registered via `Mediator.configure(builder, ["application.events.integration"])` and the ingestor via `CloudEventIngestor.configure(builder, [...])`.
+  - Terminal handlers (`completed` / `failed` / `cancelled`) inject `ControlPlaneApiClient`, validate AD-CSI-017 metadata, call `resume_pipeline_step` / `fail_pipeline_step`, swallow CPA 404 (idempotency) and other CPA errors (reconciler is recovery boundary), then signal `LifecyclePhaseHandler.lookup(session_id)` per AD-CSI-016. `started` / `progress` are log-only.
+  - Deleted: `api/controllers/events_controller.py` + its tests.
+  - Behavioral changes: always returns HTTP 202 (envelope-level acks only); binary-mode CloudEvents no longer supported (structured-mode only); callback URL path becomes informational (content-type-driven ingestion is path-agnostic).
+  - Note: `CloudEventMiddleware` is auto-registered by `WebApplicationBuilder.build_app_with_lifespan` when `CloudEventIngestor` is configured — do NOT add it manually.
+  - 22 new unit tests; full lablet-controller suite (569 passed, 27 skipped) green.
+
 ### Added — Session Termination Lab Wipe (AD-WIPE-001)
 
 - **Terminate/Expire → wipe integration** (control-plane-api): `TerminateLabletSessionCommand` and `ExpireLabletSessionCommand` now unbind the linked LabRecord and dispatch `WipeLabRecordCommand` on session end. Guards skip wipe for terminal labs or those with pending actions. Wipe failure does not block session termination.

@@ -35,14 +35,17 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from lcm_core.integration.clients import ControlPlaneApiClient
-from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
-
-from application.settings import Settings
 from integration.services.environment_resolver_client import EnvironmentResolverClient
 from integration.services.lds_spi import LdsSpiClient
 from integration.services.mosaic_client import MosaicClient
 from integration.services.s3_client import S3Client
+from integration.services.scenario_engine_client import ScenarioEngineClient, ScenarioEngineError
+from lcm_core.infrastructure.content_store.pav1_errors import PodTypeIndeterminate
+from lcm_core.infrastructure.content_store.pod_type_detector import PodTypeDetector
+from lcm_core.integration.clients import ControlPlaneApiClient
+from lcm_core.integration.clients.etcd_client import EtcdClient, EtcdEvent
+
+from application.settings import Settings
 
 if TYPE_CHECKING:
     from neuroglia.dependency_injection import ServiceCollection
@@ -103,6 +106,7 @@ class ContentSyncService:
         mosaic_client: MosaicClient,
         s3_client: S3Client,
         lds_client: LdsSpiClient,
+        scenario_engine_client: ScenarioEngineClient,
         settings: Settings,
     ) -> None:
         """Initialize the content sync service.
@@ -114,6 +118,10 @@ class ContentSyncService:
             mosaic_client: Client for downloading content from Mosaic.
             s3_client: Client for uploading packages to RustFS.
             lds_client: Client for notifying LDS of content updates.
+            scenario_engine_client: Client for notifying SE of new PodDefinition
+                content (Phase 2 / G-02). Always injected; calls are gated by
+                ``settings.scenario_engine_integration_enabled`` and treated as
+                best-effort (AD-CSI-014).
             settings: Application settings.
         """
         self._api = api_client
@@ -122,6 +130,7 @@ class ContentSyncService:
         self._mosaic = mosaic_client
         self._s3 = s3_client
         self._lds = lds_client
+        self._scenario_engine = scenario_engine_client
         self._settings = settings
 
         self._watch_task: asyncio.Task | None = None
@@ -437,6 +446,92 @@ class ContentSyncService:
                 }
                 raise  # Fatal — cannot continue without storage
 
+            # ----------------------------------------------------------------
+            # Step 6.5: Notify Scenario Engine of new PodDefinition content
+            # (Phase 2 / G-02 / AD-CSI-003 + AD-CSI-014).
+            #
+            # Best-effort: SE failure must NOT abort the CPA notification —
+            # CPA can finalise `pod_definition_ref` later once SE recovers,
+            # and the upstream_status surfaces the failure for operators.
+            # ----------------------------------------------------------------
+            pod_definition_id: str | None = None
+            pod_type_value: str | None = None
+            se_logs: list[str] = []
+            if self._settings.scenario_engine_integration_enabled:
+                try:
+                    # Detect pod_type from the in-memory zip (defensive — SE
+                    # recomputes per AD-CSI-002, but we send our hint for
+                    # forward-compat and to surface mismatches early).
+                    try:
+                        detected_pod_type, signals = PodTypeDetector.detect_from_bytes(package_bytes)
+                        pod_type_value = detected_pod_type.value
+                        se_logs.append(f"Detected pod_type={pod_type_value} (signals={len(signals)})")
+                    except PodTypeIndeterminate as detect_err:
+                        # Non-fatal — let SE attempt detection from the package
+                        # it downloads from RustFS.
+                        se_logs.append(f"pod_type detection inconclusive: {detect_err}")
+
+                    se_source_uri = f"s3://{bucket_name}/{package_name}"
+                    se_name = defn.get("name") or fqn or definition_id
+                    se_version = str(defn.get("version") or "v1")
+                    se_logs.append(f"POST {self._settings.scenario_engine_url}/api/v1/content/sync " f"name={se_name} version={se_version} source_uri={se_source_uri}")
+
+                    se_result = await self._scenario_engine.sync_content(
+                        source_uri=se_source_uri,
+                        name=se_name,
+                        version=se_version,
+                        content_hash=content_package_hash,
+                        pod_type=pod_type_value,
+                        force=False,
+                    )
+                    pod_definition_id = se_result.pod_definition_id or None
+                    # Trust SE's recomputed pod_type over our local detection.
+                    pod_type_value = se_result.pod_type or pod_type_value
+                    se_logs.append(f"SE acknowledged: pod_definition_id={pod_definition_id} " f"status={se_result.status} superseded={len(se_result.superseded_ids)}")
+                    upstream_status["scenario_engine"] = {
+                        "status": "success",
+                        "synced_at": datetime.now(timezone.utc).isoformat(),
+                        "pod_definition_id": pod_definition_id,
+                        "pod_type": pod_type_value,
+                        "content_hash": se_result.content_hash,
+                        "superseded_ids": se_result.superseded_ids,
+                        "logs": se_logs,
+                    }
+                except ScenarioEngineError as se_err:
+                    # Best-effort — log and surface in upstream_status, then continue.
+                    se_logs.append(f"ERROR: {se_err}")
+                    logger.warning(
+                        "SE content sync failed for definition %s — proceeding " "with CPA notification anyway (AD-CSI-014): %s",
+                        definition_id,
+                        se_err,
+                    )
+                    upstream_status["scenario_engine"] = {
+                        "status": "failed",
+                        "synced_at": datetime.now(timezone.utc).isoformat(),
+                        "error": str(se_err),
+                        "status_code": se_err.status_code,
+                        "logs": se_logs,
+                    }
+                except Exception as unexpected:  # pragma: no cover — defensive
+                    se_logs.append(f"UNEXPECTED ERROR: {unexpected}")
+                    logger.warning(
+                        "Unexpected error during SE content sync for %s " "(continuing — AD-CSI-014): %s",
+                        definition_id,
+                        unexpected,
+                    )
+                    upstream_status["scenario_engine"] = {
+                        "status": "failed",
+                        "synced_at": datetime.now(timezone.utc).isoformat(),
+                        "error": str(unexpected),
+                        "logs": se_logs,
+                    }
+            else:
+                upstream_status["scenario_engine"] = {
+                    "status": "skipped",
+                    "synced_at": datetime.now(timezone.utc).isoformat(),
+                    "reason": "SCENARIO_ENGINE_INTEGRATION_ENABLED=false",
+                }
+
             # Step 7: Notify upstream services (LDS, Grading Engine)
             service_statuses = await self._notify_upstream_services(defn, fqn)
             upstream_status.update(service_statuses)
@@ -474,6 +569,11 @@ class ContentSyncService:
                 "node_definitions_required": metadata.get("node_definitions_required"),
                 "port_conflicts": metadata.get("port_conflicts"),
                 "upstream_sync_status": upstream_status,
+                # Phase 2 / G-02 — surface SE outcome to CPA so the
+                # LabletDefinition aggregate can finalise its
+                # PodDefinitionRef (AD-CSI-003 + AD-CSI-010).
+                "pod_definition_id": pod_definition_id,
+                "pod_type": pod_type_value,
             }
 
             await self._api.record_content_sync_result(definition_id, sync_result)
@@ -980,6 +1080,7 @@ class ContentSyncService:
                 mosaic_client=sp.get_required_service(MosaicClient),
                 s3_client=sp.get_required_service(S3Client),
                 lds_client=sp.get_required_service(LdsSpiClient),
+                scenario_engine_client=sp.get_required_service(ScenarioEngineClient),
                 settings=sp.get_required_service(Settings),
             )
 

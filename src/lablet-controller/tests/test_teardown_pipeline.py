@@ -22,6 +22,7 @@ from application.hosted_services.lablet_reconciler import LabletReconciler
 from application.models.pipeline_result import PipelineResult
 from application.services.lifecycle_phase_handler import LifecyclePhaseHandler
 from application.services.pipeline_executor import PipelineExecutor
+from application.services.pipeline_template_resolver import PipelineTemplateResolver
 from application.services.step_registry import get_handler
 from lcm_core.domain.entities import LabletSessionReadModel
 from lcm_core.domain.entities.read_models.lablet_definition_read_model import LabletDefinitionReadModel
@@ -107,6 +108,11 @@ def make_reconciler() -> LabletReconciler:
     r._active_handlers = {}
     r._pipeline_executor = PipelineExecutor()
     r._pipeline_retry_counts = {}
+    # ADR-038: template resolver populated by __init__ — required when
+    # _handle_pipeline_phase calls self._template_resolver.resolve(...).
+    r._template_resolver = PipelineTemplateResolver()
+    # Phase 3 / AD-CSI-008: SE client used by _build_pipeline_context.
+    r._scenario_engine_client = None
     return r
 
 

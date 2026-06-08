@@ -60,6 +60,8 @@ def make_reconciler() -> LabletReconciler:
     r._pipeline_retry_counts = {}
     # AD-TIMESLOT-001
     r._timeslot_watcher_service = None
+    # Phase 3 / Q-10
+    r._suspended_step_watchdog_service = None
     return r
 
 

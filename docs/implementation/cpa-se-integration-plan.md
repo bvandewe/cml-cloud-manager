@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD013 MD056 -->
+
 # CPA ↔ Scenario Engine Integration Plan
 
 > **Living document — source of truth for the CPA/SE integration work.**
@@ -39,7 +41,7 @@ ADR-044 calls for a two-engine architecture:
 
 | Theme | Status |
 |---|---|
-| Content extraction → SE | 🟡 SE's `SyncContentCommand` is a full 10-step orchestrator (Phase 1, G-01 🟢 closed). lablet-controller still does **not** notify SE on content sync — outbound call remains Phase 2 (G-02 🔴 open). |
+| Content extraction → SE | � SE's `SyncContentCommand` is a full 10-step orchestrator (Phase 1, G-01 🟢 closed). lablet-controller calls `ScenarioEngineClient.sync_content` from `ContentSyncService` as a best-effort step (Phase 2, G-02 🟢 closed — AD-CSI-014). CPA mirrors SE's `PodDefinition` state via a CloudEvent read-model projection (G-12 🟢 closed — AD-CSI-015). |
 | Pod type auto-discovery | 🟢 **Closed (Phase 0, G-04)** — `PodTypeDetector` enforces AD-CSI-002 priority chain (manifest > radkit > proxmox > vmware > cml.yaml > legacy) in `lcm_core.infrastructure.content_store`. |
 | `PodDefinition` entity | 🟢 **Closed (Phase 0, G-03)** — 8 typed PAv1 fields added (`content_hash`, `topology`, `devices`, `lifecycle_phases`, `scenarios`, `grading_rules`, `reports`, `restore_rules`) with safe defaults; event payload extended. |
 | `ScenarioEngineClient` call sites | 🔴 client is registered but **zero** call sites — nothing in lablet-controller submits jobs to SE. |
@@ -178,7 +180,9 @@ The remediation is **content-driven sync redesign + missing-call-site implementa
 
 ---
 
-### G-02 — `lablet-controller` does not notify SE  🔥 Blocker — 🔴 Open
+### G-02 — `lablet-controller` does not notify SE  🔥 Blocker — 🟢 Closed (Phase 2)
+
+**Closed:** Phase 2 wiring — `ScenarioEngineClient.sync_content` + best-effort SE call in `ContentSyncService` (Step 6.5, between RustFS upload and CPA notification). See AD-CSI-014 for the failure-handling decision.
 
 **Current state.** `ContentSyncService` extracts metadata and POSTs to CPA's `RecordContentSyncResultCommand`. It never tells SE about the package, so SE never gets a `PodDefinition`.
 
@@ -265,7 +269,7 @@ class PodDefinitionState(AggregateState[str]):
 
 ---
 
-### G-05 — `ScenarioEngineClient` is registered but never called  🔥 Blocker — 🔴 Open
+### G-05 — `ScenarioEngineClient` is registered but never called  🔥 Blocker — � Closed (Phase 3)
 
 **Current.** Pipeline step handlers (e.g. `lab_resolve_step.py`) call adapters directly (`context.cml.create_lab`, …), duplicating SE's `lab_resolve_scenario.py`.
 
@@ -307,9 +311,11 @@ The pipeline executor already supports `existing_progress` resumability — exte
 
 **Acceptance.** A `standard-instantiate` pipeline run produces SE Jobs visible in `/api/v1/jobs`; pipeline step transitions from `RUNNING → SUSPENDED → COMPLETED` on `com.lcm.scenario_engine.job.completed` arrival.
 
+**Closure note (Phase 3).** `_scenario_engine_step.submit_scenario_engine_job` shared helper plus rewritten `lab_resolve_step` / `lab_start_step` flag-gate on `context.scenario_engine_enabled` (default false → legacy in-process path preserved through Phase 4 per AD-CSI-008). `PipelineExecutor` recognises `StepResult.suspended` and halts the pipeline with `status="suspended"` so the lifecycle phase handler can drop its task and wait. See AD-CSI-016 (in-process registry of suspended handlers, used by `events_controller` for resumption).
+
 ---
 
-### G-06 — `events_controller` handlers are TODO stubs  🔥 Blocker — 🔴 Open
+### G-06 — `events_controller` handlers are TODO stubs  🔥 Blocker — � Closed (Phase 3)
 
 **Current.** `src/lablet-controller/api/controllers/events_controller.py` parses CloudEvents (structured + binary mode) but every handler logs and exits.
 
@@ -334,6 +340,8 @@ The pipeline executor already supports `existing_progress` resumability — exte
 - `src/control-plane-api/application/commands/lablet_session/fail_pipeline_step_command.py` (new)
 
 **Acceptance.** SE emits a `job.completed` event; within 1 s the corresponding pipeline step is `COMPLETED` in MongoDB and the next step is dispatched.
+
+**Closure note (Phase 3).** The 5 handlers are implemented in `EventsController` (class-based DI'd FastAPI router). `job.completed` calls CPA `ResumePipelineStepCommand`; `job.failed` and `job.cancelled` call `FailPipelineStepCommand`. CPA 404 returns 202 + WARN log (treated as idempotent — duplicate delivery against an already-resumed step or terminated session). After CPA confirms, the controller looks up the lifecycle phase handler via `LifecyclePhaseHandler.lookup(session_id)` (AD-CSI-016 in-process registry) and re-dispatches the pipeline with the refreshed `existing_progress`. When no handler is registered (controller restart scenario), the next reconciliation cycle picks the work up. SE always round-trips `metadata` on every job lifecycle CloudEvent (AD-CSI-017) so the controller can recover both `lablet_session_id` and `step_correlation_id` without consulting SE's job table.
 
 ---
 
@@ -430,7 +438,9 @@ See §5 for the proposed schema. Spec authorship: this plan + a follow-up `docs/
 
 ---
 
-### G-12 — Versioning, supersession and CPA-side read model  🟡 — 🔴 Open
+### G-12 — Versioning, supersession and CPA-side read model  🟡 — 🟢 Closed (Phase 2)
+
+**Closed:** Phase 2 — CPA now owns a read-only `pod_definitions_read` collection fed by a `CloudEvents` ingest endpoint (`POST /api/events/`) on `EventsController`. See AD-CSI-015 (last-write-wins projection) and Q-09 (SE `superseded_ids` gap).
 
 **Current.** `PodDefinition` has `SUPERSEDED` state but no command transitions to it; CPA has no view of SE's `PodDefinition` content (only the `Ref`).
 
@@ -568,18 +578,25 @@ sequenceDiagram
 
 **Verification:** core 307 ✓ (added 6 extractor + 12 S3 client tests) · scenario-engine 110 ✓ (added 10 command + 4 supersede tests). New decisions: AD-CSI-011, AD-CSI-012, AD-CSI-013.
 
-### Phase 2 — `lablet-controller` calls SE
+### Phase 2 — `lablet-controller` calls SE 🟢 Complete
 
-- **G-02** Add `ScenarioEngineClient.sync_content`; wire into `ContentSyncService`.
-- **G-12** `PodDefinitionProjector` HostedService in CPA — read-only mirror of SE state via CloudEvent listener.
-- Behaviour flagged off by default; turn on in dev.
+- **G-02** Add `ScenarioEngineClient.sync_content`; wire into `ContentSyncService`. ✅
+- **G-12** `PodDefinitionProjector` (delivered as `EventsController.ingest_cloud_event` + `MotorPodDefinitionReadRepository`) — read-only mirror of SE state via CloudEvent listener. ✅
+- Behaviour gated by `SCENARIO_ENGINE_INTEGRATION_ENABLED` (default `false`).
 
-### Phase 3 — Pipeline ↔ SE delegation (Tier-B steps)
+**Verification:** core 307 ✓ · lablet-controller 508 ✓ (5 new SE client tests) · control-plane-api 1217 ✓ (20 new — 7 projection commands + 13 CloudEvents controller). New decisions: AD-CSI-014, AD-CSI-015. New gap: Q-09 (SE omits `superseded_ids` from `pod_definition.ready.v1` payload — projector tolerates absence; SE-side enhancement deferred).
 
-- **G-05** `ScenarioEngineStep` base class; rewrite `lab_resolve_step` and `lab_start_step` as Tier-B.
-- **G-06** Implement all 5 CloudEvent handlers in `events_controller`.
-- Add `ResumePipelineStepCommand` / `FailPipelineStepCommand` to CPA.
-- Extend `PipelineExecutor` to honour `StepResult.suspended`.
+### Phase 3 — Pipeline ↔ SE delegation (Tier-B steps) 🟢 Complete
+
+- **G-05** `ScenarioEngineStep` shared helper (`submit_scenario_engine_job`); `lab_resolve_step` and `lab_start_step` rewritten as flag-gated Tier-B steps. ✅
+- **G-06** All 5 CloudEvent handlers implemented in `EventsController` (started / progress / completed / failed / cancelled). ✅
+- Added `ResumePipelineStepCommand` / `FailPipelineStepCommand` to CPA. ✅
+- Extended `PipelineExecutor` to honour `StepResult.suspended` (halts pipeline with `status="suspended"`, surfaces `external_jobs`). ✅
+- `LifecyclePhaseHandler` registers itself in an in-process class-level registry when started (AD-CSI-016), allowing `EventsController` to look up the suspended handler and call `resume_after_external_completion(progress)` / `fail_after_external_completion(progress)` after CPA confirms.
+- SE round-trips `metadata` (containing `lablet_session_id` + `step_correlation_id`) on every job lifecycle CloudEvent (AD-CSI-017) so the controller does not need to read SE's job table to route the callback.
+- Behaviour gated by `scenario_engine_integration_enabled` (default `false`); when off, Tier-B step handlers fall back to the legacy in-process path.
+
+**Verification:** lablet-controller 546 ✓ (15 new EventsController tests + 4 PipelineExecutor suspension tests + 6 LifecyclePhaseHandler registry tests) · control-plane-api 1228 ✓ (9 new resume/fail tests + 2 new DTO `pod_definition_ref` tests) · lcm-core 269 ✓ (4 new `resume_pipeline_step` / `fail_pipeline_step` client tests) · scenario-engine 114 ✓. New decisions: AD-CSI-016, AD-CSI-017. New open questions: Q-10 (suspended-step watchdog), Q-11 (SE source allow-list for CloudEvent ingest authn). New CPA gap closed during Phase 3: `LabletDefinitionDto.pod_definition_ref` was previously not exposed through the public DTO — added so lcm-core's read model can observe SE's confirmed PodDefinition link in production.
 
 ### Phase 4 — Content-driven lifecycle (`lifecycle.yaml`)
 
@@ -617,6 +634,12 @@ sequenceDiagram
 | **AD-CSI-011** | `PodDefinition.FAILED` is a first-class lifecycle state (Phase 1, G-01) | Added `PodDefinitionStatus.FAILED`, `PodDefinitionSyncFailedDomainEvent`, `mark_failed(reason, error_detail)` and bidirectional `SYNCHRONIZING ↔ FAILED` transitions so force re-syncs of a previously failed definition are legal. State fields `error_message`, `error_detail`, `failed_at` carry diagnostics; cleared on `SyncStarted`. | Surfacing failures as durable aggregate state (rather than transient log lines) is required for UI display, retries, and supersession bookkeeping. Bidirectional transition keeps recovery a single command rather than aggregate replacement. |
 | **AD-CSI-012** | `ExtractedContent.detected_pod_type` is optional (Phase 1, G-01) | `ContentExtractor` runs `PodTypeDetector` defensively and stores the result as `Optional[PodType]`. If detection raises `PodTypeIndeterminate`, the extractor still raises `PAv1ValidationError` for the missing manifest but propagates `detected_pod_type=None` so callers see why detection failed. | Detection is informational at extraction time — manifest validity is the authoritative signal. Treating detection as a fail-open hint keeps the extractor's contract narrow (PAv1 conformance) while still surfacing topology hints for failure diagnostics. |
 | **AD-CSI-013** | CloudEvent callback URL is per-request, not per-PodDefinition (Phase 1, G-01) | `SyncContentCommand.callback_url` is optional and resolved at emit time via `CloudEventCallbackService._resolve_target_url`: per-request URL > `settings.cloud_event_sink` > skip. Applies to both `pod_definition.ready.v1` and `pod_definition.sync_failed.v1`. | Per-request URLs keep the PodDefinition aggregate free of caller-specific transport metadata, defer transport policy to the orchestrator (CPA / lablet-controller), and stay consistent with `SubmitJobCommand`'s existing `callback_url` model (Q-03). |
+| **AD-CSI-014** | SE notification from lablet-controller is **best-effort**; SE failure does **not** block CPA notification (Phase 2, G-02; resolves Q-02 as option b) | In `ContentSyncService._sync_definition()` step 6.5, the SE `sync_content` call is wrapped in `try/except ScenarioEngineError/Exception`. Any failure (connection, 4xx, 5xx) is logged and surfaced in `upstream_status["scenario_engine"]` so operators can retry; the controller **still** records the sync to CPA with `pod_definition_id=None`. When `SCENARIO_ENGINE_INTEGRATION_ENABLED=false` the call is skipped entirely (`status="skipped"`). | SE outage must not gate content visibility. CPA can still finalise `LabletDefinition.sync_status=success` based on extraction + upload alone; the missing `pod_definition_ref` then signals "SE catch-up required" and can be backfilled by a future reconciler scan or by retrying the sync. Q-02 option (b) without the polling retry — kept simple. |
+| **AD-CSI-015** | CPA `pod_definitions_read` projection is **last-write-wins from event payload** with a `last_event_at` staleness guard (Phase 2, G-12; resolves Q-05) | `PodDefinitionReadModel.last_event_at` stores the event-time of the most recent `pod_definition.ready` or `pod_definition.sync_failed` event applied. Both projection commands (`ProjectPodDefinitionReadyCommand`, `ProjectPodDefinitionSyncFailedCommand`) compare incoming `event_time` against `existing.last_event_at` and drop strictly-older events as stale. Failed-event handlers carry forward immutable identity fields (`name`, `pod_type`, `version`, `content_hash`, `source_uri`) from the prior projection when SE fails before classification. | Out-of-order CloudEvent delivery (e.g. retried `ready` arrives after `sync_failed`) must not corrupt the projection. Snapshot-style overwrite (full event payload) keeps the projector trivial and idempotent; the `last_event_at` guard provides eventual consistency without requiring an event-sourced rebuild. |
+| **AD-CSI-016** | Suspended-handler in-process registry on `LifecyclePhaseHandler` (Phase 3, G-06) | `LifecyclePhaseHandler` maintains a class-level `_registry: dict[session_id, LifecyclePhaseHandler]`. `start()` registers `self` before launching the asyncio task; terminal-completion paths (`completed` / `failed`) and `stop()` unregister; the `_on_complete` callback short-circuits when the pipeline returns `status="suspended"` and keeps the registration intact. `EventsController` calls `LifecyclePhaseHandler.lookup(session_id)` after CPA confirms a resume/fail; when a handler is registered, the controller invokes `resume_after_external_completion(progress)` / `fail_after_external_completion(progress)`, which replaces `self._existing_progress` and re-enters `start()`. When no handler is registered (controller restart between SE callback and resume — handler instance lost), the next reconciliation cycle picks the work up naturally because CPA already holds the updated progress. | In-process map avoids an etcd "awaiting external job" key per session (which would need a watcher) and a polling reconciler walk of suspended sessions on every cycle. The fall-back-to-reconciler safety net handles restart scenarios without persistent registry state. Single-leader assumption (only one controller instance dispatches handlers per session lock) keeps the dict consistent. |
+| **AD-CSI-017** | SE round-trips `metadata` on every job lifecycle CloudEvent (Phase 3, G-06) | SE's `SubmitJobCommand` accepts an opaque `metadata: dict | None` field that is persisted on the `Job` aggregate and echoed back on `data.metadata`in every job lifecycle CloudEvent (`started`,`progress`,`completed`,`failed`,`cancelled`). Lablet-controller's Tier-B step submission populates`metadata = {lablet_session_id, step_correlation_id, step_name, pipeline_name}`.`EventsController` reads it back to route the callback to the right CPA command + handler invocation without ever consulting SE's job table. | Avoids a synchronous SE-side job lookup on every event ingest (would couple controller to SE's job persistence and add an extra round-trip on the hot path). Treats SE as a black box that only echoes opaque correlation data. Validation rule: `COMPLETED` / `FAILED` / `CANCELLED` events without both `metadata.lablet_session_id` and `metadata.step_correlation_id` return 400 (caller violated contract); `STARTED` / `PROGRESS` are tolerant (informational only). |
+| **AD-CSI-018** | `SuspendedStepWatchdogService` is a leader-gated periodic asyncio loop, not an inline reconciler check (Phase 3 follow-up, closes Q-10) | A separate hosted service started in `LabletReconciler._become_leader()` and stopped in `_step_down()`, owning its own asyncio task. Each iteration fan-outs `ControlPlaneApiClient.get_lablet_sessions(status=...)` across all active statuses (`SCHEDULED` … `STOPPING`), de-dupes by session id, walks `pipeline_progress` looking for `status == "suspended"`, parses `suspended_at` (ISO 8601, tolerates trailing `Z`), and on `age > Settings.pipeline_external_step_default_timeout_seconds` calls `ControlPlaneApiClient.fail_pipeline_step` with a `timeout:` error and `details.watchdog=True`. After CPA confirms, the watchdog looks up `LifecyclePhaseHandler.lookup(session_id)` (AD-CSI-016) and calls `fail_after_external_completion(progress)` when registered for fast in-process resumption. In-memory `_failed_step_keys: set[str]` (per leader term) prevents repeat fails between the CPA write and the next reconcile observation. CPA 404 is swallowed as duplicate-delivery ack; non-404 errors are not added to `_failed_step_keys` so the next scan retries. | The controller runs in watch-only mode (`LABLET_CONTROLLER_RECONCILE_POLLING_ENABLED=false`) — a suspended step whose etcd state never changes will never be reconciled inline. A separate periodic loop is therefore the correct architectural answer, not an extension of `reconcile_single`. Co-locating the loop on the reconciler instance keeps lifecycle simple (one DI registration, one leader hook pair) and reuses the existing CPA client. |
+| **AD-CSI-019** | CloudEvent ingest source allow-list enforced inside each `IntegrationEventHandler` (Phase 3 follow-up, closes Q-11) | Validation lives in the handlers (not a custom CloudEvent middleware) because Neuroglia's `CloudEventIngestor` attaches the envelope `source` to the deserialised event as `__cloudevent__source__`, making per-handler access trivial. A shared module-level helper `_source_allowed(event, allowed_sources, event_type)` compares case-insensitively against `Settings.scenario_engine_allowed_sources` (default `["scenario-engine"]`). All five handlers (started / progress / completed / failed / cancelled) call the helper at the top of `handle_async` and silently drop mismatched events with a warning log — SE has already received its `202` ack at the middleware layer, so no error response is generated. An empty allow-list opts out of validation. | Replacing Neuroglia's auto-registered `CloudEventMiddleware` to add allow-list enforcement at the HTTP boundary would couple us to internal framework wiring; per-handler validation keeps the change isolated to our integration package and applies uniformly to all event types. Case-insensitive comparison tolerates SE's choice of source casing without operator-visible churn. HMAC signature verification remains deferred until cross-cluster delivery is required (today the URL is private to the cluster). |
 
 ---
 
@@ -630,6 +653,9 @@ sequenceDiagram
 | Q-04 | Are `PAv1/scenarios/*.yaml` _additive_ to SE's Python registry, or do they _override_? What if both exist for `lab_resolve@v1`? | **Open** — proposed: content-defined wins, with a warning log. |
 | Q-05 | Should the projection (`PodDefinitionProjector` in CPA) be event-sourced or last-write-wins from a snapshot? | **Open** — proposed: last-write-wins from `pod_definition.ready` payload; `superseded` event flips the status flag. |
 | Q-06 | How is etcd watcher used in tandem with SE sync? Today `sync_lablet_definition_command` writes `/lcm/definitions/{id}/content_sync` and the controller watches. Do we add a parallel `/lcm/pod_definitions/{id}/state` write from SE for visibility, or is the CloudEvent stream sufficient? | **Open** — proposed: CloudEvent stream + CPA projection; etcd not needed for pod_definitions. |
+| Q-09 | SE's `emit_content_synced` CloudEvent payload (`scenario_engine.pod_definition.ready.v1`) currently carries only `{pod_definition_id, name, version, pod_type, content_hash}` — no `superseded_ids`. Should SE include the list of definitions it marked SUPERSEDED in the event, or should CPA listen for a separate `pod_definition.superseded.v1` event? Discovered during Phase 2 G-12 implementation. | **Open** — proposed: extend SE to emit a separate `scenario_engine.pod_definition.superseded.v1` event per superseded id (cleaner per-aggregate semantics than a list field). CPA's `ProjectPodDefinitionReadyCommand` already accepts an optional `superseded_ids: list[str]` for forward compatibility but tolerates absence. Deferred to a follow-up phase. |
+| Q-10 | Suspended-step watchdog: how should the controller detect a Tier-B step that never receives a CloudEvent (SE crash, network partition, dropped callback)? Today the lifecycle handler is dropped at suspension and only reawakened by an inbound event; if no event ever arrives, the session sits with the step `suspended` in CPA forever. Discovered during Phase 3 G-06 implementation. | **🟢 Closed** — implemented by `SuspendedStepWatchdogService` (Phase 3 follow-up). Leader-gated asyncio loop scans active sessions via `ControlPlaneApiClient.get_lablet_sessions` (fan-out across active statuses), parses each suspended step's `suspended_at`, and on `age > pipeline_external_step_default_timeout_seconds` (default 1800s) calls `ControlPlaneApiClient.fail_pipeline_step` with `error="timeout: no scenario-engine callback within Ns"`. Idempotency: in-memory `_failed_step_keys` set per leader term prevents repeat fails; CPA 404 is swallowed as duplicate-delivery ack. After CPA confirms, the watchdog signals the in-process `LifecyclePhaseHandler` via `fail_after_external_completion` for fast local resumption (AD-CSI-016 fall-back when no handler is registered). New settings: `suspended_step_watchdog_enabled` (default `True`), `suspended_step_watchdog_interval_seconds` (default `60`). See AD-CSI-018. |
+| Q-11 | CloudEvent ingest authentication: today `EventsController` accepts any caller — the integration assumes SE is the only producer because the URL is private (controller behind the cluster network). Should we add `ce-source` allow-listing (e.g. only accept `scenario-engine` as source) and/or HMAC signature on the binary `ce-` headers? Discovered during Phase 3 G-06 implementation. | **🟢 Closed** — implemented in `application/events/integration/scenario_engine_handler.py`. New helper `_source_allowed(event, allowed_sources, event_type)` reads `event.__cloudevent__source__` (set by Neuroglia's `CloudEventIngestor`) and compares case-insensitively against `Settings.scenario_engine_allowed_sources` (default `["scenario-engine"]`). All five handlers (started / progress / completed / failed / cancelled) call the helper at the top of `handle_async` and silently drop mismatched events with a warning log; SE has already received its 202 ack at the middleware layer, so no error response is generated. Empty allow-list opts out of validation. HMAC remains deferred until cross-cluster delivery. See AD-CSI-019. |
 
 ---
 

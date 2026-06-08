@@ -46,16 +46,21 @@ class StepResult:
     into the existing progress format.
 
     Attributes:
-        status: Step outcome — "completed", "skipped", or "failed".
+        status: Step outcome — "completed", "skipped", "failed", or "suspended".
         result_data: Payload available to downstream steps via ``context.steps_data``.
         error: Human-readable error message (when status="failed").
-        reason: Explanation for skip (when status="skipped").
+        reason: Explanation for skip / suspension.
+        external_job_id: SE Job id when status="suspended" (AD-CSI-009 / Phase 3).
+        step_correlation_id: Echo identifier used to match the CloudEvent
+            callback back to this suspended step (AD-CSI-016 / Phase 3).
     """
 
-    status: str  # "completed" | "skipped" | "failed"
+    status: str  # "completed" | "skipped" | "failed" | "suspended"
     result_data: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     reason: str | None = None
+    external_job_id: str | None = None
+    step_correlation_id: str | None = None
 
     @staticmethod
     def completed(result_data: dict[str, Any] | None = None) -> StepResult:
@@ -72,6 +77,35 @@ class StepResult:
         """Create a failed step result."""
         return StepResult(status="failed", error=error)
 
+    @staticmethod
+    def suspended(
+        *,
+        external_job_id: str,
+        step_correlation_id: str,
+        reason: str | None = None,
+    ) -> StepResult:
+        """Create a suspended step result — pipeline pauses awaiting external completion.
+
+        AD-CSI-009 / Phase 3: Tier-B step handlers (those that delegate to the
+        Scenario Engine) return ``StepResult.suspended(...)`` after submitting an
+        SE Job. The :class:`PipelineExecutor` persists progress and halts dispatch;
+        resumption is driven by a CloudEvent callback received by
+        ``lablet-controller``'s ``events_controller`` (AD-CSI-016).
+
+        Args:
+            external_job_id: SE Job id used by the events_controller to locate
+                the suspended step on the ``PipelineExecutionRecord``.
+            step_correlation_id: Stable per-suspension identifier echoed on the
+                CloudEvent to defend against duplicate or misrouted callbacks.
+            reason: Optional human-readable note (defaults to a templated string).
+        """
+        return StepResult(
+            status="suspended",
+            external_job_id=external_job_id,
+            step_correlation_id=step_correlation_id,
+            reason=reason or f"awaiting external job {external_job_id}",
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to the legacy dict format expected by the executor.
 
@@ -79,6 +113,10 @@ class StepResult:
         ``{"step": <name>, "status": ..., "result_data": {...}, "error": ...}``
 
         Note: ``step`` name is NOT set here — the caller (dispatcher) adds it.
+
+        Suspended results also carry ``external_job_id`` and
+        ``step_correlation_id`` so the executor can persist them on the
+        progress record.
         """
         result: dict[str, Any] = {"status": self.status}
         if self.result_data:
@@ -87,6 +125,10 @@ class StepResult:
             result["error"] = self.error
         if self.reason:
             result["reason"] = self.reason
+        if self.external_job_id:
+            result["external_job_id"] = self.external_job_id
+        if self.step_correlation_id:
+            result["step_correlation_id"] = self.step_correlation_id
         return result
 
 

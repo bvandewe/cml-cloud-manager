@@ -12,6 +12,10 @@ from typing import Any
 from lcm_core.domain.entities import LabletSessionReadModel
 
 from application.models.pipeline_context import PipelineContext
+from application.services.step_handlers._scenario_engine_step import (
+    ScenarioBinding,
+    submit_scenario_engine_job,
+)
 from application.services.step_registry import StepResult, step_handler
 
 logger = logging.getLogger(__name__)
@@ -35,6 +39,14 @@ async def step_lab_resolve(
     - Tracks freshly imported sessions in ``context.freshly_imported_sessions``.
     - Uses ``context.find_lab_record_id`` and ``context.register_lab_record``
       for LabRecord resolution/creation (full fallback chain).
+
+    Phase 3 / AD-CSI-008 (Tier-B branch): when
+    ``context.scenario_engine_enabled`` is true, this step delegates to the
+    Scenario Engine and returns ``StepResult.suspended``. The
+    :class:`PipelineExecutor` (Phase 3 Step 4) persists progress and pauses
+    the pipeline until a matching CloudEvent arrives. When false, the legacy
+    in-process path below executes unchanged (preserves backward compatibility
+    through Phase 4).
     """
     # Resolve topology YAML from definition
     topology_yaml = instance.topology_yaml
@@ -45,6 +57,27 @@ async def step_lab_resolve(
         if not topology_yaml:
             return StepResult.failed(f"No topology YAML found for definition {instance.definition_id}")
 
+    # ── Phase 3 / AD-CSI-008: Tier-B delegation ─────────────────────────
+    if context.scenario_engine_enabled:
+        logger.info(
+            "lab_resolve: delegating to Scenario Engine (session=%s, definition=%s)",
+            instance.id,
+            instance.definition_id,
+        )
+        return await submit_scenario_engine_job(
+            binding=ScenarioBinding(scenario_name="lab_resolve", scenario_version="v1"),
+            step_name="lab_resolve",
+            instance=instance,
+            context=context,
+            input_data={
+                "session_id": instance.id,
+                "definition_id": instance.definition_id,
+                "topology_yaml": topology_yaml,
+                "worker_pool_hint": instance.worker_id,
+            },
+        )
+
+    # ── Legacy in-process path (Tier-A) ─────────────────────────────────
     # Check if lab already resolved (from previous attempts, session state, or tracking dict)
     resolved_lab_ids = context.resolved_lab_ids or {}
     cml_lab_id = instance.cml_lab_id or resolved_lab_ids.get(instance.id)
