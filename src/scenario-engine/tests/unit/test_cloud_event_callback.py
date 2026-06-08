@@ -175,3 +175,82 @@ class TestProgressThrottling:
         callback_service._last_progress_time["cleanup-job"] = time.monotonic()
         callback_service._cleanup_progress_tracking("cleanup-job")
         assert "cleanup-job" not in callback_service._last_progress_time
+
+
+# ---------------------------------------------------------------------------
+# Metadata round-trip tests (AD-CSI-017)
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataRoundTrip:
+    """When metadata is supplied to emit_*, it must appear as ``data.metadata`` on the payload."""
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_emit_started_includes_metadata(self, callback_service):
+        post_mock = AsyncMock(return_value=httpx.Response(200))
+        with patch.object(callback_service._client, "post", post_mock):
+            await callback_service.emit_started(
+                job_id="job-1",
+                scenario_name="lab_resolve",
+                started_at="2026-01-01T00:00:00Z",
+                metadata={
+                    "lablet_session_id": "sess-1",
+                    "step_name": "lab_resolve",
+                    "step_correlation_id": "sess-1:lab_resolve:abc",
+                },
+            )
+        assert post_mock.call_count == 1
+        payload = post_mock.call_args.kwargs["json"]
+        assert payload["type"] == "scenario_engine.job.started.v1"
+        assert payload["data"]["metadata"] == {
+            "lablet_session_id": "sess-1",
+            "step_name": "lab_resolve",
+            "step_correlation_id": "sess-1:lab_resolve:abc",
+        }
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_emit_completed_includes_metadata(self, callback_service):
+        post_mock = AsyncMock(return_value=httpx.Response(200))
+        with patch.object(callback_service._client, "post", post_mock):
+            await callback_service.emit_completed(
+                job_id="job-2",
+                output_data={"cml_lab_id": "abc"},
+                artifacts=[],
+                duration=2.5,
+                metadata={"step_correlation_id": "sess-2:lab_start:xyz"},
+            )
+        payload = post_mock.call_args.kwargs["json"]
+        assert payload["data"]["metadata"] == {"step_correlation_id": "sess-2:lab_start:xyz"}
+        # Standard fields preserved
+        assert payload["data"]["output_data"] == {"cml_lab_id": "abc"}
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_emit_failed_includes_metadata(self, callback_service):
+        post_mock = AsyncMock(return_value=httpx.Response(200))
+        with patch.object(callback_service._client, "post", post_mock):
+            await callback_service.emit_failed(
+                job_id="job-3",
+                error="boom",
+                duration=1.0,
+                metadata={"step_correlation_id": "sess-3:lab_resolve:fail"},
+            )
+        payload = post_mock.call_args.kwargs["json"]
+        assert payload["data"]["metadata"] == {"step_correlation_id": "sess-3:lab_resolve:fail"}
+        assert payload["data"]["error"] == "boom"
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_emit_without_metadata_omits_key(self, callback_service):
+        """Backward-compat: when metadata=None, ``data.metadata`` key is absent."""
+        post_mock = AsyncMock(return_value=httpx.Response(200))
+        with patch.object(callback_service._client, "post", post_mock):
+            await callback_service.emit_started(
+                job_id="job-no-meta",
+                scenario_name="lab_resolve",
+                started_at="2026-01-01T00:00:00Z",
+            )
+        payload = post_mock.call_args.kwargs["json"]
+        assert "metadata" not in payload["data"]

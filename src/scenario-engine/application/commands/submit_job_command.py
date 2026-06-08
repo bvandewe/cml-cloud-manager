@@ -29,6 +29,10 @@ class SubmitJobCommand(Command[OperationResult[JobSubmittedDto]]):
         input_data: Input parameters for the scenario.
         callback_url: CloudEvents sink URL for progress/completion notifications.
         pod_definition_id: Reference to the PodDefinition containing content.
+        metadata: Opaque caller-supplied dict (AD-CSI-017). Round-tripped
+            onto every emitted CloudEvent payload as ``data.metadata`` so
+            callers can correlate the job back to the originating step
+            (e.g. lablet-controller pipeline step suspension).
     """
 
     scenario_name: str = ""
@@ -36,6 +40,7 @@ class SubmitJobCommand(Command[OperationResult[JobSubmittedDto]]):
     input_data: dict[str, Any] | None = None
     callback_url: str | None = None
     pod_definition_id: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class SubmitJobCommandHandler(CommandHandler[SubmitJobCommand, OperationResult[JobSubmittedDto]]):
@@ -67,6 +72,7 @@ class SubmitJobCommandHandler(CommandHandler[SubmitJobCommand, OperationResult[J
             input_data=request.input_data,
             callback_url=request.callback_url,
             pod_definition_id=request.pod_definition_id,
+            metadata=request.metadata,
         )
 
         # Persist

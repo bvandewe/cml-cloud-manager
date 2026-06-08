@@ -58,12 +58,27 @@ class CloudEventCallbackService:
             return self._settings.cloud_event_sink
         return None
 
-    async def emit_started(self, job_id: str, scenario_name: str, started_at: str, callback_url: str | None = None) -> None:
-        """Emit a job.started CloudEvent."""
+    async def emit_started(
+        self,
+        job_id: str,
+        scenario_name: str,
+        started_at: str,
+        callback_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a job.started CloudEvent.
+
+        ``metadata`` (AD-CSI-017) is round-tripped onto the payload as
+        ``data.metadata`` so subscribers can correlate the event back to
+        the originating context (e.g. a suspended pipeline step).
+        """
+        data: dict[str, Any] = {"job_id": job_id, "scenario_name": scenario_name, "started_at": started_at}
+        if metadata:
+            data["metadata"] = metadata
         await self._emit(
             event_type=self.EVENT_STARTED,
             job_id=job_id,
-            data={"job_id": job_id, "scenario_name": scenario_name, "started_at": started_at},
+            data=data,
             callback_url=callback_url,
         )
 
@@ -74,10 +89,12 @@ class CloudEventCallbackService:
         message: str,
         details: dict[str, Any] | None = None,
         callback_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Emit a job.progress CloudEvent (throttled).
 
         At most one progress event per job_progress_interval seconds per job.
+        ``metadata`` is forwarded as ``data.metadata`` (AD-CSI-017).
         """
         now = time.monotonic()
         last = self._last_progress_time.get(job_id, 0.0)
@@ -85,10 +102,13 @@ class CloudEventCallbackService:
             return  # Throttled
 
         self._last_progress_time[job_id] = now
+        data: dict[str, Any] = {"job_id": job_id, "percentage": percentage, "message": message, "details": details}
+        if metadata:
+            data["metadata"] = metadata
         await self._emit(
             event_type=self.EVENT_PROGRESS,
             job_id=job_id,
-            data={"job_id": job_id, "percentage": percentage, "message": message, "details": details},
+            data=data,
             callback_url=callback_url,
         )
 
@@ -99,33 +119,56 @@ class CloudEventCallbackService:
         artifacts: list[str],
         duration: float,
         callback_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Emit a job.completed CloudEvent."""
+        """Emit a job.completed CloudEvent. ``metadata`` forwarded per AD-CSI-017."""
         self._cleanup_progress_tracking(job_id)
+        data: dict[str, Any] = {"job_id": job_id, "output_data": output_data, "artifacts": artifacts, "duration": duration}
+        if metadata:
+            data["metadata"] = metadata
         await self._emit(
             event_type=self.EVENT_COMPLETED,
             job_id=job_id,
-            data={"job_id": job_id, "output_data": output_data, "artifacts": artifacts, "duration": duration},
+            data=data,
             callback_url=callback_url,
         )
 
-    async def emit_failed(self, job_id: str, error: str, duration: float, callback_url: str | None = None) -> None:
-        """Emit a job.failed CloudEvent."""
+    async def emit_failed(
+        self,
+        job_id: str,
+        error: str,
+        duration: float,
+        callback_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a job.failed CloudEvent. ``metadata`` forwarded per AD-CSI-017."""
         self._cleanup_progress_tracking(job_id)
+        data: dict[str, Any] = {"job_id": job_id, "error": error, "duration": duration}
+        if metadata:
+            data["metadata"] = metadata
         await self._emit(
             event_type=self.EVENT_FAILED,
             job_id=job_id,
-            data={"job_id": job_id, "error": error, "duration": duration},
+            data=data,
             callback_url=callback_url,
         )
 
-    async def emit_cancelled(self, job_id: str, cancelled_at: str, callback_url: str | None = None) -> None:
-        """Emit a job.cancelled CloudEvent."""
+    async def emit_cancelled(
+        self,
+        job_id: str,
+        cancelled_at: str,
+        callback_url: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit a job.cancelled CloudEvent. ``metadata`` forwarded per AD-CSI-017."""
         self._cleanup_progress_tracking(job_id)
+        data: dict[str, Any] = {"job_id": job_id, "cancelled_at": cancelled_at}
+        if metadata:
+            data["metadata"] = metadata
         await self._emit(
             event_type=self.EVENT_CANCELLED,
             job_id=job_id,
-            data={"job_id": job_id, "cancelled_at": cancelled_at},
+            data=data,
             callback_url=callback_url,
         )
 

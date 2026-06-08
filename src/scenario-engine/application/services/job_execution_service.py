@@ -250,6 +250,7 @@ class JobExecutionService(HostedService):
                     error=job.state.error or "Scenario not found",
                     duration=time.monotonic() - start_time,
                     callback_url=job.state.callback_url,
+                    metadata=job.state.metadata,
                 )
                 return
 
@@ -261,6 +262,7 @@ class JobExecutionService(HostedService):
                 scenario_name=job.state.scenario_name,
                 started_at=datetime.now(timezone.utc).isoformat(),
                 callback_url=job.state.callback_url,
+                metadata=job.state.metadata,
             )
 
             # Build ScenarioContext
@@ -276,6 +278,7 @@ class JobExecutionService(HostedService):
                     message=message,
                     details=details,
                     callback_url=job.state.callback_url,
+                    metadata=job.state.metadata,
                 )
 
             context = ScenarioContext(
@@ -307,6 +310,7 @@ class JobExecutionService(HostedService):
                     error=job.state.error or "Timeout",
                     duration=duration,
                     callback_url=job.state.callback_url,
+                    metadata=job.state.metadata,
                 )
                 job_logger.warning("Job timed out after %.1fs", duration)
                 return
@@ -319,6 +323,7 @@ class JobExecutionService(HostedService):
                         job_id=job_id,
                         cancelled_at=datetime.now(timezone.utc).isoformat(),
                         callback_url=job.state.callback_url,
+                        metadata=job.state.metadata,
                     )
                 else:
                     # Shutdown cancel — mark as failed
@@ -329,6 +334,7 @@ class JobExecutionService(HostedService):
                         error="Service shutting down",
                         duration=duration,
                         callback_url=job.state.callback_url,
+                        metadata=job.state.metadata,
                     )
                 return
 
@@ -343,6 +349,7 @@ class JobExecutionService(HostedService):
                     artifacts=result.artifacts,
                     duration=duration,
                     callback_url=job.state.callback_url,
+                    metadata=job.state.metadata,
                 )
                 job_logger.info("Job completed in %.1fs", duration)
             elif result.status == "failed":
@@ -353,6 +360,7 @@ class JobExecutionService(HostedService):
                     error=result.error or "Unknown error",
                     duration=duration,
                     callback_url=job.state.callback_url,
+                    metadata=job.state.metadata,
                 )
                 job_logger.warning("Job failed: %s", result.error)
             elif result.status == "cancelled":
@@ -362,6 +370,7 @@ class JobExecutionService(HostedService):
                     job_id=job_id,
                     cancelled_at=datetime.now(timezone.utc).isoformat(),
                     callback_url=job.state.callback_url,
+                    metadata=job.state.metadata,
                 )
                 job_logger.info("Job cancelled by scenario")
 
@@ -378,6 +387,7 @@ class JobExecutionService(HostedService):
                         error=str(exc),
                         duration=duration,
                         callback_url=job.state.callback_url,
+                        metadata=job.state.metadata,
                     )
             except Exception as persist_exc:
                 job_logger.error("Failed to persist error state: %s", persist_exc)

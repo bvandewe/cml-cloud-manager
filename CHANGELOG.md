@@ -10,6 +10,10 @@ The format follows the recommendations of Keep a Changelog (https://keepachangel
 
 - **lcm-core `ControlPlaneApiClient`**: new `resume_pipeline_step(...)` and `fail_pipeline_step(...)` methods enabling external step orchestrators (scenario-engine callbacks, lablet-controller watchdog) to drive CPA's pipeline state machine via internal API endpoints.
 
+### Added — CPA↔SE Integration Phase 3 (scenario-engine metadata round-trip, AD-CSI-017)
+
+- **scenario-engine `metadata` round-trip**: SE accepts an opaque `metadata: dict | None` on `SubmitJobCommand` and echoes it back on every job lifecycle CloudEvent payload as `data.metadata`. Persisted on the `Job` aggregate via `JobMetadataAttachedDomainEvent`. Lablet-controller can now populate `{lablet_session_id, step_correlation_id, step_name, pipeline_name}` so callbacks can be routed without consulting SE's job table — preserving SE's stateless event-emission contract.
+
 ### Added — Session Termination Lab Wipe (AD-WIPE-001)
 
 - **Terminate/Expire → wipe integration** (control-plane-api): `TerminateLabletSessionCommand` and `ExpireLabletSessionCommand` now unbind the linked LabRecord and dispatch `WipeLabRecordCommand` on session end. Guards skip wipe for terminal labs or those with pending actions. Wipe failure does not block session termination.

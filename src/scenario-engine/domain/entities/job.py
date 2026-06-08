@@ -62,6 +62,7 @@ class JobState(AggregateState[str]):
     created_at: datetime | None
     started_at: datetime | None
     completed_at: datetime | None
+    metadata: dict[str, Any] | None  # AD-CSI-017: opaque caller-supplied dict, round-tripped onto CloudEvents
 
     def __init__(self) -> None:
         super().__init__()
@@ -78,6 +79,7 @@ class JobState(AggregateState[str]):
         self.created_at = None
         self.started_at = None
         self.completed_at = None
+        self.metadata = None
 
     # -------------------------------------------------------------------------
     # Event Handlers
@@ -93,6 +95,7 @@ class JobState(AggregateState[str]):
         self.pod_definition_id = event.pod_definition_id
         self.status = JobStatus.SUBMITTED
         self.created_at = event.created_at
+        self.metadata = event.metadata
 
     @dispatch(JobStartedDomainEvent)
     def on(self, event: JobStartedDomainEvent) -> None:  # type: ignore[override]
@@ -143,6 +146,7 @@ class Job(AggregateRoot[JobState, str]):
         callback_url: str | None = None,
         pod_definition_id: str | None = None,
         job_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Job:
         """Create a new Job aggregate.
 
@@ -153,6 +157,8 @@ class Job(AggregateRoot[JobState, str]):
             callback_url: CloudEvents sink URL for notifications.
             pod_definition_id: Reference to the PodDefinition.
             job_id: Optional specific ID (for testing).
+            metadata: AD-CSI-017 — opaque caller-supplied dict round-tripped
+                onto every emitted CloudEvent payload as ``data.metadata``.
 
         Returns:
             New Job aggregate with JobCreatedDomainEvent recorded.
@@ -170,6 +176,7 @@ class Job(AggregateRoot[JobState, str]):
             callback_url=callback_url,
             pod_definition_id=pod_definition_id,
             created_at=now,
+            metadata=metadata,
         )
         job.state.on(job.register_event(event))
         return job

@@ -24,6 +24,7 @@ class JobCreatedDomainEvent(DomainEvent):
     callback_url: str | None
     pod_definition_id: str | None
     created_at: datetime
+    metadata: dict[str, Any] | None
 
     def __init__(
         self,
@@ -34,6 +35,7 @@ class JobCreatedDomainEvent(DomainEvent):
         callback_url: str | None = None,
         pod_definition_id: str | None = None,
         created_at: datetime | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(aggregate_id)
         self.aggregate_id = aggregate_id
@@ -43,6 +45,7 @@ class JobCreatedDomainEvent(DomainEvent):
         self.callback_url = callback_url
         self.pod_definition_id = pod_definition_id
         self.created_at = created_at or datetime.now()
+        self.metadata = metadata
 
 
 @cloudevent("scenario_engine.job.started.v1")

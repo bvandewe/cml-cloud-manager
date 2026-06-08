@@ -14,6 +14,11 @@ motor = "^3.3.0"
 uvicorn = ">=0.24.0,<1.0.0"
 pyyaml = ">=6.0.0,<7.0.0"
 jq = ">=1.6.0,<2.0.0"
+# Transitive deps from lcm-core: re-declared here because the Dockerfile strips
+# the lcm-core path dependency before `poetry install` (lcm-core is mounted at
+# runtime from /core). Keep these in sync with src/core/pyproject.toml.
+jsonschema = ">=4.20.0,<5.0.0"  # used by lcm_core.infrastructure.content_store.pav1_validator
+boto3 = "^1.40.74"              # used by lcm_core.infrastructure.content_store.s3_content_client
 lcm-core = {path = "../core", develop = true}
 
 [tool.poetry.group.dsl.dependencies]
