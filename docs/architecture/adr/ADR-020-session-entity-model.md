@@ -2,11 +2,12 @@
 
 | Attribute | Value |
 |-----------|-------|
-| **Status** | Accepted |
+| **Status** | Accepted (Partially Superseded) |
 | **Date** | 2026-02-18 |
 | **Deciders** | Architecture Team |
 | **Related ADRs** | [ADR-018](./ADR-018-lds-integration.md) (LDS Integration), [ADR-019](./ADR-019-labrecord-independent-aggregate.md) (LabRecord — partially superseded), [ADR-021](./ADR-021-child-entity-architecture.md) (Child Entities), [ADR-003](./ADR-003-cloudevents-for-integration.md) (CloudEvents) |
 | **Supersedes** | ADR-019 §LabletLabBinding (binding model only) |
+| **Partially Superseded by** | [ADR-045](./ADR-045-multi-part-session-part-model.md) (the rich session state machine is re-homed to the **SessionPart** level) |
 | **Knowledge Refs** | AD-38, AD-39, AD-42, AD-43, AD-44 |
 
 ## Context

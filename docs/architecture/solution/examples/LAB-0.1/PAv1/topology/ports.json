@@ -1,0 +1,11 @@
+{
+    "comment": "Per-device console/serial/vnc/pat ports (from RCUv1 cml.yaml smart_annotations).",
+    "ports": [
+        { "device": "rtr01", "serial": 5045 },
+        { "device": "rtr02", "serial": 5046 },
+        { "device": "sw01", "serial": 5048 },
+        { "device": "sw02", "serial": 5049 },
+        { "device": "workstation", "serial": 5050, "vnc": 5051, "pat": { "5052": 22 } },
+        { "device": "control_node", "serial": 5047 }
+    ]
+}

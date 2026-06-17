@@ -1,0 +1,42 @@
+# Orchestration only: CPA owns the phase ORDER; SE owns each job BODY (in jobs/).
+# Canonical shape (ADR-057 §2.6): phases[].{ native_steps_by_pod_type, jobs[] };
+# every job references a JobDefinition by `definition: name@version`.
+apiVersion: pav1
+kind: Lifecycle
+metadata:
+    lablet: LAB-0.1
+spec:
+    phases:
+        - name: instantiate
+          native_steps_by_pod_type:
+              cml_on_aws: [worker_lab_resolve, pod_locator, ports_alloc, lds_register]
+          jobs:
+              - definition: cml.lab_start@v1 # resolve + start the CML lab
+
+        - name: post_init
+          # Seed the candidate desktop, gate on the package, bounce switches, isolate Internet.
+          jobs:
+              - definition: post_init@v1 # -> jobs/post_init.yaml
+                process_type: Initialization
+
+        - name: ready
+          native_steps_by_pod_type:
+              cml_on_aws: [mark_ready]
+          jobs:
+              - definition: readiness_check@v1
+                process_type: Initialization
+
+        - name: grade
+          # setup (was sb_pre_collect.xml) + collect + evaluate + report, all in one job.
+          jobs:
+              - definition: grade@v1 # -> jobs/grade.yaml
+                process_type: Grading
+                rubric: rubric # -> grading/rubric.yaml   (evaluate stage)
+                report: score_report # -> reports/score_report.yaml
+
+        - name: teardown
+          native_steps_by_pod_type:
+              cml_on_aws: [archive]
+          jobs:
+              - definition: cml.wipe@v1
+                process_type: Archive

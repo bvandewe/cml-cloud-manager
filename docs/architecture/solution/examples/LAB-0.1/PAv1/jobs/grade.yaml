@@ -1,0 +1,92 @@
+# JobDefinition — grade  (the full Collect -> Evaluate -> Report flow for a Grading job)
+#
+#   setup    stage  <- RCUv1/sb_pre_collect.xml  (wipe, bounce, run candidate solutions)
+#   collect  stage  <- RCUv1/grade.xml  verify subject='commandOutput'
+#   evaluate stage  <- grading/rubric.yaml  (one evaluate.regex per check; was verify subject='parse')
+#   report   stage  <- reports/score_report.yaml
+#
+# `stage` is a soft grouping (ADR-057 §2.4); steps still run in document order.
+apiVersion: pav1
+kind: JobDefinition
+metadata:
+    name: grade
+    version: v1
+spec:
+    process_type: Grading
+    steps:
+        # ---- setup stage (was sb_pre_collect.xml) ----
+        # id=10 — wipe candidate devices (~50s)
+        - id: wipe_devices
+          uses: cml.wipe@v1
+          stage: setup
+          with: { devices: [rtr01, rtr02, sw01, sw02] } # was --device-name rtr01,rtr02,sw01,sw02 --action wipe
+          timeout: 120
+        # id=20/21 — bounce Vl99 on both switches to restore connectivity
+        - id: bounce_sw01
+          uses: cml.bounce_interface@v1
+          stage: setup
+          with: { device: sw01, interface: Vl99, serial_port: '${ runtime_env.devices.sw01.serial_port }' }
+          timeout: 30
+        - id: bounce_sw02
+          uses: cml.bounce_interface@v1
+          stage: setup
+          with: { device: sw02, interface: Vl99, serial_port: '${ runtime_env.devices.sw02.serial_port }' }
+          timeout: 30
+        # id=30 — run the candidate's python deployment over the serial console
+        # (activate/deactivate the venv so the prompt is left at its default)
+        - id: candidate_py_deploy
+          uses: exec@v1
+          stage: setup
+          target: workstation_serial
+          with:
+              script: |
+                  cd /home/cisco/Desktop/tasks/
+                  source venv/bin/activate
+                  python ./scripts/py_deploy.py -i ./scripts/py_inventory.yaml
+                  deactivate
+          timeout: 15
+          on_error: { action: continue } # legacy only logged 30.error.msg
+        # id=31 — run the candidate's ansible playbook
+        - id: candidate_ansible
+          uses: exec@v1
+          stage: setup
+          target: workstation_serial
+          with:
+              script: |
+                  cd /home/cisco/Desktop/tasks/
+                  source venv/bin/activate
+                  ./ansible/run-playbook.sh
+                  deactivate
+          timeout: 15
+          on_error: { action: continue }
+
+        # ---- collect stage (was grade.xml verify subject='commandOutput') ----
+        # Each step runs a show command on a device and captures the output into vars.*.
+        - { id: c_sw01_vlan, uses: collect@v1, stage: collect, target: sw01, with: { command: 'show vlan brief' }, capture: { output: sw01.show_vlan_brief } }
+        - { id: c_sw02_vlan, uses: collect@v1, stage: collect, target: sw02, with: { command: 'show vlan brief' }, capture: { output: sw02.show_vlan_brief } }
+        - { id: c_rtr01_acl, uses: collect@v1, stage: collect, target: rtr01, with: { command: 'show access-list' }, capture: { output: rtr01.show_access_list } }
+        - { id: c_rtr02_acl, uses: collect@v1, stage: collect, target: rtr02, with: { command: 'show access-list' }, capture: { output: rtr02.show_access_list } }
+        - { id: c_rtr01_gi, uses: collect@v1, stage: collect, target: rtr01, with: { command: 'show interface gi0/1' }, capture: { output: rtr01.show_int_gi01 } }
+        - { id: c_rtr02_gi, uses: collect@v1, stage: collect, target: rtr02, with: { command: 'show interface gi0/1' }, capture: { output: rtr02.show_int_gi01 } }
+        - { id: c_rtr01_lo, uses: collect@v1, stage: collect, target: rtr01, with: { command: 'show interface Loopback0' }, capture: { output: rtr01.show_int_loop0 } }
+        - { id: c_rtr02_lo, uses: collect@v1, stage: collect, target: rtr02, with: { command: 'show interface Loopback0' }, capture: { output: rtr02.show_int_loop0 } }
+        - { id: c_rtr01_ospf, uses: collect@v1, stage: collect, target: rtr01, with: { command: 'show ip ospf neighbor' }, capture: { output: rtr01.show_ip_ospf_nei } }
+        - { id: c_rtr01_ntp, uses: collect@v1, stage: collect, target: rtr01, with: { command: 'show ntp associations' }, capture: { output: rtr01.show_ntp_assoc } }
+        - { id: c_rtr02_ntp, uses: collect@v1, stage: collect, target: rtr02, with: { command: 'show ntp associations' }, capture: { output: rtr02.show_ntp_assoc } }
+
+        # ---- evaluate + report stage ----
+        # The evaluate step expands grading/rubric.yaml into one evaluate.regex@v1 call per
+        # check (same primitive, same source/regex/mode fields) against the vars.* captured
+        # above; report.score then assembles the ScoreReport.
+        - id: evaluate
+          uses: evaluate.regex@v1
+          stage: evaluate
+          with: { ruleset: rubric } # -> grading/rubric.yaml
+          capture: { items: graded_items }
+        - id: report
+          uses: report.score@v1
+          stage: report
+          with:
+              items: '${ vars.graded_items }'
+              report_class: ScoreReport # legacy reportClass='Reports::LabletReport'
+          capture: { report_ref: report_ref }

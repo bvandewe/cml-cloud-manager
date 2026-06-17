@@ -397,6 +397,18 @@ if worker.pod_type != definition.pod_definition_ref.pod_type:
 
 ### 2.8 DSL Overview (Proprietary, ServerlessWorkflow-Inspired)
 
+> **⚠️ Superseded by [ADR-057](./ADR-057-content-driven-lifecycle-dsl.md) / [ADR-058](./ADR-058-lifecycle-data-flow-and-variable-scopes.md).**
+> The ServerlessWorkflow-inspired task-type list and `$context` data-flow model
+> described below are **no longer canonical**. The job-body DSL is now a **flat,
+> ordered step DAG** of a **closed `scenarioFunction` primitive set**
+> (`uses`/`with`/`capture`/`when`/`on_error`/`stage`), with data flowing through the
+> four named scopes of ADR-058 (`session.*` / `content.*` / `runtime_env.*` / `vars.*`)
+> rather than a single mutable `$context`. The `do` / `for` / `fork` / `switch` / `try` /
+> `raise` / `emit` / `run` / `wait` task types are **dropped** (iteration is the deferred
+> `for_each`, ADR-057 §2.8). See [DSL-SPECIFICATION.md](../dsl/DSL-SPECIFICATION.md) for
+> the current grammar. The content below is retained as a historical record of the
+> original design only.
+
 The SE executes a proprietary DSL that borrows syntax and concepts from the
 [ServerlessWorkflow specification](https://github.com/serverlessworkflow/specification/blob/main/dsl.md).
 

@@ -1,0 +1,9 @@
+{
+    "default_instance_type": "m5zn.metal",
+    "device_type": "cml",
+    "ami_name": "cisco-cml2.9.1-20nodes-v0.2.2c",
+    "disk_type": "io1",
+    "disk_size": 256,
+    "public_ip": 1,
+    "lab_type": "lablet"
+}

@@ -1,9 +1,12 @@
 # ADR-017: Lab Operations via Lablet-Controller
 
-- **Status**: Accepted
-- **Date**: 2026-02-07
-- **Deciders**: Platform Team
-- **Related**: ADR-015 (Control Plane API Must Not Make External Calls), ADR-016 (License Operations via Worker-Controller)
+| Attribute | Value |
+|-----------|-------|
+| **Status** | Accepted (Partially Superseded) |
+| **Date** | 2026-02-07 |
+| **Deciders** | Platform Team |
+| **Related ADRs** | [ADR-015](./ADR-015-control-plane-api-no-ec2.md) (CPA No External Calls), [ADR-016](./ADR-016-license-operations-via-worker-controller.md) (License Operations) |
+| **Partially Superseded by** | [ADR-054](./ADR-054-controller-topology-resource-kind.md) (service topology — `lablet-controller` splits into `session-controller` / `pod-controller` / `content-controller`; the reconcile-through-controller _principle_ stands) |
 
 ## Context
 

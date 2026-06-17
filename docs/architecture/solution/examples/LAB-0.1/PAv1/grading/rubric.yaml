@@ -1,0 +1,76 @@
+# Evaluate spec. Each item runs regex checks against captured output and awards points.
+# Direct translation of RCUv1/grade.xml section 1 "Content" (10 points).
+apiVersion: pav1
+kind: EvaluationRuleset
+metadata:
+    name: rubric
+spec:
+    domain: '1.0 Network Automation'
+    max_points: 10
+    items:
+        - id: 1
+          points: 1
+          description: 'sw01 must have VLAN 80'
+          checks:
+              - source: sw01.show_vlan_brief
+                regex: '^80\s+LAB80'
+        - id: 2
+          points: 1
+          description: 'sw02 must have VLAN 80'
+          checks:
+              - source: sw02.show_vlan_brief
+                regex: '^80\s+LAB80'
+        - id: 3
+          points: 1
+          description: 'rtr01 must have an access-list MGMTOPS configured'
+          checks:
+              - source: rtr01.show_access_list
+                regex: 'MGMTOPS'
+                on_fail: 'MGMTOPS ACL not found'
+        - id: 4
+          points: 1
+          description: 'rtr02 must have an access-list MGMTOPS configured'
+          checks:
+              - source: rtr02.show_access_list
+                regex: 'MGMTOPS'
+                on_fail: 'MGMTOPS ACL not found'
+        - id: 5
+          points: 1
+          description: 'Interface descriptions present (rtr01<->rtr02)'
+          checks:
+              - source: rtr01.show_int_gi01
+                regex: 'Description: to-rtr02'
+              - source: rtr02.show_int_gi01
+                regex: 'Description: to-rtr01'
+        - id: 6
+          points: 1
+          description: 'rtr01 Loopback0 ip address'
+          checks:
+              - source: rtr01.show_int_loop0
+                regex: 'Loopback0 is up, line protocol is up'
+              - source: rtr01.show_int_loop0
+                regex: 'Internet address is 10\.255\.81\.1/32'
+        - id: 7
+          points: 1
+          description: 'rtr02 Loopback0 ip address'
+          checks:
+              - source: rtr02.show_int_loop0
+                regex: 'Loopback0 is up, line protocol is up'
+              - source: rtr02.show_int_loop0
+                regex: 'Internet address is 10\.255\.81\.2/32'
+        - id: 8
+          points: 2
+          description: 'rtr01 has one OSPF neighbor in FULL state'
+          checks:
+              - source: rtr01.show_ip_ospf_nei
+                regex: 'FULL.*GigabitEthernet0/1'
+                flags: [multiline, ignorecase]
+                on_fail: 'OSPF neighbor in state FULL not found'
+        - id: 9
+          points: 1
+          description: 'rtr01 and rtr02 must have NTP server 192.168.10.254'
+          checks:
+              - source: rtr01.show_ntp_assoc
+                regex: '192\.168\.10\.254'
+              - source: rtr02.show_ntp_assoc
+                regex: '192\.168\.10\.254'

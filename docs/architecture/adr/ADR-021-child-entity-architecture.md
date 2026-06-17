@@ -2,10 +2,11 @@
 
 | Attribute | Value |
 |-----------|-------|
-| **Status** | Accepted |
+| **Status** | Accepted (Partially Superseded) |
 | **Date** | 2026-02-18 |
 | **Deciders** | Architecture Team |
 | **Related ADRs** | [ADR-020](./ADR-020-session-entity-model.md) (Session Entity Model), [ADR-018](./ADR-018-lds-integration.md) (LDS Integration), [ADR-022](./ADR-022-cloudevent-ingestion-lablet-controller.md) (CloudEvent Ingestion) |
+| **Partially Superseded by** | [ADR-045](./ADR-045-multi-part-session-part-model.md) (child entities generalise into first-class `SessionPart` `TimedResource`s) |
 | **Knowledge Refs** | AD-40, AD-45, AD-46, AD-47-R1 |
 
 ## Context

@@ -1,1083 +1,556 @@
-# LCM Pod Automation DSL — Specification v1.0.0
+# LCM Pod Automation DSL — Specification v2.0.0
 
 | Attribute | Value |
 |-----------|-------|
-| **Version** | 1.0.0-draft |
-| **Date** | 2026-06-05 |
+| **Version** | 2.0.0-draft |
+| **Date** | 2026-06-16 |
 | **Status** | Draft |
 | **Expression Language** | jq (strict mode) |
-| **Reference** | [ServerlessWorkflow DSL](https://github.com/serverlessworkflow/specification/blob/main/dsl.md) |
-| **Related** | [ADR-044](../adr/ADR-044-content-driven-lifecycle-engine.md) |
+| **Authority** | [ADR-057 — Content-Driven Lifecycle DSL](../adr/ADR-057-content-driven-lifecycle-dsl.md), [ADR-058 — Data-Flow & Variable Scopes](../adr/ADR-058-lifecycle-data-flow-and-variable-scopes.md) |
+| **Related** | [ADR-044](../adr/ADR-044-content-driven-lifecycle-engine.md), [ADR-049](../adr/ADR-049-unified-workflow-dsl.md), [content-format/PAv1.md](../content-format/PAv1.md) |
+| **Supersedes** | the ServerlessWorkflow `do`/`call` task model of this spec's v1 (and of ADR-044 §2.8) |
 
 ---
 
 ## 1. Abstract
 
-This document defines the **LCM Pod Automation DSL** — a proprietary domain-specific
-language for defining pod lifecycle automation within the ScenarioEngine. The DSL is
-inspired by the ServerlessWorkflow specification but tailored for lab pod orchestration,
-infrastructure adapter dispatch, and content-driven grading.
+This document defines the **LCM Pod Automation DSL** — the declarative language content authors
+(and LLMs) use to define pod lifecycle automation for the ScenarioEngine (SE).
 
-The DSL is used in `PAv1/lifecycle.yaml` files within content packages to declare
-what tasks execute during each session lifecycle phase.
+The DSL has **two layers** (ADR-057 §2.1):
+
+- **Code layer (trusted).** A closed, versioned set of **`scenarioFunction`** primitives, defined
+  as `@scenario(name, version)` classes in `scenario-engine/scenarios/`. Authors never write these.
+- **Content layer (sandboxed).** **`JobDefinition`** artifacts (`PAv1/jobs/<name>.yaml`) — each a
+  **flat, ordered DAG of steps** that _composes_ scenarioFunctions. Authors write **only declarative
+  wiring**; they never add a primitive, never write imperative code.
+
+A job body is therefore **a list of `scenarioFunction` calls**, not a free task language and not a
+fixed template. This v2 spec **replaces** the earlier ServerlessWorkflow-inspired model
+(`document` / `phases.<name>.do[]` / `call` / `set` / `fork` / `switch` / `try`) with the single
+ADR-057 step shape.
 
 ---
 
 ## 2. Design Principles
 
-1. **Imperative verbs** — Task types use action verbs: `call`, `do`, `set`, `raise`
-2. **Implicit defaults** — Omitted properties use sensible defaults (no verbose boilerplate)
-3. **Inline + reusable** — Tasks can be defined inline or reference named scenarios
-4. **jq expressions** — All dynamic values use jq with `${ }` delimiters (strict mode)
-5. **Data flow pipeline** — Each task has typed input/output/context transformations
-6. **Content-portable** — Definitions reference scenarios by name@version, not implementation
+1. **Closed vocabulary** — steps `uses:` a primitive from a fixed, orthogonal set (§6). Small enough
+   for an LLM to hold in context; adding a verb is a code PR + version bump, never a content change.
+2. **Flat ordered DAG** — a `JobDefinition` is a flat `steps[]` list executed in document order.
+   No nesting, no `goto`, no inline sub-workflows. Gating is per-step via `when:`.
+3. **Scoped data-flow** — every value lives in one of four namespaced scopes (ADR-058): `session.*`,
+   `content.*`, `runtime_env.*` (read-only) and `vars.*` (read/write). No secret or port is ever
+   literal in content.
+4. **Hard sandbox** — authored content is _pure wiring_ over trusted code. Only the code layer
+   executes logic.
+5. **jq expressions** — all dynamic values use jq in `${ }` (strict mode).
+6. **Content-portable** — steps reference primitives by `name@version` and facts by scope, never by
+   implementation or baked-in literal.
+7. **Sync-time validatable** — every artifact is JSON-Schema-validated at content sync (§12); an
+   invalid package fails the sync. This is the precondition for reliable LLM generation.
 
 ---
 
-## 3. Document Structure
+## 3. Artifacts & Envelopes
 
-Every DSL document begins with a `document` header:
+The DSL spans two content artifacts. Both use the standard PAv1 envelope
+(`apiVersion` / `kind` / `metadata` / `spec`).
+
+### 3.1 `JobDefinition` — the step DAG (`PAv1/jobs/<name>.yaml`)
 
 ```yaml
-document:
-  dsl: "1.0.0"              # DSL version (semver)
-  namespace: lcm             # Logical namespace
-  name: my-lab-lifecycle     # Unique name within namespace
-  version: "1.0.0"          # Document version (semver)
+apiVersion: pav1
+kind: JobDefinition
+metadata:
+  name: post_init
+  version: v1
+spec:
+  process_type: Initialization   # intent → selects the terminal report.* primitive (§9)
+  steps:
+    - id: settle
+      uses: pause@v1
+      with: { seconds: 30 }
+    # ... more steps ...
 ```
+
+### 3.2 `Lifecycle` — phase orchestration (`PAv1/lifecycle.yaml`)
+
+Orchestration only: CPA owns the phase **order**; SE owns each job **body** (in `jobs/`). Every job
+references a `JobDefinition` by `definition: <name>@<version>`. The step DAG never lives inline.
+
+```yaml
+apiVersion: pav1
+kind: Lifecycle
+metadata:
+  lablet: LAB-0.1
+spec:
+  phases:
+    - name: instantiate
+      native_steps_by_pod_type:
+        cml_on_aws: [worker_lab_resolve, pod_locator, ports_alloc, lds_register]
+      jobs:
+        - definition: cml.lab_start@v1
+
+    - name: post_init
+      jobs:
+        - definition: post_init@v1        # -> jobs/post_init.yaml
+          process_type: Initialization
+
+    - name: grade
+      jobs:
+        - definition: grade@v1            # -> jobs/grade.yaml
+          process_type: Grading
+          rubric: rubric                  # -> grading/rubric.yaml  (evaluate stage)
+          report: score_report            # -> reports/score_report.yaml
+```
+
+`phases[].native_steps_by_pod_type` are LCM-native steps (the CPA seam); `phases[].jobs[]` are SE
+JobDefinitions. See [PAv1.md](../content-format/PAv1.md) for the full archive layout.
 
 ---
 
-## 4. Expression Language: jq
+## 4. Expression Language & Scopes
 
-### 4.1 Syntax
+### 4.1 jq in `${ }` (strict mode)
 
-All runtime expressions use [jq](https://jqlang.github.io/jq/) enclosed in `${ }`:
-
-```yaml
-# Simple property access
-value: ${ .lab_id }
-
-# Conditional
-if: ${ .port_template != null }
-
-# Transformation
-output:
-  as: ${ { lab_id: .lab_id, title: .title } }
-
-# Array operations
-in: ${ .devices | map(select(.type == "router")) }
-
-# String interpolation (jq string interpolation)
-message: ${ "Lab \(.lab_id) started with \(.nodes | length) nodes" }
-```
-
-### 4.2 Runtime Arguments
-
-The following arguments are available in jq expressions depending on context:
-
-| Argument | Type | Available In | Description |
-|----------|------|-------------|-------------|
-| `$context` | object | All expressions | Accumulated workflow context (mutable via `export.as`) |
-| `$input` | any | Task definition, `output.as` | Current task's transformed input |
-| `$output` | any | `output.as`, `export.as` | Current task's raw output |
-| `$secrets` | object | `input.from` only | Secret store (restricted access) |
-| `$task` | object | Task definition | Current task descriptor (name, reference) |
-| `$workflow` | object | All expressions | Workflow descriptor (definition, startedAt) |
-| `$item` | any | Inside `for` loops | Current iteration item |
-| `$index` | integer | Inside `for` loops | Current iteration index (0-based) |
-
-### 4.3 Evaluation Modes
-
-| Mode | Delimiter | Behavior |
-|------|-----------|----------|
-| **Strict** (default) | `${ expr }` | Only `${ }` delimited strings are evaluated as jq |
-| **Loose** | Any string | All string values are attempted as jq expressions |
-
-The DSL uses **strict mode** exclusively. Bare strings are literal values.
-
-### 4.4 Error Handling
-
-When a jq expression evaluation fails, the runtime raises:
+All runtime expressions use [jq](https://jqlang.github.io/jq/) enclosed in `${ }`. In **strict
+mode** (the only mode), bare strings are literal values — only `${ }`-delimited strings are
+evaluated.
 
 ```yaml
-type: https://lcm.cisco.com/dsl/1.0.0/errors/expression
-status: 400
-detail: "jq evaluation failed: .nonexistent_field"
-instance: /phases/instantiate/do/2/resolveTopology
+with:
+  command: "show ip interface brief"            # literal
+  serial_port: "${ runtime_env.devices.rtr01.serial_port }"   # jq over a scope
+when: "${ vars.file_ok }"                        # jq boolean gate
 ```
+
+### 4.2 The four scopes (ADR-058 §2.1)
+
+Expressions evaluate against a single merged object whose top-level keys are the scope names:
+`{ session, content, runtime_env, vars }`.
+
+| Scope | Writable by content? | Source | Holds |
+|---|---|---|---|
+| `session.*` | No (read-only) | `mosaic_meta.json` + `Session` | candidate / exam / timeslot metadata |
+| `content.*` | No (read-only) | the synced PAv1 package | lab-root path, packaged file handles, form FQN |
+| `runtime_env.*` | No (read-only) | `PodInstance` + `Host` + secret store | device ports, prompts, credentials, `cml_password`, worker IP |
+| `vars.*` | **Yes** | `step.capture` | task-captured intermediate values |
+
+`session.*`, `content.*`, and `runtime_env.*` are **resolved at job submission and frozen** — the
+trusted, validated inputs content reads but cannot forge. Only `vars.*` is writable, and only via
+`capture:`. See [ADR-058 §2.2](../adr/ADR-058-lifecycle-data-flow-and-variable-scopes.md) for the
+full declared namespace the validator checks expressions against.
+
+> **No `$context` blob.** Unlike the v1 model, there is no single mutable workflow context threaded
+> through `output`/`export`. State is the **scoped `vars.*`**, written by `capture:` and namespaced
+> by step id.
 
 ---
 
-## 5. Task Types
+## 5. The Step Shape
 
-### 5.1 `call` — Invoke a Registered Scenario
-
-Calls a named scenario from the SE registry. This is the primary task type for
-pod automation operations.
+A `JobDefinition.spec.steps[]` entry is the **single, canonical step shape** (ADR-057 §2.4):
 
 ```yaml
-- resolveTopology:
-    call: lab_resolve@v1
-    with:
-      definition_id: ${ $context.definition_id }
-      worker_ip: ${ $context.worker.ip }
-    input:
-      from: ${ { definition_id: $context.definition_id } }
-    output:
-      as: ${ { lab_id: .lab_id, title: .title, nodes: .nodes } }
-    timeout:
-      seconds: 120
-    retry:
-      when: ${ .error.status == 503 }
-      limit:
-        attempt:
-          count: 3
-      delay:
-        seconds: 10
-      backoff:
-        exponential: {}
+- id: <unique-in-job>             # required — stable id; also the capture namespace
+  uses: <scenarioFunction>@<ver>  # required — must exist in the SE registry (or a composite, §11)
+  target: <connector-name>        # optional — omitted for pause/report/cml.* (implicit)
+  with: { <input>: <value|expr> } # inputs; values may be ${ jq } over the scopes
+  capture: { <var>: <output-ref> }# write named outputs into vars.* (§7)
+  when: "${ <jq-bool-expr> }"     # optional gating; step is skipped if false
+  on_error: { action: fail|continue|retry, retries?: <n>, backoff?: <s> }
+  timeout: <seconds>              # optional per-step timeout
+  stage: setup|collect|evaluate|report   # optional grouping (default: setup)
 ```
 
-**Properties:**
+| Field | Required | Description |
+|---|---|---|
+| `id` | ✅ | Unique within the job. Stable identity and the `vars.<id>.*` capture namespace. |
+| `uses` | ✅ | `scenarioFunction@version` (§6) or `composite:<name>@<ver>` (§11). |
+| `target` | ❌ | Named connector (§8). Omitted for `pause`/`report.*`/`cml.*` (implicit). |
+| `with` | ❌ | Inputs to the primitive. Values may be literals or `${ jq }`. |
+| `capture` | ❌ | Maps primitive outputs into `vars.*` (§7). |
+| `when` | ❌ | jq boolean. The step is skipped when it evaluates falsey. |
+| `on_error` | ❌ | Failure policy (§10). |
+| `timeout` | ❌ | Per-step timeout in seconds. |
+| `stage` | ❌ | **Soft grouping** for report assembly (`setup`/`collect`/`evaluate`/`report`), not a control structure. Default `setup`. |
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `call` | string | ✅ | Scenario reference: `{name}@{version}` |
-| `with` | object | ❌ | Arguments passed directly to scenario function |
-| `if` | expression | ❌ | Condition — skip task if evaluates to false/null |
-| `input` | object | ❌ | Input transformation (`.from`, `.schema`) |
-| `output` | object | ❌ | Output transformation (`.as`, `.schema`) |
-| `export` | object | ❌ | Context update (`.as`, `.schema`) |
-| `timeout` | object | ❌ | Max execution time |
-| `retry` | object | ❌ | Retry policy |
-| `then` | string | ❌ | Flow directive: `continue` (default), `end`, or task name |
+**Execution model.** SE executes steps **in document order**, honouring `when` and `on_error`. A
+step may read any `vars.*` captured by an **earlier** step (sequential data-flow). There is no
+nesting, no parallelism (deferred), and no flow jumps — the DAG is linear.
 
-### 5.2 `do` — Sequential Sub-Tasks
-
-Executes a list of tasks in sequence. Output of each task flows as input to the next.
-
-```yaml
-- setupPhase:
-    do:
-      - step1:
-          call: lab_resolve@v1
-          with:
-            definition_id: ${ $context.definition_id }
-      - step2:
-          call: lab_start@v1
-          with:
-            lab_id: ${ $context.lab_id }
-      - step3:
-          set:
-            setup_complete: true
-```
-
-**Properties:**
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `do` | list[task] | ✅ | Ordered list of sub-tasks |
-| `if` | expression | ❌ | Condition to skip entire block |
-| `input` | object | ❌ | Input transformation for the block |
-| `output` | object | ❌ | Output transformation (result = last task's output) |
-
-### 5.3 `for` — Iterate Over Collection
-
-Iterates over a collection, executing a task block for each item. Supports
-conditional filtering and context accumulation.
-
-```yaml
-- gradeAllItems:
-    for:
-      each: item
-      in: ${ $context.grading_rules }
-      while: ${ $item.enabled != false }
-    do:
-      - gradeItem:
-          call: grade_item@v1
-          with:
-            item_id: ${ $item.id }
-            device: ${ $item.target_device }
-            command: ${ $item.command }
-            expected: ${ $item.expected }
-          output:
-            as: ${ { score: .score, max: .max, feedback: .feedback } }
-          export:
-            as: ${ $context | .scores[$item.id] = $output }
-```
-
-**Properties:**
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `for.each` | string | ✅ | Variable name bound to current item (`$item`) |
-| `for.in` | expression | ✅ | Collection to iterate over |
-| `for.while` | expression | ❌ | Continue condition (checked before each iteration) |
-| `do` | list[task] | ✅ | Tasks to execute per item |
-| `output` | object | ❌ | Aggregated output transformation |
-
-**Iteration context:** Inside the `for` body, `$item` and `$index` are available
-in addition to standard runtime arguments.
-
-### 5.4 `fork` — Parallel Execution
-
-Executes multiple branches in parallel. All branches must complete (or one must
-fault, depending on `compete` mode).
-
-```yaml
-- parallelSetup:
-    fork:
-      branches:
-        - resolveTopology:
-            call: lab_resolve@v1
-            with:
-              definition_id: ${ $context.definition_id }
-        - allocatePorts:
-            call: ports_alloc@v1
-            with:
-              template: ${ $context.port_template }
-      compete: false   # Wait for ALL branches (default)
-```
-
-**Properties:**
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `fork.branches` | list[task] | ✅ | Tasks to execute in parallel |
-| `fork.compete` | boolean | ❌ | If true, first completion cancels others (default: false) |
-| `output` | object | ❌ | Transformation on merged branch outputs |
-
-**Output merging:** Branch outputs are merged into a single object keyed by task name:
-
-```json
-{ "resolveTopology": { "lab_id": "..." }, "allocatePorts": { "ports": [...] } }
-```
-
-### 5.5 `set` — Set Context Variables
-
-Updates the workflow context with new values. This is the simplest way to
-manipulate state between tasks.
-
-```yaml
-- initContext:
-    set:
-      lab_id: ${ $input.lab_id }
-      phase: instantiate
-      started_at: ${ now | todate }
-      items_to_grade: ${ $context.grading_rules | length }
-```
-
-**Properties:**
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `set` | object | ✅ | Key-value pairs to merge into `$context` |
-
-Values can be literals or jq expressions. The resulting object is **merged** into
-the current context (not replaced).
-
-### 5.6 `switch` — Conditional Branching
-
-Selects one execution path from multiple alternatives based on conditions.
-
-```yaml
-- checkLabState:
-    switch:
-      - case: labExists
-        when: ${ $context.existing_lab != null }
-        then: startExistingLab
-
-      - case: noLab
-        when: ${ $context.existing_lab == null }
-        then: importAndStart
-
-      - default:
-        then: raise_unknown_state
-```
-
-**Properties:**
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `switch` | list[case] | ✅ | Ordered list of case conditions |
-| `switch[].case` | string | ❌ | Case label (for readability) |
-| `switch[].when` | expression | ❌ | Condition (omit for `default`) |
-| `switch[].then` | string | ✅ | Flow directive: task name, `continue`, or `end` |
-
-Cases are evaluated **in order**. First matching case wins. A case without `when`
-is the default (must be last).
-
-### 5.7 `try` — Error Handling and Retry
-
-Attempts a task and handles errors gracefully.
-
-```yaml
-- robustLabStart:
-    try:
-      call: lab_start@v1
-      with:
-        lab_id: ${ $context.lab_id }
-    catch:
-      errors:
-        with:
-          status: 503
-      retry:
-        delay:
-          seconds: 10
-        backoff:
-          exponential: {}
-        limit:
-          attempt:
-            count: 3
-      do:
-        - logFailure:
-            emit:
-              event:
-                type: io.lcm.se.task.retry-exhausted
-                data: ${ { lab_id: $context.lab_id, error: $error } }
-        - fallback:
-            set:
-              lab_start_failed: true
-```
-
-**Properties:**
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `try` | task | ✅ | The task to attempt |
-| `catch.errors.with` | object | ❌ | Error filter (match by status, type) |
-| `catch.retry` | object | ❌ | Retry policy (delay, backoff, limit) |
-| `catch.do` | list[task] | ❌ | Fallback tasks if retries exhausted |
-
-**Error object (`$error`):** Available in `catch` scope:
-
-```json
-{
-  "type": "https://lcm.cisco.com/dsl/1.0.0/errors/communication",
-  "status": 503,
-  "title": "Service Unavailable",
-  "detail": "CML API returned 503",
-  "instance": "/phases/instantiate/do/3/robustLabStart"
-}
-```
-
-### 5.8 `raise` — Signal Failure
-
-Explicitly raises an error, causing the current task (and potentially the workflow)
-to fault.
-
-```yaml
-- validatePrereqs:
-    switch:
-      - case: missing_topology
-        when: ${ $context.topology == null }
-        then: failMissingTopology
-      - default:
-        then: continue
-
-- failMissingTopology:
-    raise:
-      error:
-        type: https://lcm.cisco.com/dsl/1.0.0/errors/validation
-        status: 422
-        title: Missing Topology
-        detail: ${ "No topology found for definition \($context.definition_id)" }
-```
-
-### 5.9 `wait` — Pause Execution
-
-Pauses execution for a specified duration.
-
-```yaml
-- waitForConvergence:
-    wait:
-      seconds: 30
-```
-
-**Properties:**
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `wait.seconds` | integer | ❌* | Wait duration in seconds |
-| `wait.minutes` | integer | ❌* | Wait duration in minutes |
-| `wait.hours` | integer | ❌* | Wait duration in hours |
-
-*At least one duration property required.
-
-### 5.10 `emit` — Publish CloudEvent
-
-Emits a CloudEvent to the configured event sink.
-
-```yaml
-- notifyPhaseComplete:
-    emit:
-      event:
-        type: io.lcm.se.phase.completed
-        source: /scenario-engine/jobs/${ $workflow.id }
-        subject: ${ $context.session_id }
-        data:
-          phase: ${ $context.phase }
-          duration: ${ now - $workflow.startedAt.epoch.seconds }
-          results: ${ $context }
-```
-
-### 5.11 `run` — Execute Shell/Script
-
-Executes a command on a target node via the infrastructure adapter. Used for
-CML node operations (show commands, file transfers, configuration).
-
-```yaml
-- captureRoutes:
-    run:
-      adapter: ${ $context.worker.adapter }
-      target:
-        lab_id: ${ $context.lab_id }
-        node: ${ $item.target_device }
-      command: ${ $item.collect_command }
-    output:
-      as: ${ { raw_output: .stdout, exit_code: .exit_code } }
-    timeout:
-      seconds: 60
-```
-
-**Properties:**
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `run.adapter` | string/expression | ❌ | Adapter override (defaults to job's adapter) |
-| `run.target.lab_id` | string/expression | ✅ | Target lab |
-| `run.target.node` | string/expression | ✅ | Target node within lab |
-| `run.command` | string/expression | ✅ | Command to execute |
-| `run.timeout` | object | ❌ | Command-level timeout |
-
-### 5.12 `listen` — Wait for External Event (Future)
-
-Waits for an external CloudEvent before proceeding. Planned for future convergence
-callback patterns.
-
-```yaml
-- waitForConvergence:
-    listen:
-      to:
-        one:
-          with:
-            type: io.lcm.worker.lab.converged
-            subject: ${ $context.lab_id }
-      timeout:
-        minutes: 5
-```
+`stage` documents the Collect → Evaluate → Report intent and labels steps for report assembly; it is
+enforced _softly_ by the schema (a `Grading` job SHOULD order `collect` → `evaluate.*` →
+`report.score`), never as a rigid template.
 
 ---
 
-## 6. Data Flow
+## 6. The Closed `scenarioFunction` Catalog
 
-### 6.1 Pipeline
+The vocabulary is **closed and orthogonal** (ADR-057 §2.2). Each primitive declares an
+`input_schema` / `output_schema`, published to `scenario-functions.catalog.json` from the SE
+registry (§12). A step's `with:` is validated against `input_schema`, its `capture:` keys against
+`output_schema`.
 
-Each task processes data through a transformation pipeline:
+| `uses:` | Stage | Purpose | Key `with:` inputs | `capture:` outputs | Legacy origin |
+|---|---|---|---|---|---|
+| `pause@v1` | setup | Wait/settle | `seconds` | — | `tPause` |
+| `exec@v1` | setup | Run command/script on a connector, capture output, gate | `command` \| `script`, `suppress_error?` | `stdout`, `ok`, `error` | `tExecute`, `tExecuteBatch` |
+| `copy@v1` | setup | Push a content file to the POD host | `source` (content ref), `dest`, `via_port?` | `ok` | `tScp` |
+| `cml.bounce_interface@v1` | setup | Bounce an interface via the control node | `device`, `interface`, `serial_port` | `ok` | `bounce_interface` |
+| `cml.wipe@v1` | setup | Wipe devices via the control node | `devices[]` | `ok` | `cmlctl --action wipe` |
+| `cml.power@v1` | setup | Start/stop a node or ext-conn | `node`, `action` (`start`\|`stop`) | `ok` | `cmlctl --action stop` |
+| `cml.lab_resolve@v1` | setup | Resolve/import the lab topology | `definition_id` | `lab_id`, `title`, `nodes` | (native) |
+| `cml.lab_start@v1` | setup | Start the lab and poll to convergence | `lab_id` | `lab_state`, `poll_count` | (native) |
+| `cml.lab_stop@v1` | setup | Stop the lab | `lab_id` | `ok` | (native) |
+| `collect@v1` | collect | Run a `show` command on a device, capture output | `command`, `match?` | `output` | `verify subject='commandOutput'` |
+| `evaluate.regex@v1` | evaluate | Regex-check a captured var → pass/fail + issue | `source`, `regex`, `mode` (`positive`\|`negative`), `flags[]?`, `issue?` | `passed`, `issue?` | `verify subject='parse'`, `tVerify` |
+| `report.score@v1` | report | Assemble a ScoreReport from graded items | `items[]`, `report_class?` | `report_ref` | `reportClass='LabletReport'` |
+| `report.readiness@v1` | report | Assemble a ReadinessReport | `checks[]` | `report_ref` | (Initialization) |
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Task Data Flow                                                          │
-│                                                                         │
-│  Raw Input ──→ input.schema ──→ input.from ──→ [Task Execution]         │
-│                (validate)        (transform)                            │
-│                                                                         │
-│  [Task Execution] ──→ output.as ──→ output.schema ──→ export.as         │
-│                       (transform)    (validate)       (update $context)  │
-│                                                                         │
-│  Transformed output ──→ Next Task (as raw input)                        │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+Notes:
 
-### 6.2 Input Transformation
-
-```yaml
-input:
-  schema:                    # JSON Schema to validate raw input
-    type: object
-    required: [lab_id]
-  from: ${ { lab_id: .lab_id, title: .title } }  # Transform raw → task input
-```
-
-- `input.schema` — Optional JSON Schema validation (fails with `ValidationError`)
-- `input.from` — jq expression evaluated on raw input; result becomes `$input`
-- Default: identity (raw input passed through unchanged)
-
-### 6.3 Output Transformation
-
-```yaml
-output:
-  as: ${ { lab_id: .id, converged: .state == "STARTED" } }
-  schema:                    # JSON Schema to validate transformed output
-    type: object
-    required: [lab_id, converged]
-```
-
-- `output.as` — jq expression evaluated on raw task output; result becomes transformed output
-- `output.schema` — Optional validation of transformed output
-- Default: identity (raw output passed through unchanged)
-
-### 6.4 Context Export
-
-```yaml
-export:
-  as: ${ $context | .lab_id = $output.lab_id | .converged = $output.converged }
-  schema:
-    type: object
-    required: [lab_id]
-```
-
-- `export.as` — jq expression that produces new `$context` value
-- Evaluated with access to `$context`, `$output`, `$input`
-- Default: existing context unchanged
-- The `|` pipe operator enables functional context updates without mutation
-
-### 6.5 Workflow-Level Input/Output
-
-```yaml
-document:
-  dsl: "1.0.0"
-  name: my-workflow
-
-input:
-  from: ${ { definition_id: .definition_id, worker: .worker } }
-  schema:
-    type: object
-    required: [definition_id, worker]
-
-output:
-  as: ${ { results: $context, duration: now - $workflow.startedAt.epoch.seconds } }
-  schema:
-    type: object
-
-phases:
-  instantiate:
-    do: [...]
-```
+- **`evaluate.regex@v1` is the single check primitive**, serving two roles: a **gate** in a `setup`
+  stage (its captured `passed` flag drives a later `when:`) and a **graded check** in an `evaluate`
+  stage (it feeds `report.score`). This absorbs the legacy `tVerify … set='file.OK'` → `if='file.OK'`
+  pattern.
+- **Control-node operations are first-class `cml.*` primitives**, not raw shell on a magic device.
+  SE owns the mechanics and the `cml_password` (resolved from `runtime_env.*`).
+- **Candidate-solution execution** (`py_deploy.py`, `run-playbook.sh`) is just `exec@v1` with a
+  `script` on a serial connector — no special primitive.
 
 ---
 
-## 7. Flow Directives
+## 7. Data Flow & Capture
 
-Tasks can control execution flow via the `then` property:
+There is **no mutable context blob**. State flows through the scoped `vars.*` namespace:
 
-| Directive | Behavior |
-|-----------|----------|
-| `continue` | Execute next task in declaration order (default) |
-| `end` | Gracefully end the workflow/phase |
-| `{taskName}` | Jump to named task (within same scope only) |
+- **Capture.** `capture: { <name>: <output-key> }` writes the named scenarioFunction output into
+  `vars.<step_id>.<name>` (namespaced by step id to prevent collisions), and also as a flat
+  `vars.<name>` alias when unambiguous.
 
-```yaml
-- checkStatus:
-    switch:
-      - case: alreadyRunning
-        when: ${ $context.lab_state == "STARTED" }
-        then: skipToReady           # Jump to named task
-      - default:
-        then: continue              # Normal sequential flow
+  ```yaml
+  - id: list_tmp
+    uses: exec@v1
+    target: workstation_22
+    with: { command: "ls -la /home/cisco/Desktop/tmp/" }
+    capture: { stdout: files, ok: cmd1_ok }   # -> vars.list_tmp.files / vars.files, vars.list_tmp.ok / vars.cmd1_ok
+  ```
 
-- startLab:
-    call: lab_start@v1
-    with:
-      lab_id: ${ $context.lab_id }
+- **Read.** Any later step's `with`, `when`, or connector field may reference an earlier capture:
+  `"${ vars.files }"`.
 
-- skipToReady:
-    set:
-      converged: true
-```
+- **Gate.** `when: "${ vars.file_ok }"` skips the step when false — the direct replacement for the
+  legacy `if='file.OK'` after a `tVerify … set='file.OK'`.
 
-**Scope restriction:** Flow directives can only target tasks at the same nesting
-depth. You cannot jump from inside a `for` loop to a task outside it.
+### 7.1 Legacy → scoped reference mapping (ADR-058 §2.4)
+
+| Legacy reference | Scoped reference |
+|---|---|
+| `${config.core.paths.lab_root}/desktop_package.tgz` | `${ content.files.desktop_package }` |
+| `port="5052"` (tScp PAT) | `${ runtime_env.devices.workstation.pat_port }` |
+| `--serial-port 5048` | `${ runtime_env.devices.sw01.serial_port }` |
+| `--cml-password trackNMC50` | `${ runtime_env.cml_password }` |
+| `prompt='rtr01#'` | `${ runtime_env.devices.rtr01.prompt }` |
+| `enablepassword='cisco'` | `${ runtime_env.devices.rtr01.enable_password }` |
+| `string="{files}"` | `${ vars.files }` |
+| `string='$(rtr01.show_int_loop0)'` | `${ vars.rtr01.show_int_loop0 }` |
+| `set="file.OK"` / `if="file.OK"` | `capture: { passed: file_ok }` / `when: "${ vars.file_ok }"` |
 
 ---
 
-## 8. Fault Tolerance
+## 8. Connectors & Targets
 
-### 8.1 Timeouts
-
-```yaml
-timeout:
-  seconds: 120          # Task-level timeout
-  # OR
-  minutes: 5
-  # OR
-  after:
-    seconds: 300        # Alternative syntax
-```
-
-When a timeout occurs, the runtime raises:
+`pod.xml`'s `unit-template`/`connector` becomes a declarative `PAv1/connectors.yaml`
+(ADR-057 §2.3). Each entry is a **named connector** a step selects with `target:`. Prompts,
+timeouts, transports, serial/PAT ports, and credentials are **resolved from `runtime_env.*`** — the
+file declares the _shape_, the runtime supplies the _facts_.
 
 ```yaml
-type: https://lcm.cisco.com/dsl/1.0.0/errors/timeout
-status: 408
-detail: "Task 'lab_start' exceeded timeout of 120s"
+apiVersion: pav1
+kind: ConnectorModel
+metadata:
+  name: LAB-1.1.1
+spec:
+  connectors:
+    - name: rtr01
+      class: cisco_common
+      transport: telnet
+      prompt: "${ runtime_env.devices.rtr01.prompt }"
+      enable_password: "${ runtime_env.devices.rtr01.enable_password }"
+      port: "${ runtime_env.devices.rtr01.serial_port }"
+    - name: workstation_22
+      class: unix
+      transport: ssh
+      via_port: "${ runtime_env.devices.workstation.pat_port }"   # 5052 -> 22
+      username: "${ runtime_env.devices.workstation.username }"
+      password: "${ runtime_env.devices.workstation.password }"
+    - name: control_node
+      class: control                # used only by cml.* primitives
+      transport: telnet
+      port: "${ runtime_env.control_node.serial_port }"
 ```
 
-### 8.2 Retry Policies
+`cml.*` primitives implicitly target the `control` connector — the author never targets it by hand.
+
+---
+
+## 9. `process_type` ↔ Report
+
+`process_type` is the job's **intent**; it selects the terminal `report.*` primitive and the report
+class (ADR-057 §2.5).
+
+| `process_type` | Typical stages | Terminal primitive | Report |
+|---|---|---|---|
+| `Initialization` | setup → collect → evaluate | `report.readiness@v1` | ReadinessReport |
+| `Grading` | setup → collect → evaluate | `report.score@v1` | ScoreReport |
+| `Change` | setup → collect → evaluate | `report.change@v1` | ChangeReport |
+| `Submission` | setup → collect | `report.submission@v1` | SubmissionReport |
+| `Archive` | setup | — | ArchiveReport |
+
+**Legacy phase → new phase + `process_type`:**
+
+| Legacy RCUv1 phase | New `lifecycle.yaml` phase | JobDefinition | `process_type` |
+|---|---|---|---|
+| `init` (implicit) | `instantiate` | native steps + `cml.lab_resolve`/`cml.lab_start` | `Initialization` |
+| `post_init` (`sb_post_init.xml`) | `post_init` | `jobs/post_init.yaml` | `Initialization` |
+| `pre_collect` (`sb_pre_collect.xml`) | `grade` (setup stage) | `jobs/grade.yaml` steps `stage: setup` | `Grading` |
+| `grade.xml` `verify commandOutput` | `grade` (collect stage) | `jobs/grade.yaml` steps `stage: collect` | `Grading` |
+| `grade.xml` `verify parse` + report | `grade` (evaluate+report) | `jobs/grade.yaml` steps `stage: evaluate`/`report` | `Grading` |
+
+`pre_collect` is **not a separate phase** — it is the **setup stage of the `grade` job**.
+
+---
+
+## 10. Fault Tolerance
+
+### 10.1 `on_error`
+
+Per-step failure policy. There is no `try`/`catch` wrapper — error handling is a field on the step.
 
 ```yaml
-retry:
-  when: ${ .error.status >= 500 }   # Condition to retry (default: any error)
-  delay:
-    seconds: 5                       # Initial delay
-  backoff:
-    exponential:                     # Exponential backoff
-      exponent: 2
-    # OR
-    linear: {}                       # Linear backoff
-    # OR
-    constant: {}                     # No backoff (constant delay)
-  limit:
-    attempt:
-      count: 3                       # Max retry attempts
-    duration:
-      minutes: 5                     # Max total retry duration
-  jitter:
-    from:
-      seconds: 0
-    to:
-      seconds: 5
+- id: stop_lab
+  uses: cml.lab_stop@v1
+  with: { lab_id: "${ runtime_env.lab_id }" }
+  on_error: { action: retry, retries: 3, backoff: 30 }
 ```
 
-### 8.3 Error Types
+| `action` | Behavior |
+|---|---|
+| `fail` (default) | The step faults; the job stops. |
+| `continue` | The error is recorded; execution proceeds to the next step. |
+| `retry` | Retry up to `retries` times with `backoff` seconds between attempts; then `fail`. |
+
+### 10.2 `timeout`
+
+`timeout: <seconds>` bounds a single step. On expiry the runtime raises an `errors/timeout` fault,
+subject to the step's `on_error` policy.
+
+### 10.3 Error types
 
 | Error Type | Status | Description |
-|------------|--------|-------------|
+|---|---|---|
 | `errors/expression` | 400 | jq expression evaluation failure |
 | `errors/validation` | 422 | Schema validation failure |
-| `errors/timeout` | 408 | Task/workflow timeout exceeded |
-| `errors/communication` | 503 | Adapter communication failure |
+| `errors/timeout` | 408 | Step timeout exceeded |
+| `errors/communication` | 503 | Connector/adapter communication failure |
 | `errors/authentication` | 401 | Credential/auth failure |
-| `errors/not-found` | 404 | Resource not found (lab, node, scenario) |
+| `errors/not-found` | 404 | Resource not found (lab, node, scenarioFunction) |
 | `errors/conflict` | 409 | Resource state conflict |
 | `errors/cancelled` | 499 | Job cancelled by caller |
 
-All error types are prefixed with `https://lcm.cisco.com/dsl/1.0.0/`.
+All error types are prefixed with `https://lcm.cisco.com/dsl/2.0.0/`.
 
 ---
 
-## 9. Scenario Catalog
+## 11. Deferred: `CompositeScenario` & `for_each`
 
-### 9.1 Reference Format
+Model B (closed primitives + flat DAG) is the normative v2. ADR-057 §2.8 **specifies but defers**
+two opt-in extensions that recover reuse/iteration without re-opening the sandbox:
 
-Scenarios are referenced by `{name}@{version}`:
+- **`CompositeScenario`** (`PAv1/composites/<name>.yaml`) — a content-defined, parameterised group
+  of _closed primitives only_, invoked from any step via a uniform call site:
+
+  ```yaml
+  - id: check_lo0
+    uses: composite:check_interface_up_up@v1
+    target: rtr01
+    with:  { interface: Loopback0, ip: "${ runtime_env.devices.rtr01.lo0_ip }" }
+    capture: { interface_name: rtr01_lo_name }   # promoted from the composite's `export`
+  ```
+
+  A composite runs in an **isolated `vars.*` frame** (ADR-058 §2.5): trusted scopes pass through;
+  `vars.*` is fresh, seeded only from `parameters`; only `export` keys return. Guardrails: composes
+  only the closed set (+ other composites), **max depth 3**, circular references rejected at sync.
+
+- **`for_each`** — a step/composite modifier that runs a step once per list element, binding a loop
+  `var` into `vars.*`. It collapses per-device duplication (`c_rtr01_*` / `c_rtr02_*`) into one
+  iterated step.
+
+These are **not implemented in v2**. Until then, iteration is either spelled out per device or
+driven by the ruleset (a single `evaluate` step expands `grading/rubric.yaml` into N checks).
+
+---
+
+## 12. AI-Generation Contract & Sync-Time Validation
+
+A JSON Schema set is published from `lcm_core` at `src/core/lcm_core/schemas/` (ADR-057 §2.7):
+
+| Schema file | Validates |
+|---|---|
+| `lifecycle.schema.json` | `PAv1/lifecycle.yaml` (phases, native steps, job refs, gating) |
+| `job-definition.schema.json` | `PAv1/jobs/*.yaml` (the step DAG: `id`/`uses`/`target`/`with`/`capture`/`when`/`on_error`/`timeout`/`stage`) |
+| `connector-model.schema.json` | `PAv1/connectors.yaml` |
+| `evaluation-ruleset.schema.json` | `PAv1/grading/rubric.yaml` |
+| `process-report-spec.schema.json` | `PAv1/reports/*.yaml` |
+| `scenario-functions.catalog.json` | **generated** from the SE `@scenario` registry — each primitive's `input_schema`/`output_schema` |
+
+Validation runs at **content sync** (ADR-023): a step's `with:` is validated against the referenced
+primitive's `input_schema`, and its `capture:` keys against the `output_schema`. An invalid package
+**fails the sync** (no partial ingestion). The LLM **selects** from the closed catalogue and
+**wires** scopes; it never invents a primitive or writes code.
+
+---
+
+## 13. Complete Example
+
+A two-part view of a CCNP exam lab: orchestration in `lifecycle.yaml`, bodies in `jobs/`.
+
+### 13.1 `PAv1/lifecycle.yaml`
 
 ```yaml
-call: lab_resolve@v1        # Call lab_resolve version 1
-call: grade_item@v2         # Call grade_item version 2
+apiVersion: pav1
+kind: Lifecycle
+metadata:
+  lablet: exam-ccnp-enarsi-v1-lab-1.1
+spec:
+  phases:
+    - name: instantiate
+      native_steps_by_pod_type:
+        cml_on_aws: [worker_lab_resolve, pod_locator, ports_alloc, lds_register]
+      jobs:
+        - definition: cml.lab_start@v1
+
+    - name: post_init
+      jobs:
+        - definition: post_init@v1
+          process_type: Initialization
+
+    - name: grade
+      jobs:
+        - definition: grade@v1
+          process_type: Grading
+          rubric: rubric
+          report: score_report
+
+    - name: teardown
+      native_steps_by_pod_type:
+        cml_on_aws: [archive]
+      jobs:
+        - definition: cml.wipe@v1
+          process_type: Archive
 ```
 
-### 9.2 Scenario Definition (Python)
+### 13.2 `PAv1/jobs/grade.yaml` (collect → evaluate → report)
+
+```yaml
+apiVersion: pav1
+kind: JobDefinition
+metadata:
+  name: grade
+  version: v1
+spec:
+  process_type: Grading
+  steps:
+    # --- setup stage (was sb_pre_collect.xml) ---
+    - id: settle
+      uses: pause@v1
+      with: { seconds: 10 }
+
+    # --- collect stage (was grade.xml verify commandOutput) ---
+    - id: c_rtr01_lo
+      uses: collect@v1
+      target: rtr01
+      stage: collect
+      with: { command: "show ip interface brief | include Loopback0" }
+      capture: { output: rtr01_lo }
+
+    - id: c_rtr02_lo
+      uses: collect@v1
+      target: rtr02
+      stage: collect
+      with: { command: "show ip interface brief | include Loopback0" }
+      capture: { output: rtr02_lo }
+
+    # --- evaluate stage: ruleset-driven (one step expands grading/rubric.yaml into N checks) ---
+    - id: evaluate_rubric
+      uses: evaluate.regex@v1
+      stage: evaluate
+      with:
+        source: "${ vars }"                 # captured collect outputs
+        rubric: "${ content.files.rubric }" # grading/rubric.yaml supplies items + checks
+      capture: { items: graded_items }
+
+    # --- report stage: process_type Grading -> report.score@v1 ---
+    - id: emit_score
+      uses: report.score@v1
+      stage: report
+      with:
+        items: "${ vars.graded_items }"
+        report_class: "${ content.files.score_report }"
+      capture: { report_ref: score_report_ref }
+```
+
+> **Iteration note.** The `c_rtr01_lo` / `c_rtr02_lo` duplication is the documented cost of the flat
+> DAG (ADR-057 §2.8). Once `for_each` (§11) ships, these collapse into one iterated step over a
+> device list. Until then, spell them out or drive expansion from the rubric.
+
+---
+
+## 14. Mapping to Current Step Handlers
+
+How existing lablet-controller step handlers map onto SE scenarioFunctions:
+
+| Current Step Handler | scenarioFunction | Notes |
+|---|---|---|
+| `lab_resolve_step.py` | `cml.lab_resolve@v1` | Direct port |
+| `lab_start_step.py` | `cml.lab_start@v1` | Adds convergence poll |
+| `lab_stop_step.py` | `cml.lab_stop@v1` | — |
+| `lab_wipe_step.py` | `cml.wipe@v1` | — |
+| `execute_command_on_cml_node_step.py` | `exec@v1` / `collect@v1` | command vs `show` capture |
+| `transfer_file_step.py` | `copy@v1` | content-ref source |
+| — (new) | `evaluate.regex@v1` | single check primitive |
+| — (new) | `report.score@v1` / `report.readiness@v1` | report assembly |
+
+---
+
+## 15. Future Extensions
+
+### 15.1 Python SDK
+
+A typed builder for constructing `JobDefinition` documents:
 
 ```python
-@scenario(name="lab_resolve", version="v1")
-async def lab_resolve(input: dict, adapter: AdapterProtocol, ctx: ExecutionContext) -> dict:
-    """Resolve or import a lab topology on the target worker.
+from lcm_dsl import JobDefinition, Step
 
-    Input Schema:
-      definition_id: str (required)
-
-    Output Schema:
-      lab_id: str
-      title: str
-      nodes: list[{name: str, state: str}]
-    """
-    ...
+job = JobDefinition(name="post_init", version="v1", process_type="Initialization")
+job.add(Step(id="settle", uses="pause@v1", with_={"seconds": 30}))
+job.add(Step(id="mkdir_tmp", uses="exec@v1", target="workstation_22",
+             with_={"command": "mkdir -p /home/cisco/Desktop/tmp/"}, capture={"ok": "cmd0_ok"}))
+job.to_yaml()  # -> PAv1/jobs/post_init.yaml
 ```
 
-### 9.3 Schema Introspection
+### 15.2 Visual Editor
 
-The SE exposes scenario schemas for validation:
+A browser-based step-DAG editor for content authors that emits `jobs/*.yaml` and validates against
+`scenario-functions.catalog.json` live.
 
-```http
-GET /api/v1/scenarios/lab_resolve/v1
+### 15.3 Dry-Run Mode
 
-{
-  "name": "lab_resolve",
-  "version": "v1",
-  "description": "Resolve or import a lab topology...",
-  "input_schema": {
-    "type": "object",
-    "required": ["definition_id"],
-    "properties": { "definition_id": { "type": "string" } }
-  },
-  "output_schema": {
-    "type": "object",
-    "properties": {
-      "lab_id": { "type": "string" },
-      "title": { "type": "string" },
-      "nodes": { "type": "array" }
-    }
-  }
-}
-```
-
----
-
-## 10. Lifecycle Definition Example (Complete)
-
-This is a complete `PAv1/lifecycle.yaml` for a CCNP exam lab:
-
-```yaml
-document:
-  dsl: "1.0.0"
-  namespace: lcm
-  name: exam-ccnp-enarsi-v1-lab-1.1
-  version: "1.2.0"
-
-input:
-  schema:
-    type: object
-    required: [definition_id, session_id, worker]
-    properties:
-      definition_id: { type: string }
-      session_id: { type: string }
-      worker:
-        type: object
-        required: [ip, cml_username, cml_password, adapter]
-  from: |
-    ${
-      {
-        definition_id: .definition_id,
-        session_id: .session_id,
-        worker: .worker,
-        variables: (.variables // {}),
-        evidence: {},
-        scores: {}
-      }
-    }
-
-phases:
-  instantiate:
-    description: "Import lab, configure networking, start, provision LDS"
-    do:
-      - resolveTopology:
-          call: lab_resolve@v1
-          with:
-            definition_id: ${ $context.definition_id }
-          output:
-            as: ${ { lab_id: .lab_id, title: .title } }
-          export:
-            as: ${ $context | .lab_id = $output.lab_id | .lab_title = $output.title }
-          timeout:
-            seconds: 120
-          retry:
-            limit:
-              attempt:
-                count: 2
-            delay:
-              seconds: 15
-
-      - allocatePorts:
-          call: ports_alloc@v1
-          if: ${ $context.variables.port_template != null }
-          with:
-            lab_id: ${ $context.lab_id }
-            template: ${ $context.variables.port_template }
-          export:
-            as: ${ $context | .ports = $output.ports }
-
-      - syncTags:
-          call: tags_sync@v1
-          with:
-            lab_id: ${ $context.lab_id }
-            session_id: ${ $context.session_id }
-
-      - startLab:
-          call: lab_start@v1
-          with:
-            lab_id: ${ $context.lab_id }
-          output:
-            as: ${ { converged: .converged, nodes: .nodes } }
-          export:
-            as: ${ $context | .converged = $output.converged | .nodes = $output.nodes }
-          timeout:
-            minutes: 10
-          retry:
-            when: ${ .error.status == 503 or .error.status == 504 }
-            limit:
-              attempt:
-                count: 3
-            delay:
-              seconds: 30
-            backoff:
-              exponential: {}
-
-      - waitForConvergence:
-          if: ${ $context.converged != true }
-          wait:
-            seconds: 60
-
-      - verifyConvergence:
-          if: ${ $context.converged != true }
-          call: lab_check_convergence@v1
-          with:
-            lab_id: ${ $context.lab_id }
-          export:
-            as: ${ $context | .converged = $output.converged }
-
-      - provisionLds:
-          call: lds_provision@v1
-          if: ${ ($context.devices | length) > 0 }
-          with:
-            lab_id: ${ $context.lab_id }
-            devices: ${ $context.devices }
-            session_id: ${ $context.session_id }
-          export:
-            as: ${ $context | .lds_registered = true | .lds_url = $output.url }
-
-      - transferStudentFiles:
-          call: transfer_file@v1
-          if: ${ $context.variables.student_archive != null }
-          with:
-            lab_id: ${ $context.lab_id }
-            node: ubuntu-desktop
-            source: ${ $context.variables.student_archive }
-            destination: /tmp/lab-files.tar.gz
-
-  collect:
-    description: "Gather evidence from each grading item"
-    do:
-      - gatherEvidence:
-          for:
-            each: item
-            in: ${ $context.grading_rules }
-          do:
-            - collectFromDevice:
-                try:
-                  run:
-                    target:
-                      lab_id: ${ $context.lab_id }
-                      node: ${ $item.target_device }
-                    command: ${ $item.collect_command }
-                  output:
-                    as: ${ { output: .stdout, collected_at: now | todate } }
-                  export:
-                    as: ${ $context | .evidence[$item.id] = $output }
-                catch:
-                  errors:
-                    with:
-                      status: 408   # Timeout on device
-                  do:
-                    - markTimeout:
-                        set:
-                          evidence_error: ${ "Timeout collecting \($item.id) from \($item.target_device)" }
-                        export:
-                          as: |
-                            ${
-                              $context | .evidence[$item.id] = {
-                                output: null,
-                                error: "timeout",
-                                collected_at: (now | todate)
-                              }
-                            }
-
-  grade:
-    description: "Evaluate each item against expected results"
-    do:
-      - gradeItems:
-          for:
-            each: item
-            in: ${ $context.grading_rules }
-          do:
-            - evaluateItem:
-                call: grade_item@v1
-                with:
-                  item_id: ${ $item.id }
-                  evidence: ${ $context.evidence[$item.id] }
-                  expected: ${ $item.expected }
-                  scoring: ${ $item.scoring }
-                output:
-                  as: |
-                    ${
-                      {
-                        score: .score,
-                        max_score: .max_score,
-                        passed: (.score >= .max_score * .pass_threshold),
-                        feedback: .feedback
-                      }
-                    }
-                export:
-                  as: ${ $context | .scores[$item.id] = $output }
-
-      - computeTotals:
-          set:
-            total_score: ${ $context.scores | to_entries | map(.value.score) | add }
-            max_possible: ${ $context.scores | to_entries | map(.value.max_score) | add }
-            percentage: |
-              ${
-                (($context.scores | to_entries | map(.value.score) | add) /
-                 ($context.scores | to_entries | map(.value.max_score) | add) * 100)
-                | floor
-              }
-
-      - generateReport:
-          call: generate_phase_report@v1
-          with:
-            phase: grade
-            scores: ${ $context.scores }
-            total: ${ $context.total_score }
-            max: ${ $context.max_possible }
-            percentage: ${ $context.percentage }
-            template: "PAv1/reports/grade_report.yaml"
-
-  teardown:
-    description: "Stop lab, clean up resources"
-    do:
-      - stopLab:
-          try:
-            call: lab_stop@v1
-            with:
-              lab_id: ${ $context.lab_id }
-          catch:
-            do:
-              - forceStop:
-                  call: lab_stop@v1
-                  with:
-                    lab_id: ${ $context.lab_id }
-                    force: true
-
-      - deregisterLds:
-          call: lds_deregister@v1
-          if: ${ $context.lds_registered == true }
-          with:
-            lab_id: ${ $context.lab_id }
-            session_id: ${ $context.session_id }
-
-      - wipeLab:
-          call: lab_wipe@v1
-          with:
-            lab_id: ${ $context.lab_id }
-
-      - releasePorts:
-          call: ports_release@v1
-          if: ${ $context.ports != null }
-          with:
-            ports: ${ $context.ports }
-
-  restore:
-    description: "Reset lab for student retake"
-    do:
-      - wipeLab:
-          call: lab_wipe@v1
-          with:
-            lab_id: ${ $context.lab_id }
-
-      - reimportLab:
-          call: lab_resolve@v1
-          with:
-            definition_id: ${ $context.definition_id }
-            force_import: true
-          export:
-            as: ${ $context | .lab_id = $output.lab_id }
-
-      - startLab:
-          call: lab_start@v1
-          with:
-            lab_id: ${ $context.lab_id }
-          timeout:
-            minutes: 10
-
-      - resetEvidence:
-          set:
-            evidence: {}
-            scores: {}
-            total_score: null
-            percentage: null
-
-output:
-  as: |
-    ${
-      {
-        session_id: $context.session_id,
-        lab_id: $context.lab_id,
-        converged: $context.converged,
-        scores: $context.scores,
-        total_score: $context.total_score,
-        percentage: $context.percentage,
-        lds_url: $context.lds_url
-      }
-    }
-```
-
----
-
-## 11. PAv1/manifest.yaml Schema
-
-```yaml
-# PAv1/manifest.yaml — Pod infrastructure requirements
-schema_version: "1.0"
-pod_type: cml_on_aws                # Required adapter type
-required_adapter_version: ">=1.0.0" # Minimum adapter version
-min_resources:
-  vcpus: 16
-  memory_gb: 64
-  storage_gb: 200
-features:
-  - nested_virtualization
-  - serial_console
-node_definitions:
-  - iosv
-  - iosvl2
-  - ubuntu-desktop
-  - asav
-```
-
----
-
-## 12. Mapping to Current Step Handlers
-
-This table shows how existing lablet-controller step handlers map to SE scenarios:
-
-| Current Step Handler | SE Scenario | Notes |
-|---------------------|-------------|-------|
-| `lab_resolve_step.py` | `lab_resolve@v1` | Direct port |
-| `lab_start_step.py` | `lab_start@v1` | Add convergence check |
-| `lab_stop_step.py` | `lab_stop@v1` | Add force option |
-| `lab_wipe_step.py` | `lab_wipe@v1` | Direct port |
-| `ports_alloc_step.py` | `ports_alloc@v1` | Direct port |
-| `ports_release_step.py` | `ports_release@v1` | Direct port |
-| `tags_sync_step.py` | `tags_sync@v1` | Direct port |
-| `execute_command_on_cml_node_step.py` | `run` task type | Uses adapter directly |
-| `transfer_file_step.py` | `transfer_file@v1` | Direct port |
-| `lds_provision_step.py` | `lds_provision@v1` | Direct port |
-| `lds_deregister_step.py` | `lds_deregister@v1` | Direct port |
-| — (new) | `collect_evidence@v1` | New: per-item evidence |
-| — (new) | `grade_item@v1` | New: per-item grading |
-| — (new) | `generate_phase_report@v1` | New: report assembly |
-| — (new) | `lab_check_convergence@v1` | New: health check |
-
----
-
-## 13. Future Extensions
-
-### 13.1 Python SDK
-
-A Python SDK for programmatically constructing DSL documents:
-
-```python
-from lcm_dsl import Workflow, Phase, Call, For, Set
-
-wf = Workflow(name="my-lab", version="1.0.0")
-wf.phase("instantiate").do(
-    Call("lab_resolve@v1", with_={"definition_id": "${ $context.definition_id }"}),
-    Call("lab_start@v1", with_={"lab_id": "${ $context.lab_id }"}),
-)
-wf.to_yaml()  # Serialize to PAv1/lifecycle.yaml
-```
-
-### 13.2 Visual Editor
-
-A browser-based DAG editor for content authors (generates lifecycle.yaml).
-
-### 13.3 Dry-Run Mode
-
-Execute lifecycle definitions in validation mode (no actual adapter calls):
+Execute a JobDefinition in validation mode (no connector calls), returning the resolved step order
+and interpolated expressions without side effects:
 
 ```http
 POST /api/v1/jobs
 { ..., "dry_run": true }
 ```
-
-Returns the execution plan (task order, resolved expressions) without side effects.

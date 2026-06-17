@@ -2,12 +2,12 @@
 
 | Attribute | Value |
 |-----------|-------|
-| **Status** | Proposed (Revision 2) |
-| **Date** | 2026-03-05 (revised 2026-03-08) |
+| **Status** | Proposed (Revision 3) |
+| **Date** | 2026-03-05 (revised 2026-03-08, 2026-06-12) |
 | **Deciders** | Architecture Team |
 | **Extends** | [ADR-034](./ADR-034-pipeline-executor-lifecycle-handlers.md) (Pipeline Executor), [ADR-020](./ADR-020-session-entity-model.md) (Session Entity Model) |
-| **Related ADRs** | [ADR-001](./ADR-001-api-centric-state-management.md) (API-Centric State), [ADR-005](./ADR-005-state-store-architecture.md) (Dual Storage), [ADR-011](./ADR-011-apscheduler-removal.md) (APScheduler Removal), [ADR-031](./ADR-031-checkpoint-instantiation-pipeline.md) (Checkpoint Pipeline) |
-| **Revision Notes** | R2: Adds TimedResource/Timeslot/ManagedLifecycle abstraction layer (§2.1.4–§2.1.7); updates Phase 1 status; refines abstraction boundary based on LabletSession/CMLWorker/LabRecord analysis |
+| **Related ADRs** | [ADR-001](./ADR-001-api-centric-state-management.md) (API-Centric State), [ADR-005](./ADR-005-state-store-architecture.md) (Dual Storage), [ADR-011](./ADR-011-apscheduler-removal.md) (APScheduler Removal), [ADR-031](./ADR-031-checkpoint-instantiation-pipeline.md) (Checkpoint Pipeline), [ADR-045](./ADR-045-multi-part-session-part-model.md) (Multi-part Sessions), [ADR-046](./ADR-046-host-abstraction-and-pod-host-type-split.md) (Host Abstraction), [ADR-047](./ADR-047-generic-reconciliation-framework.md) (Reconciliation Framework) |
+| **Revision Notes** | R2: Adds TimedResource/Timeslot/ManagedLifecycle abstraction layer (§2.1.4–§2.1.7); updates Phase 1 status; refines abstraction boundary based on LabletSession/CMLWorker/LabRecord analysis. **R3**: Generalizes the abstraction into a **nested TimedResource tree** — `SessionPart` and `PodInstance` become first-class TimedResources and a generic `Host`/`Worker` layer is introduced (§2.6). The single `ResourceSession` becomes a `Session` profile; multi-part sessions are now first-class. |
 
 ---
 
@@ -1030,6 +1030,73 @@ The reconciler resolves the execution strategy per lifecycle phase:
 2. Check `workflows[phase_name]` — if found, use `WorkflowExecutor`
 3. Check `pipelines[phase_name]` with `engine == "workflow"` — use `WorkflowExecutor` with inline ref
 4. If neither found — error (AD-PIPELINE-009: no fallback)
+
+---
+
+## 2.6 Generalized Nested Resource Tree (Revision 3)
+
+> R3 generalizes the layered abstraction (§2.1.4) into a **recursive tree** so the same
+> spec/status + reconciliation machinery applies to sessions, their parts, their pods, and the
+> hosts they run on. Detailed in [resource-model.md](../solution/resource-model.md).
+
+### 2.6.1 From single session to a tree
+
+Revision 2 modelled a flat `ResourceSession` with a pipeline. Real deliveries are not flat:
+an expert exam is **multi-part** (DES → DOO → AI-DOO), each part may run **0..N pods**, and
+each pod runs on **some host**. R3 therefore promotes three things to first-class
+`TimedResource`s:
+
+```
+Session (was ResourceSession)
+  └─ SessionPart        ← NEW first-class TimedResource (0..N per Session)
+        └─ PodInstance   ← NEW first-class TimedResource (0..N per Part)
+              └─ binds → Host / Worker   ← NEW generic infra TimedResource
+```
+
+`Session` is now a **profile** concept: a `LabletSession` is a `Session` with one part and one
+`cml_on_aws` pod. The R2 "initial resource types" table (§2.1.2) is reinterpreted as session
+**profiles** over this tree, not parallel aggregates.
+
+### 2.6.2 New state classes (Layer 3)
+
+All extend `TimedResourceState` (Layer 2) unchanged:
+
+| State | Key fields | Reconciled by |
+|---|---|---|
+| `SessionState` | `session_definition_ref`, `part_ids[]` | CPA (Session manager) |
+| `SessionPartState` | `session_id`, `part_definition_ref`, `pod_ids[]`, `order`, `gates_next` | CPA (Part manager) |
+| `PodInstanceState` | `part_id`, `pod_definition_ref`, `pod_type`, `host_id` | controllers (Pod manager) |
+| `HostState` | `host_type`, `pod_ids[]`, `capacity` | worker-controller (Host manager) |
+
+`LabRecordState` becomes the `cml_on_aws` `PodInstanceState`; `CMLWorkerState` becomes the
+`cml_on_aws` `HostState`. No change to Layers 1–2.
+
+### 2.6.3 Intent cascade
+
+`desired_status` cascades **down** the tree; observed `status` bubbles **up**:
+
+- An operator/scheduler sets `Session.desired_status`.
+- The Session manager sets each `SessionPart.desired_status` (respecting order + gating).
+- The Part manager sets each `PodInstance.desired_status`.
+- Pod/Host managers reconcile infrastructure and report status upward.
+
+Parts are **sequential and gated**; a later part's **eager** pod (large `Timeslot.lead_time`)
+may begin provisioning while an earlier part is still active.
+
+### 2.6.4 Reconciliation ownership
+
+| Level | Owner |
+|---|---|
+| `Session`, `SessionPart` | **CPA** (ordering, gating) |
+| `PodInstance`, `Host`/`Worker` | **controllers** (+ resource-scheduler for allocation) |
+| Per-part content automation | **SE** (via a `workflow` lifecycle phase) |
+
+The reconcile loop itself is generalized into a single framework with per-type managers — see
+[ADR-047](./ADR-047-generic-reconciliation-framework.md). The host abstraction and the
+`PodType`/`HostType` split are specified in
+[ADR-046](./ADR-046-host-abstraction-and-pod-host-type-split.md). The multi-part session/part
+model and selector resolution are specified in
+[ADR-045](./ADR-045-multi-part-session-part-model.md).
 
 ---
 

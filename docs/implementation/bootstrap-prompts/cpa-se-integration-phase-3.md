@@ -8,8 +8,19 @@
 > on `LifecyclePhaseHandler`) and AD-CSI-017 (SE round-trips `metadata` on every job lifecycle event). New
 > open questions: Q-10 (suspended-step watchdog) and Q-11 (CloudEvent ingest source allow-list).
 >
-> **Verification (final):** lablet-controller 546 ✓ · control-plane-api 1228 ✓ · lcm-core 269 ✓ · scenario-engine 114 ✓.
-
+> **Verification (final):** lablet-controller 546 ✓ · control-plane-api 1228 ✓ · lcm-core 269 ✓ · scenario-engine 114 ✓.>
+> **📢 Post-Phase-3 refactor (AD-CSI-020).** The bespoke `src/lablet-controller/api/controllers/events_controller.py`
+> described throughout this prompt (Steps 6, 8, etc.) was **subsequently deleted** and replaced by
+> Neuroglia's framework-native CloudEvent pipeline: 5 `@cloudevent`-decorated dataclasses in
+> `src/lablet-controller/application/events/integration/scenario_engine_events.py` + 5
+> `IntegrationEventHandler`s in `scenario_engine_handler.py`, auto-discovered via
+> `Mediator.configure(builder, ["application.events.integration"])` +
+> `CloudEventIngestor.configure(builder, ["application.events.integration"])` in `main.py`. Source
+> allow-list enforcement moved into a per-handler `_source_allowed(...)` helper (AD-CSI-019, closes Q-11).
+> When reading the steps below, treat "`EventsController`" as the historical shape that was implemented
+> first — the equivalent current code lives in `application/events/integration/`. CPA's own
+> `EventsController` (used for `pod_definition.ready.v1` ingest, G-12) was **not** part of this refactor
+> and still exists as a bespoke FastAPI router today.
 | Attribute | Value |
 |-----------|-------|
 | **Sprint** | CSI-Phase3 |

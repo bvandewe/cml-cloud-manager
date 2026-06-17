@@ -1,7 +1,9 @@
 # Pod Artifact Format — `PAv1`
 
 > **Status**: Draft (Phase 0 of CPA↔SE Integration)
-> **Authority**: [ADR-044 — Content-Driven Lifecycle Engine](../adr/ADR-044-content-driven-lifecycle-engine.md)
+> **DSL authority**: [ADR-057 — Content-Driven Lifecycle DSL](../adr/ADR-057-content-driven-lifecycle-dsl.md), [ADR-058 — Data-Flow & Variable Scopes](../adr/ADR-058-lifecycle-data-flow-and-variable-scopes.md)
+> **Engine authority**: [ADR-044 — Content-Driven Lifecycle Engine](../adr/ADR-044-content-driven-lifecycle-engine.md)
+> **DSL reference**: [DSL-SPECIFICATION.md](../dsl/DSL-SPECIFICATION.md)
 > **Living plan**: [cpa-se-integration-plan.md](../../implementation/cpa-se-integration-plan.md) §5
 > **JSON schemas**: [`schemas/`](./schemas/)
 
@@ -19,16 +21,24 @@ on, and tear down a lab session lives inside the archive.
 Authority decisions:
 
 - **AD-CSI-001** — DSL is **not** shared between CPA and SE. The shared contract is the
-  content format (this document), not the execution model.
+  content format (this document), not the execution model. CPA runs **native steps**
+  (handler pipelines); SE runs **JobDefinitions** (the step DAG of ADR-057).
 - **AD-CSI-002** — Pod-type discovery is deterministic and prioritised (see §3).
 - **AD-CSI-004** — `PodDefinition` carries first-class typed fields extracted from the
   PAv1 tree (not just an opaque `manifest` blob).
+
+The **job-body DSL** — the unit-of-work vocabulary SE runs — is governed by
+[ADR-057](../adr/ADR-057-content-driven-lifecycle-dsl.md) (closed `scenarioFunction`
+primitives + flat step DAG) and [ADR-058](../adr/ADR-058-lifecycle-data-flow-and-variable-scopes.md)
+(the four data-flow scopes). The full grammar is specified in
+[DSL-SPECIFICATION.md](../dsl/DSL-SPECIFICATION.md).
 
 ---
 
 ## 2. Canonical zip layout
 
-A `PAv1` archive is any zip file containing a top-level `PAv1/` directory:
+A `PAv1` archive is any zip file containing a top-level `PAv1/` directory
+(canonical shape per [ADR-057 §2.6](../adr/ADR-057-content-driven-lifecycle-dsl.md)):
 
 ```text
 <package>.zip
@@ -39,16 +49,21 @@ A `PAv1` archive is any zip file containing a top-level `PAv1/` directory:
     │   ├── radkit.yaml            # OR a RADkit topology
     │   ├── proxmox.yaml           # OR a Proxmox topology
     │   ├── vmware.yaml            # OR a VMware topology
-    │   └── devices.json           # OPTIONAL — device → connection map
-    ├── lifecycle.yaml             # OPTIONAL — phase DAGs (instantiate, teardown, …)
-    ├── scenarios/                 # OPTIONAL — content-defined scenarios
-    │   ├── lab_resolve.v1.yaml
-    │   ├── lab_start.v1.yaml
-    │   └── ...
-    ├── grading/                   # OPTIONAL — grading rubric(s)
+    │   ├── devices.json           # OPTIONAL — device → connection map
+    │   └── ports.json             # OPTIONAL — per-device serial/vnc/pat ports
+    ├── lifecycle.yaml             # OPTIONAL — phases -> { native_steps_by_pod_type, jobs[] }
+    ├── connectors.yaml            # OPTIONAL — connector model (runtime_env binding)
+    ├── jobs/                      # OPTIONAL — JobDefinitions (the step DAGs, §4.4)
+    │   ├── post_init.yaml
+    │   └── grade.yaml
+    ├── composites/                # OPTIONAL, DEFERRED — CompositeScenarios (ADR-057 §2.8)
+    │   └── check_interface_up_up.yaml
+    ├── grading/                   # OPTIONAL — EvaluationRuleset (graded items)
     │   └── rubric.yaml
-    ├── reports/                   # OPTIONAL — report templates
-    │   └── summary.yaml
+    ├── reports/                   # OPTIONAL — ProcessReportSpec (report shape)
+    │   └── score_report.yaml
+    ├── files/                     # OPTIONAL — payloads pushed by copy@v1
+    │   └── desktop_package.tgz
     └── restore/                   # OPTIONAL — snapshot/restore directives
         └── restore.yaml
 ```
@@ -105,7 +120,7 @@ Optional fields:
   recommended.** If absent, `PodTypeDetector` falls back to topology signals.
 - `description` — Free-text description.
 - `authors` — List of `{ name, email? }` records.
-- `scenarios_used` — List of `name@version` strings referenced by `lifecycle.yaml`.
+- `jobs_used` — List of `name@version` JobDefinition references used by `lifecycle.yaml`.
   Informational; not enforced by the validator.
 - `lifecycle_ref` — Relative path to `lifecycle.yaml` (default: `lifecycle.yaml`).
 
@@ -128,110 +143,240 @@ by the adapter (`cml.yaml` → CML JSON Schema, etc.), not by `PAv1` itself.
 
 `topology/devices.json` is an optional device → connection map (telnet/ssh/console
 endpoints, credentials handle) used by adapters that need per-device addressing.
+`topology/ports.json` supplies the per-device serial/vnc/pat ports that populate
+`runtime_env.devices.*` (ADR-058 §2.2) at job submission.
 
 ### 4.3 `lifecycle.yaml` — optional
 
-Defines one or more **phases**. Each phase is a DAG of steps executed by the
-CPA `PipelineExecutor` (in `lablet-controller`).
+Declares the **phase ordering** and, per phase, the **native steps** (CPA seam) and
+**jobs** (SE step DAGs). The canonical shape is
+[ADR-057 §2.6](../adr/ADR-057-content-driven-lifecycle-dsl.md): a `kind: Lifecycle`
+document whose `spec.phases[]` each carry `native_steps_by_pod_type` and `jobs[]`.
+**The step DAG never lives inline** — every job references a `JobDefinition` file by
+`definition: <name>@<version>`.
 
-JSON Schema: [`schemas/lifecycle.schema.json`](./schemas/lifecycle.schema.json)
+**Optional file.** When absent, the lablet-controller's `PipelineTemplateResolver`
+falls through to the DB-stored `LabletDefinition.pipelines` and finally to the
+hardcoded baseline templates — so legacy packages continue to work unchanged
+(AD-CSI-022 / AD-CSI-023).
 
-Top-level shape:
-
-```yaml
-phases:
-  instantiate:
-    steps:
-      - name: lab_resolve
-        handler: scenario_engine/lab_resolve@v1
-        retry: { attempts: 3, backoff_seconds: 5 }
-        timeout: { seconds: 120 }
-      - name: ports_alloc
-        handler: built_in/ports_alloc
-        depends_on: [lab_resolve]
-      - name: lab_start
-        handler: scenario_engine/lab_start@v1
-        depends_on: [ports_alloc]
-        skip_when: "$session.skip_start == true"
-  teardown:
-    steps:
-      - name: lab_wipe
-        handler: scenario_engine/lab_wipe@v1
-```
-
-Per-step fields:
-
-| Field         | Type                  | Required | Notes                                                                                      |
-|---------------|-----------------------|---------:|--------------------------------------------------------------------------------------------|
-| `name`        | string                | yes      | Unique within the phase.                                                                   |
-| `handler`     | string                | yes      | Either `scenario_engine/<scenario>@<version>` (Tier-B) or `built_in/<handler>` (Tier-A).   |
-| `depends_on`  | list[string]          | no       | Names of preceding steps; default empty.                                                   |
-| `skip_when`   | string (expression)   | no       | `simpleeval` expression evaluated against the pipeline context.                            |
-| `retry`       | object                | no       | `{ attempts: int, backoff_seconds: number }`.                                              |
-| `timeout`     | object                | no       | `{ seconds: number }`.                                                                     |
-| `inputs`      | object                | no       | Static or context-templated inputs forwarded to the handler.                               |
-
-If a phase is **absent** in `lifecycle.yaml`, the `PipelineTemplateResolver` falls
-back to the hardcoded Python template for that phase (preserves today's behaviour).
-
-### 4.4 `scenarios/<name>.<version>.yaml` — optional
-
-Content-defined scenarios that the SE loads alongside its Python `@scenario`
-registry. The DSL inside a scenario file is SE's jq-flavoured DSL — `call`, `do`,
-`set`, `try` (Phase 2). Additional task types (`for`, `fork`, `switch`, `wait`,
-`emit`, `run`, `raise`, `listen`) are reserved for Phase 3+ and validated as
-known keys.
-
-JSON Schema: [`schemas/scenario.schema.json`](./schemas/scenario.schema.json)
-
-Top-level shape:
+JSON Schema: [`schemas/lifecycle.schema.json`](./schemas/lifecycle.schema.json).
 
 ```yaml
-name: lab_resolve
-version: v1
-description: Resolve or create a lab on the target worker.
-do:
-  - resolve:
-      call: cml.lab.resolve@v1
-      with:
-        topology: $context.topology
-        worker_id: $input.worker_id
-      output:
-        as: { lab_id: .lab_id, lab_url: .url }
+apiVersion: pav1
+kind: Lifecycle
+metadata:
+  lablet: exam-ccnp-v1-lab-1.1
+spec:
+  phases:
+    - name: instantiate
+      # native LCM steps (resolved to handlers by the controller's template chain)
+      native_steps_by_pod_type:
+        cml_on_aws: [worker_lab_resolve, pod_locator, ports_alloc, lds_register]
+      jobs:
+        - definition: cml.lab_start@v1        # resolve + start the CML lab
+
+    - name: post_init
+      jobs:
+        - definition: post_init@v1            # -> jobs/post_init.yaml
+          process_type: Initialization
+
+    - name: grade
+      jobs:
+        - definition: grade@v1                # -> jobs/grade.yaml
+          process_type: Grading
+          rubric: rubric                      # -> grading/rubric.yaml   (evaluate stage)
+          report: score_report                # -> reports/score_report.yaml
+
+    - name: teardown
+      native_steps_by_pod_type:
+        cml_on_aws: [archive]
+      jobs:
+        - definition: cml.wipe@v1
+          process_type: Archive
 ```
 
-Each task object has **exactly one** primary key from the set `call / do / set /
-try / for / fork / switch / wait / emit / run / raise / listen` plus optional
-modifiers (`with`, `input`, `output`, `export`, `if`, `timeout`, `retry`, `then`).
+**Phase fields:**
 
-**Open Q-04** (see plan §8): when both a content-defined `lab_resolve@v1` and a
-Python `@scenario("lab_resolve", "v1")` exist, the content-defined one wins with
-a warning log.
+| Field                     | Type              | Required | Notes                                                                 |
+|---------------------------|-------------------|---------:|-----------------------------------------------------------------------|
+| `name`                    | string            | yes      | Phase identity (e.g. `instantiate`, `post_init`, `grade`, `teardown`).|
+| `native_steps_by_pod_type`| object            | no       | `{ <pod_type>: [<native step name>, …] }` — CPA-native steps.          |
+| `jobs`                    | list[JobRef]      | no       | SE JobDefinitions executed in this phase.                              |
 
-### 4.5 `grading/rubric.yaml`, `reports/summary.yaml`, `restore/restore.yaml` — optional
+**JobRef fields:**
 
-Reserved for Phase 5. Their schemas will be published as `grading.schema.json` /
-`report.schema.json` / `restore.schema.json` once the scenarios that consume them
-(`collect_grade@v1`, `score_report@v1`) land. Until then, the contents are
-preserved verbatim on `PodDefinition.grading_rules` / `.reports` / `.restore_rules`.
+| Field          | Type   | Required | Notes                                                            |
+|----------------|--------|---------:|------------------------------------------------------------------|
+| `definition`   | string | yes      | `<name>@<version>` → `jobs/<name>.yaml`.                          |
+| `process_type` | string | no       | `Initialization` / `Grading` / `Change` / `Submission` / `Archive` (selects the terminal `report.*` primitive — ADR-057 §2.5). |
+| `rubric`       | string | no       | Name under `grading/` supplying the evaluate stage's `items[]`.   |
+| `report`       | string | no       | Name under `reports/` supplying the report shape.                 |
+
+**Single-part vs multi-part.** A single-part lablet uses the top level directly. A
+multi-part session repeats the per-part subtree under `parts/`, applying the same
+`jobs[]` per part via `part_workflow` (ADR-057 §2.6). Both are the same shape at two
+scopes.
+
+**Native-step resolution.** `native_steps_by_pod_type` lists native step **names**
+only; the lablet-controller's `PipelineTemplateResolver` (AD-CSI-022) resolves each
+name to its handler DAG (timeouts, `needs`, retries) from its templates. Content
+declares _which_ native steps run and _in what phase_ — not their internal wiring.
+
+### 4.4 `jobs/<name>.yaml` — optional (JobDefinition)
+
+A `JobDefinition` is a **flat, ordered DAG of steps** that composes closed
+`scenarioFunction` primitives (ADR-057 §2.4). Authors write **only declarative
+wiring** — never imperative code, never a new primitive.
+
+JSON Schema: [`schemas/job-definition.schema.json`](./schemas/job-definition.schema.json)
+
+**Envelope + step shape:**
+
+```yaml
+apiVersion: pav1
+kind: JobDefinition
+metadata:
+  name: post_init
+  version: v1
+spec:
+  process_type: Initialization
+  steps:
+    - id: <unique-in-job>             # required — stable id; also the capture namespace
+      uses: <scenarioFunction>@<ver>  # required — closed primitive (or composite:<name>@<ver>)
+      target: <connector-name>        # optional — omitted for pause/report/cml.* (implicit)
+      with: { <input>: <value|expr> } # inputs; values may be ${ jq } over the scopes
+      capture: { <var>: <output-ref> }# write named outputs into vars.* (ADR-058)
+      when: "${ <jq-bool-expr> }"     # optional gating; step skipped if false
+      on_error: { action: fail|continue|retry, retries?: <n>, backoff?: <s> }
+      timeout: <seconds>              # optional per-step timeout
+      stage: setup|collect|evaluate|report   # optional soft grouping (default: setup)
+```
+
+The closed primitive set (`pause` / `exec` / `copy` / `cml.*` / `collect` /
+`evaluate.regex` / `report.*`), the four data-flow scopes, and the legacy→scoped
+reference mapping are specified in [DSL-SPECIFICATION.md](../dsl/DSL-SPECIFICATION.md)
+§§6–7. The gate pattern (legacy `tVerify set=…` / `if=…`) becomes `capture:` on an
+`evaluate.regex@v1` step feeding a downstream `when:`.
+
+**Example — the gate pattern** (from `jobs/post_init.yaml`):
+
+```yaml
+- id: list_tmp
+  uses: exec@v1
+  target: workstation_22
+  with: { command: "ls -la /home/cisco/Desktop/tmp/" }
+  capture: { stdout: files, ok: cmd1_ok }
+
+- id: verify_package              # was tVerify (set="file.OK", if="CMD1.OK")
+  uses: evaluate.regex@v1
+  when: "${ vars.cmd1_ok }"
+  with:
+    source: "${ vars.files }"
+    regex: "desktop_package\\.tgz"
+    mode: positive
+  capture: { passed: file_ok }    # was set="file.OK"
+
+- id: unpack                      # was tExecute (if="file.OK")
+  uses: exec@v1
+  target: workstation_22
+  when: "${ vars.file_ok }"       # gated on the verify above
+  with: { command: "tar -C /home/cisco/Desktop/tasks/ -xzf …/desktop_package.tgz" }
+```
+
+> **Open Q-04** (see plan §8): when both a content-defined JobDefinition `post_init@v1`
+> and a Python `@scenario` of the same `name@version` exist, the content-defined one
+> wins with a warning log. (Note: scenarioFunctions are _primitives_, JobDefinitions
+> are _content_; collisions are expected only across content sources.)
+
+### 4.4b `connectors.yaml` — optional (ConnectorModel)
+
+The connector model (ADR-057 §2.3) declares the **named connectors** a step selects
+with `target:`. Prompts, ports, and credentials are **resolved from `runtime_env.*`**
+(ADR-058) — the file declares the _shape_, the runtime supplies the _facts_. No port
+or password is ever literal in content.
+
+JSON Schema: [`schemas/connector-model.schema.json`](./schemas/connector-model.schema.json)
+
+```yaml
+apiVersion: pav1
+kind: ConnectorModel
+metadata:
+  name: exam-ccnp-v1-lab-1.1
+spec:
+  connectors:
+    - name: rtr01
+      class: cisco_common
+      transport: telnet
+      prompt: "${ runtime_env.devices.rtr01.prompt }"
+      enable_password: "${ runtime_env.devices.rtr01.enable_password }"
+      port: "${ runtime_env.devices.rtr01.serial_port }"
+    - name: workstation_22
+      class: unix
+      transport: ssh
+      via_port: "${ runtime_env.devices.workstation.pat_port }"   # 5052 -> 22
+      username: "${ runtime_env.devices.workstation.username }"
+      password: "${ runtime_env.devices.workstation.password }"
+    - name: control_node
+      class: control                 # used only by cml.* primitives
+      transport: telnet
+      port: "${ runtime_env.control_node.serial_port }"
+```
+
+`cml.*` primitives implicitly target the `control` connector — the author never
+targets it by hand.
+
+### 4.5 `grading/rubric.yaml`, `reports/*.yaml`, `restore/restore.yaml` — optional
+
+- **`grading/rubric.yaml`** (`EvaluationRuleset`) — the graded items, their checks, and
+  points. **Referenced by** a job's `evaluate` step (it supplies the `items[]` the
+  `evaluate.regex@v1` / report assembly consumes).
+  Schema: [`schemas/evaluation-ruleset.schema.json`](./schemas/evaluation-ruleset.schema.json)
+- **`reports/*.yaml`** (`ProcessReportSpec`) — the report shape/class. **Referenced by**
+  the job's terminal `report.*` step (selected by `process_type`, ADR-057 §2.5).
+  Schema: [`schemas/process-report-spec.schema.json`](./schemas/process-report-spec.schema.json)
+- **`restore/restore.yaml`** — snapshot/restore directives. Preserved verbatim on
+  `PodDefinition.restore_rules` until the consuming primitives land.
+
+### 4.6 `composites/<name>.yaml` — optional, DEFERRED
+
+`CompositeScenario` (ADR-057 §2.8) is a **deferred, opt-in** content-defined,
+parameterised group of _closed primitives only_, invoked via
+`uses: composite:<name>@<ver>`. It runs in an isolated `vars.*` frame (ADR-058 §2.5).
+**Not implemented in PAv1 v1** — documented here for forward reference only.
 
 ---
 
 ## 5. Validation
 
-`lcm_core.infrastructure.content_store.PAv1Validator` exposes three entry points:
+Validation runs at **content sync** (ADR-023): both CPA and SE load the schema set
+published from `lcm_core`. A step's `with:` is validated against the referenced
+scenarioFunction's `input_schema`, and its `capture:` keys against the `output_schema`,
+from `scenario-functions.catalog.json`. An invalid package **fails the sync** (no
+partial ingestion).
 
-- `validate_manifest(data: dict) -> None`
-- `validate_lifecycle(data: dict) -> None`
-- `validate_scenario(data: dict) -> None`
+| Schema file | Validates |
+|---|---|
+| `manifest.schema.json` | `PAv1/manifest.yaml` |
+| `lifecycle.schema.json` | `PAv1/lifecycle.yaml` (phases, native steps, job refs) |
+| `job-definition.schema.json` | `PAv1/jobs/*.yaml` (the step DAG) |
+| `connector-model.schema.json` | `PAv1/connectors.yaml` |
+| `evaluation-ruleset.schema.json` | `PAv1/grading/rubric.yaml` |
+| `process-report-spec.schema.json` | `PAv1/reports/*.yaml` |
+| `scenario-functions.catalog.json` | **generated** from the SE `@scenario` registry — each primitive's I/O schema |
 
-All raise `PAv1ValidationError(path, errors)` on failure, where `errors` is the
-list of `jsonschema` validation messages.
+`lcm_core.infrastructure.content_store.PAv1Validator` exposes per-artifact entry points
+(`validate_manifest`, `validate_lifecycle`, `validate_job_definition`, …), each raising
+`PAv1ValidationError(path, errors)` on failure.
 
-Schemas are **vendored** under
-`src/core/lcm_core/infrastructure/content_store/schemas/` so the runtime has no
-dependency on the documentation tree. The copies in `docs/architecture/content-format/schemas/`
-are illustrative; keep both in sync when amending.
+Schemas are **vendored** under `src/core/lcm_core/` so the runtime has no dependency on
+the documentation tree. The copies in `docs/architecture/content-format/schemas/` are
+illustrative; keep both in sync when amending.
+
+> **Schema migration pending.** The schema set above reflects the ADR-057 §2.7 target.
+> The currently-vendored `lifecycle.schema.json` / `scenario.schema.json` still describe
+> the superseded `name`/`handler` and `do`/`call` shapes; aligning them is tracked as a
+> follow-up (schemas-later).
 
 ---
 
@@ -241,16 +386,20 @@ are illustrative; keep both in sync when amending.
 `PAv2` with its own schema set. The validator refuses unknown `format_version`
 values with an explicit diagnostic.
 
-Non-breaking additions (new optional fields, additional task types) MAY land in
-`PAv1` without a version bump; track them in the changelog at the top of each
-`*.schema.json` file.
+Non-breaking additions (new optional fields, additional `scenarioFunction` primitives)
+MAY land in `PAv1` without a version bump; track them in the changelog at the top of
+each `*.schema.json` file. Adding a primitive is a code PR + version bump in the SE
+registry (ADR-057 §2.2), surfaced to content via `scenario-functions.catalog.json`.
 
 ---
 
 ## 7. Cross-references
 
-- [ADR-044](../adr/ADR-044-content-driven-lifecycle-engine.md) — Content-Driven Lifecycle Engine (authority)
+- [ADR-057](../adr/ADR-057-content-driven-lifecycle-dsl.md) — Content-Driven Lifecycle DSL (primitives, step DAG)
+- [ADR-058](../adr/ADR-058-lifecycle-data-flow-and-variable-scopes.md) — Data-Flow & Variable Scopes
+- [ADR-044](../adr/ADR-044-content-driven-lifecycle-engine.md) — Content-Driven Lifecycle Engine (engine origin)
+- [DSL-SPECIFICATION.md](../dsl/DSL-SPECIFICATION.md) — the full job-body DSL grammar
 - [CPA↔SE Integration Plan](../../implementation/cpa-se-integration-plan.md) — §5 PAv1/ spec, §6 phased delivery
 - [`schemas/manifest.schema.json`](./schemas/manifest.schema.json)
 - [`schemas/lifecycle.schema.json`](./schemas/lifecycle.schema.json)
-- [`schemas/scenario.schema.json`](./schemas/scenario.schema.json)
+- [`schemas/job-definition.schema.json`](./schemas/job-definition.schema.json)

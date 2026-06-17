@@ -1,0 +1,92 @@
+# JobDefinition — post_init  (ported from RCUv1/sb_post_init.xml, action name="post_init")
+#
+# Demonstrates the SETUP primitives: pause / exec / copy, an evaluate.regex GATE
+# (legacy tVerify set=… / if=… becomes capture: + when:), and control-node ops
+# (cml.bounce_interface / cml.power). All ports/paths/passwords resolve from the
+# content.* and runtime_env.* scopes — see ADR-058.
+apiVersion: pav1
+kind: JobDefinition
+metadata:
+    name: post_init
+    version: v1
+spec:
+    process_type: Initialization
+    steps:
+        # tPause id=1
+        - id: settle
+          uses: pause@v1
+          with: { seconds: 30 }
+
+        # tExecute id=3 — make the staging dir on the workstation (SSH via PAT)
+        - id: mkdir_tmp
+          uses: exec@v1
+          target: workstation_22
+          with: { command: 'mkdir -p /home/cisco/Desktop/tmp/' }
+          capture: { ok: cmd0_ok }
+
+        # tScp id=5 — push the packaged desktop payload over the PAT port
+        - id: push_package
+          uses: copy@v1
+          target: workstation_22
+          with:
+              source: '${ content.files.desktop_package }' # was ${config.core.paths.lab_root}/desktop_package.tgz
+              dest: '/home/cisco/Desktop/tmp/desktop_package.tgz'
+              via_port: '${ runtime_env.devices.workstation.pat_port }' # was port=5052
+          capture: { ok: scp_ok }
+
+        # tExecute id=10 — list the staging dir, capture stdout into vars.files
+        - id: list_tmp
+          uses: exec@v1
+          target: workstation_22
+          with: { command: 'ls -la /home/cisco/Desktop/tmp/' }
+          capture: { stdout: files, ok: cmd1_ok }
+
+        # tVerify id=30 (if=CMD1.OK) — GATE: is the package actually there?
+        # legacy: set="file.OK"  ->  capture.passed: file_ok ; consumed by `when:` below
+        - id: verify_package
+          uses: evaluate.regex@v1
+          when: '${ vars.cmd1_ok }'
+          with:
+              source: '${ vars.files }' # was string="{files}"
+              regex: "desktop_package\\.tgz"
+              mode: positive
+          capture: { passed: file_ok }
+
+        # tExecute id=40 (if=file.OK) — unpack only when the gate passed
+        - id: unpack
+          uses: exec@v1
+          target: workstation_22
+          when: '${ vars.file_ok }'
+          with: { command: 'tar -v -C /home/cisco/Desktop/tasks/ -xzf /home/cisco/Desktop/tmp/desktop_package.tgz' }
+          timeout: 10
+          capture: { ok: cmd2_ok }
+
+        # tExecute id=45 — remove distractions
+        - id: cleanup_tmp
+          uses: exec@v1
+          target: workstation_22
+          with: { command: 'rm -rf /home/cisco/Desktop/tmp/' }
+          timeout: 10
+
+        # tExecute id=50/51 — bounce Vl99 on both switches via the control node
+        - id: bounce_sw01
+          uses: cml.bounce_interface@v1
+          with:
+              device: sw01
+              interface: Vl99
+              serial_port: '${ runtime_env.devices.sw01.serial_port }' # was 5048
+          timeout: 15
+        - id: bounce_sw02
+          uses: cml.bounce_interface@v1
+          with:
+              device: sw02
+              interface: Vl99
+              serial_port: '${ runtime_env.devices.sw02.serial_port }' # was 5049
+          timeout: 15
+
+        # tExecute id=70 — isolate the workstation from the Internet
+        # legacy: cmlctl --cml-password trackNMC50 --device-name ext-conn-0 --action stop
+        - id: isolate_internet
+          uses: cml.power@v1
+          with: { node: ext-conn-0, action: stop } # cml_password resolved from runtime_env.*
+          timeout: 15

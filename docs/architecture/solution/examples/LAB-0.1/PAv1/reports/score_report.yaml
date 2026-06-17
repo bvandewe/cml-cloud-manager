@@ -1,0 +1,11 @@
+# Report spec. SE emits a ScoreReport with one result per rubric item.
+apiVersion: pav1
+kind: ProcessReportSpec
+metadata:
+    name: score_report
+spec:
+    process_type: Grading
+    report_class: ScoreReport # legacy: Reports::LabletReport
+    include:
+        - per_item: [id, description, points_awarded, points_max, passed, issues]
+        - totals: [points_awarded, points_max, percentage]

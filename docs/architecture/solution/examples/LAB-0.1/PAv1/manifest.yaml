@@ -1,0 +1,17 @@
+# Catalog metadata. CPA reads this when the Lablet is synced.
+# Derived from RCUv1/mosaic_meta.json.
+apiVersion: pav1
+kind: LabletDefinition
+metadata:
+    name: LAB-0.1 # form-qualified name (catalog key)
+    title: 'Sample Network Automation Lablet'
+    track: '350-901 AUTOCOR'
+    exam: '350-901'
+    language: ENU
+    content_version: '1'
+spec:
+    pod_type: CML_ON_AWS # CML_ON_AWS | ROC_RADKIT  (others: future)
+    summary: >
+        Minimal reference lab: two routers, two switches and a candidate workstation.
+        Demonstrates the full lifecycle — post_init desktop seeding + control-node
+        isolation, then the Collect -> Evaluate -> Report grading flow.

@@ -1,0 +1,67 @@
+# Connector / port model — ported 1:1 from RCUv1/pod.xml (unit-template/connector).
+# A `target:` in a job step selects one of these connectors. Concrete facts
+# (ports, prompts, credentials, cml_password) are NEVER literal here — they resolve
+# from runtime_env.* at job-submit time (ADR-058). The `# was …` comments show the
+# legacy literal each placeholder replaces.
+apiVersion: pav1
+kind: ConnectorModel
+metadata:
+    name: LAB-0.1
+spec:
+    connectors:
+        - name: rtr01
+          class: cisco_common
+          transport: telnet
+          timeout: 3
+          prompt: '${ runtime_env.devices.rtr01.prompt }' # was rtr01#
+          enable_password: '${ runtime_env.devices.rtr01.enable_password }' # was cisco
+          port: '${ runtime_env.devices.rtr01.serial_port }' # was 5045
+        - name: rtr02
+          class: cisco_common
+          transport: telnet
+          timeout: 3
+          prompt: '${ runtime_env.devices.rtr02.prompt }' # was rtr02#
+          enable_password: '${ runtime_env.devices.rtr02.enable_password }'
+          port: '${ runtime_env.devices.rtr02.serial_port }' # was 5046
+        - name: sw01
+          class: cisco_common
+          transport: telnet
+          timeout: 3
+          prompt: '${ runtime_env.devices.sw01.prompt }' # was sw01#
+          enable_password: '${ runtime_env.devices.sw01.enable_password }'
+          port: '${ runtime_env.devices.sw01.serial_port }' # was 5048
+        - name: sw02
+          class: cisco_common
+          transport: telnet
+          timeout: 3
+          prompt: '${ runtime_env.devices.sw02.prompt }' # was sw02#
+          enable_password: '${ runtime_env.devices.sw02.enable_password }'
+          port: '${ runtime_env.devices.sw02.serial_port }' # was 5049
+
+        # Workstation reached two ways (both from pod.xml):
+        #   *_22      — UnixSSH through the PAT port (used by post_init to seed the desktop)
+        #   *_serial  — serial console (used by grade to run candidate solutions)
+        - name: workstation_22
+          class: unix
+          transport: ssh
+          timeout: 5
+          via_port: '${ runtime_env.devices.workstation.pat_port }' # was port=5052 -> 22
+          username: '${ runtime_env.devices.workstation.username }' # was cisco
+          password: '${ runtime_env.devices.workstation.password }' # was cisco
+          prompt: '#goodmorningstartshine#'
+        - name: workstation_serial
+          class: unix
+          transport: telnet
+          timeout: 5
+          port: '${ runtime_env.devices.workstation.serial_port }' # was 5050
+          username: '${ runtime_env.devices.workstation.username }'
+          password: '${ runtime_env.devices.workstation.password }'
+          prompt: '#goodmorningstartshine#'
+
+        # Control node (cmlctl-0). Used only implicitly by cml.* primitives — authors never
+        # target it directly; SE owns the cml_password (was --cml-password secretpasswd).
+        - name: control_node
+          class: control
+          transport: telnet
+          timeout: 5
+          port: '${ runtime_env.control_node.serial_port }' # was 5047
